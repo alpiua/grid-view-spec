@@ -23,12 +23,21 @@ KpiTone = Literal["default", "muted", "success", "warning", "danger"]
 
 @dataclass(frozen=True, slots=True)
 class KpiSpec:
+    """Specification for an individual metric item in a GridViewKpi block.
+
+    Supports two modes:
+    1. Dynamic aggregation over rows: specify ``aggregate`` and optional ``column_key``.
+    2. Explicit value: specify ``value`` (overrides dynamic aggregation,
+       ideal for precomputed SQL stats).
+    """
+
     label: str
     format: ColumnFormat = ColumnFormat.NUMBER
     aggregate: KpiAggregate = KpiAggregate.COUNT
     column_key: str | None = None
     tone: KpiTone = "default"
     icon: str | None = None
+    value: str | int | float | None = None
 
 
 class SeriesSpecWire(TypedDict):
@@ -51,6 +60,7 @@ class KpiSpecWire(TypedDict):
     column_key: NotRequired[str]
     tone: NotRequired[str]
     icon: NotRequired[str]
+    value: NotRequired[str | int | float | None]
 
 
 class ChartSpecWire(TypedDict):

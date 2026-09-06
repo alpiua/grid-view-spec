@@ -4244,9 +4244,9 @@
   }
   var _fragmentCounterBound = false;
   function bindFragmentCounterSync() {
-    if (_fragmentCounterBound || typeof document.body === "undefined") return;
+    if (_fragmentCounterBound || typeof document === "undefined") return;
     _fragmentCounterBound = true;
-    document.body.addEventListener("htmx:afterSwap", (event) => {
+    document.addEventListener("htmx:afterSwap", (event) => {
       var _a;
       const target = (_a = event.detail) == null ? void 0 : _a.target;
       const id = (target == null ? void 0 : target.id) || "";
@@ -4617,7 +4617,7 @@
         const searchField = left == null ? void 0 : left.querySelector(".cm-toolbar-search-field");
         const hasSearch = !!searchField;
         toolbar.classList.toggle("cm-toolbar--no-search", !hasSearch);
-        const isMobile = hasSearch && window.innerWidth <= 640;
+        const isMobile = hasSearch && window.innerWidth <= 768;
         if (isMobile) {
           toolbar.classList.add("cm-toolbar--mobile");
           toolbar.classList.remove("cm-toolbar--actions-collapsed");
@@ -4631,8 +4631,10 @@
         const searchActions = left == null ? void 0 : left.querySelector(".cm-toolbar-search-actions");
         const leftW = (searchField ? 220 : (left == null ? void 0 : left.scrollWidth) || 0) + ((searchActions == null ? void 0 : searchActions.scrollWidth) || 0);
         const centerW = (center == null ? void 0 : center.scrollWidth) || 0;
+        const counters = toolbar.querySelector(".cm-toolbar-counters");
+        const countersW = counters && counters.offsetWidth > 0 ? counters.offsetWidth : 0;
         const actionsW = desktopActions && desktopActions.offsetWidth > 0 ? desktopActions.offsetWidth : 160;
-        const requiredW = leftW + centerW + actionsW + 36;
+        const requiredW = leftW + centerW + countersW + actionsW + 40;
         const shouldCollapse = width < requiredW;
         toolbar.classList.toggle("cm-toolbar--actions-collapsed", shouldCollapse);
         if (desktopActions) desktopActions.style.display = shouldCollapse ? "none" : "";
@@ -5675,13 +5677,14 @@
       if (col.minWidth) {
         const minWidth = Number.parseInt(col.minWidth, 10);
         if (!Number.isNaN(minWidth)) def.minWidth = minWidth;
-      } else if (!col.width && (col.id === "name" || col.id === "original_name")) {
+      } else if (!col.width && (col.id === "name" || col.id === "original_name" || col.id === "title")) {
         def.flex = 1;
         def.minWidth = 200;
       }
       if (rendererId) def.cellRenderer = wrapRegisteredRenderer(rendererId);
       if (col.extra && Object.keys(col.extra).length > 0) {
         def.cellRendererParams = col.extra;
+        if (col.extra.flex != null) def.flex = Number(col.extra.flex);
         const cellClass = col.extra.cell_class;
         if (typeof cellClass === "string" && cellClass) def.cellClass = cellClass;
       }
@@ -5802,6 +5805,11 @@
       const optionsObj = {
         columnDefs,
         rowModelType: config.datasourceUrl ? "infinite" : "clientSide",
+        rowHeight: config.rowHeight || 60,
+        getRowClass: (params) => {
+          var _a3;
+          return ((_a3 = params.data) == null ? void 0 : _a3.is_child) ? "cm-child-variant-row" : "";
+        },
         ...config.rowSelection ? { rowSelection: config.rowSelection } : {},
         // fitColumns: fill the grid width and shrink columns to fit (no horizontal
         // scroll) as columns are added or the viewport resizes.
@@ -6159,9 +6167,9 @@
   var _htmxBound = false;
   function installRuntimeBoot(gv2) {
     initBuiltinRenderers();
-    if (_htmxBound || typeof document.body === "undefined") return;
+    if (_htmxBound || typeof document === "undefined") return;
     _htmxBound = true;
-    document.body.addEventListener("htmx:afterSwap", (event) => {
+    document.addEventListener("htmx:afterSwap", (event) => {
       var _a;
       const detail = event.detail;
       const target = detail == null ? void 0 : detail.target;
@@ -6172,7 +6180,7 @@
       }
       bootScope(target, gv2);
     });
-    document.body.addEventListener("htmx:oobAfterSwap", (event) => {
+    document.addEventListener("htmx:oobAfterSwap", (event) => {
       var _a, _b;
       const oobTarget = (_a = event.target) != null ? _a : null;
       const scope = (_b = oobTarget == null ? void 0 : oobTarget.parentElement) != null ? _b : oobTarget;

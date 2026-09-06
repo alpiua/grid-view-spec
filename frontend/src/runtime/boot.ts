@@ -264,10 +264,10 @@ let _htmxBound = false;
 export function installRuntimeBoot(gv: GridViewPublic): void {
   initBuiltinRenderers();
 
-  if (_htmxBound || typeof document.body === "undefined") return;
+  if (_htmxBound || typeof document === "undefined") return;
   _htmxBound = true;
 
-  document.body.addEventListener("htmx:afterSwap", (event) => {
+  document.addEventListener("htmx:afterSwap", (event) => {
     const detail = (event as CustomEvent<{ target?: Element }>).detail;
     const target = detail?.target;
     if (!target) return;
@@ -284,7 +284,7 @@ export function installRuntimeBoot(gv: GridViewPublic): void {
   // and are NOT covered by htmx:afterSwap. Boot the swapped element's parent so a
   // re-rendered .cm-filter-bar (which is found via querySelectorAll on the scope)
   // gets rebound. Binding guards make a re-scan of already-bound siblings a no-op.
-  document.body.addEventListener("htmx:oobAfterSwap", (event) => {
+  document.addEventListener("htmx:oobAfterSwap", (event) => {
     const oobTarget = (event.target as Element | null) ?? null;
     const scope = oobTarget?.parentElement ?? oobTarget;
     if (scope) bootScope(scope, gv);

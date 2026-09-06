@@ -35,7 +35,7 @@
     position: absolute;
     top: calc(100% + 4px);
     left: 0;
-    z-index: 120;
+    z-index: var(--cm-z-filter-panel);
     min-width: 220px;
     max-height: 320px;
     overflow-y: auto;

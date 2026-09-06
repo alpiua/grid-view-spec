@@ -159,7 +159,7 @@
     overflow: visible;
 }
 .cm-area-table-card > .cm-block-toolbar > .cm-toolbar-unified .cm-multiselect-panel {
-    z-index: 220;
+    z-index: 250;
 }
 /* Toolbar block is a flex item that must not collapse or stretch the table. */
 .cm-area-table-card > .cm-block-toolbar {

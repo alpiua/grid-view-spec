@@ -208,6 +208,7 @@ interface AgGridSpecConfig {
   cacheBlockSize?: number;
   rowSelection?: string;
   fitColumns?: boolean;
+  rowHeight?: number;
 }
 
 function resolveAgColumnFilter(col: AgGridSpecColumn): boolean | string {
@@ -265,13 +266,14 @@ function buildColumnDefsFromSpec(columns: AgGridSpecColumn[]): Record<string, un
     if (col.minWidth) {
       const minWidth = Number.parseInt(col.minWidth, 10);
       if (!Number.isNaN(minWidth)) def.minWidth = minWidth;
-    } else if (!col.width && (col.id === "name" || col.id === "original_name")) {
+    } else if (!col.width && (col.id === "name" || col.id === "original_name" || col.id === "title")) {
       def.flex = 1;
       def.minWidth = 200;
     }
     if (rendererId) def.cellRenderer = wrapRegisteredRenderer(rendererId);
     if (col.extra && Object.keys(col.extra).length > 0) {
       def.cellRendererParams = col.extra;
+      if (col.extra.flex != null) def.flex = Number(col.extra.flex);
       const cellClass = col.extra.cell_class;
       if (typeof cellClass === "string" && cellClass) def.cellClass = cellClass;
     }
@@ -432,6 +434,9 @@ function bootFromSpecConfig(config: AgGridSpecConfig): void {
     const optionsObj: Record<string, unknown> = {
       columnDefs,
       rowModelType: config.datasourceUrl ? "infinite" : "clientSide",
+      rowHeight: config.rowHeight || 60,
+      getRowClass: (params: { data?: Record<string, unknown> }) =>
+        params.data?.is_child ? "cm-child-variant-row" : "",
       ...(config.rowSelection ? { rowSelection: config.rowSelection } : {}),
       // fitColumns: fill the grid width and shrink columns to fit (no horizontal
       // scroll) as columns are added or the viewport resizes.

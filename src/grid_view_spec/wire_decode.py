@@ -862,6 +862,7 @@ def decode_block(raw: Mapping[str, object]) -> GridViewBlock:
                     column_key=wire_optional_str(item.get("column_key")),
                     tone=wire_literal(item.get("tone"), GRIDVIEW_KPI_TONES, "default"),
                     icon=wire_optional_str(item.get("icon")),
+                    value=wire_optional_number(item.get("value")),
                 )
                 for item in _objects(raw.get("items"))
             ),

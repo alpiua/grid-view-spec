@@ -88,7 +88,17 @@
   <div class="cm-toolbar-center" id="cm-toolbar-center-{{ block.id | e }}">
     <div class="cm-toolbar-filters-mobile-header">
       <span class="cm-toolbar-filters-mobile-title">{{ host.translate('toolbar.filters') | default('Фільтри') | e }}</span>
-      <button type="button" class="cm-toolbar-filters-mobile-close" data-cm-filters-close aria-label="{{ host.translate('common.close') | default('Закрити') | e }}">&times;</button>
+      <div class="cm-toolbar-filters-mobile-actions">
+        {% if block.clear_all and block.target %}
+        <button
+          type="button"
+          class="cm-toolbar-filters-mobile-reset"
+          data-cm-grid-action="clearAllFilters"
+          data-cm-grid-id="{{ block.target | e }}"
+        >{{ host.translate('toolbar.reset') | default('Скинути') | e }}</button>
+        {% endif %}
+        <button type="button" class="cm-toolbar-filters-mobile-close" data-cm-filters-close aria-label="{{ host.translate('common.close') | default('Закрити') | e }}">&times;</button>
+      </div>
     </div>
     {% if filters_block %}
     <div class="cm-toolbar-filters-block">

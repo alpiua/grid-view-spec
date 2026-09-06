@@ -93,6 +93,25 @@ def test_kpi_values_aggregate_bound_rows() -> None:
     assert kpi_values == ("35",)
 
 
+def test_kpi_explicit_value() -> None:
+    spec = GridViewSpec(
+        id="kpi_explicit_page",
+        blocks=(
+            GridViewKpi(
+                id="totals",
+                items=(
+                    KpiSpec(label="Products", value=4797),
+                    KpiSpec(label="Stock", value="12 500"),
+                ),
+            ),
+        ),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=("totals",))),
+    )
+    ctx = build_render_context(spec, (), host=InMemoryHost())
+    kpi = ctx.blocks["totals"]
+    assert kpi.extra.get("kpi_values") == ("4 797", "12 500")
+
+
 def test_kpi_uses_host_rows_when_a_server_table_precedes_a_static_table() -> None:
     spec = GridViewSpec(
         id="analytics_page",

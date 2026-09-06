@@ -804,9 +804,9 @@ export function serverToolbarSearchApplyClient(searchInput: HTMLInputElement): (
 let _fragmentCounterBound = false;
 
 function bindFragmentCounterSync() {
-  if (_fragmentCounterBound || typeof document.body === "undefined") return;
+  if (_fragmentCounterBound || typeof document === "undefined") return;
   _fragmentCounterBound = true;
-  document.body.addEventListener("htmx:afterSwap", (event) => {
+  document.addEventListener("htmx:afterSwap", (event) => {
     const target = (event as CustomEvent<{ target?: Element }>).detail?.target;
     const id = target?.id || "";
     if (!id.startsWith("block-")) return;

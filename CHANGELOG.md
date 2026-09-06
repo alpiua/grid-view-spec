@@ -4,7 +4,12 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
-No unreleased changes.
+### Fixed
+
+- Column settings dialog uses `min(920px, 94vw)` instead of a 1500px shell.
+- Toolbar stacking: idle search stays below filter panels; focused search and
+  saved-search/help rise above them via `--cm-z-search`, `--cm-z-filter-panel`,
+  `--cm-z-search-active`, and `--cm-z-settings`.
 
 ## [2.0.2] — 2026-08-03
 

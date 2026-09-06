@@ -70,6 +70,12 @@
     --cm-table-filter-panel-radius: 6px;
     --cm-table-filter-input-height: 28px;
 
-    --cm-table-settings-dialog-width: min(1500px, 95vw);
-    --cm-table-settings-dialog-height: min(90vh, 760px);
+    --cm-table-settings-dialog-width: min(920px, 94vw);
+    --cm-table-settings-dialog-height: min(85vh, 700px);
+
+    /* Stacking: idle search < filter panel < focused search < settings. */
+    --cm-z-search: 10;
+    --cm-z-filter-panel: 250;
+    --cm-z-search-active: 260;
+    --cm-z-settings: 1300;
 }

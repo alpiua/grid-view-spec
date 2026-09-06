@@ -29,9 +29,9 @@
 <script src="{{ ag_grid_cdn_url|escape }}"></script>
 {% endif %}
 {% endif %}
-<script src="{% static 'grid_view_spec/gridviewspec.min.js' %}"></script>
+<script src="{% static 'grid_view_spec/gridviewspec.min.js' %}?v=2"></script>
 {% if load_ag_grid %}
-<script src="{% static 'grid_view_spec/gridviewspec-ag-grid.min.js' %}"></script>
+<script src="{% static 'grid_view_spec/gridviewspec-ag-grid.min.js' %}?v=2"></script>
 {% endif %}
 {% if load_charts %}
 <script src="{{ echarts_cdn_url|escape }}"></script>

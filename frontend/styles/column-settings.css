@@ -3,7 +3,7 @@
 .cm-col-selector-panel {
     position: fixed;
     inset: 0;
-    z-index: 1300;
+    z-index: var(--cm-z-settings);
     display: flex;
     align-items: center;
     justify-content: center;

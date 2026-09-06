@@ -225,7 +225,7 @@ export function initResponsiveToolbars(): void {
 
       toolbar.classList.toggle("cm-toolbar--no-search", !hasSearch);
 
-      const isMobile = hasSearch && window.innerWidth <= 640;
+      const isMobile = hasSearch && window.innerWidth <= 768;
 
       if (isMobile) {
         toolbar.classList.add("cm-toolbar--mobile");
@@ -241,8 +241,10 @@ export function initResponsiveToolbars(): void {
       const searchActions = left?.querySelector<HTMLElement>(".cm-toolbar-search-actions");
       const leftW = (searchField ? 220 : (left?.scrollWidth || 0)) + (searchActions?.scrollWidth || 0);
       const centerW = center?.scrollWidth || 0;
+      const counters = toolbar.querySelector<HTMLElement>(".cm-toolbar-counters");
+      const countersW = counters && counters.offsetWidth > 0 ? counters.offsetWidth : 0;
       const actionsW = desktopActions && desktopActions.offsetWidth > 0 ? desktopActions.offsetWidth : 160;
-      const requiredW = leftW + centerW + actionsW + 36;
+      const requiredW = leftW + centerW + countersW + actionsW + 40;
 
       const shouldCollapse = width < requiredW;
       toolbar.classList.toggle("cm-toolbar--actions-collapsed", shouldCollapse);

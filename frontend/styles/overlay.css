@@ -57,7 +57,7 @@
     display: block;
 }
 .cm-col-filter-portal .cm-ellipsis-tip--search-help {
-    z-index: 1300;
+    z-index: var(--cm-z-settings);
 }
 .cm-ellipsis-tip--search-help .cm-search-syntax-tip {
     display: flex;

@@ -124,7 +124,9 @@ def build_render_context(
         elif isinstance(block, GridViewKpi):
             bound_rows = kpi_block_rows(block, display_rows)
             kpi_values: list[JsonValue] = [
-                format_kpi_value(resolve_kpi_value(item, bound_rows), item.format)
+                format_kpi_value(item.value, item.format)
+                if item.value is not None
+                else format_kpi_value(resolve_kpi_value(item, bound_rows), item.format)
                 for item in block.items
             ]
             extra = {"kpi_values": tuple(kpi_values)}
