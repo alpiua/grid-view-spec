@@ -346,3 +346,14 @@ msgstr "%(label)s: %(values)s"
 
 msgid "toolbar.more_actions"
 msgstr "More actions"
+msgid "gallery.close"
+msgstr "Close"
+
+msgid "gallery.prev"
+msgstr "Previous"
+
+msgid "gallery.next"
+msgstr "Next"
+
+msgid "gallery.of"
+msgstr "%(current)s of %(total)s"

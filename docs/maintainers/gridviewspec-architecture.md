@@ -944,8 +944,8 @@ Image rules:
 - **Lazy galleries:** leave `images` empty and set `datasource.endpoint`; the host returns a
   `GridViewImageSource[]` payload (schema known, data lazy — same pattern as tables/charts).
 - **Responsive output** comes from `variants` (rendered to `srcset`) or a single `url` + `thumb`.
-- `aspect`/`columns` use the token allowlist; gallery/lightbox CSS belongs to the package, host owns
-  only domain tokens.
+- `aspect`/`columns` use the token allowlist; gallery/lightbox CSS belongs to the package (`--cm-z-lightbox`), host owns only domain tokens.
+- **Lightbox runtime** ships in `gridviewspec.min.js` (`initGalleryBlocks`). `lightbox=True` does not add a pip/npm dependency. Hosts may listen to `gridview:gallery-open` / `gridview:gallery-close`.
 - For an in-grid thumbnail use `GridViewColumn(renderer="image")` with `extra` keys
   (`thumb_field`, `size`) instead of a `GridViewGallery` block.
 

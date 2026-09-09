@@ -309,9 +309,9 @@
     return false;
   }
   function parseRangeBounds(term) {
-    const t2 = String(term != null ? term : "").trim();
-    if (t2.indexOf(RANGE_SPLIT) < 0) return null;
-    const parts = t2.split(RANGE_SPLIT);
+    const t3 = String(term != null ? term : "").trim();
+    if (t3.indexOf(RANGE_SPLIT) < 0) return null;
+    const parts = t3.split(RANGE_SPLIT);
     if (parts.length !== 2) return null;
     const lo = parseNumberForColumnFilter(parts[0]);
     const hi = parseNumberForColumnFilter(parts[1]);
@@ -319,15 +319,15 @@
     return [Math.min(lo, hi), Math.max(lo, hi)];
   }
   function termIsExpression(term) {
-    const t2 = String(term != null ? term : "").trim();
-    if (!t2) return false;
-    if (parseRangeBounds(t2) !== null) return true;
+    const t3 = String(term != null ? term : "").trim();
+    if (!t3) return false;
+    if (parseRangeBounds(t3) !== null) return true;
     for (const op of NUMERIC_OPS) {
-      if (t2.startsWith(op)) return t2.slice(op.length).trim().length > 0;
+      if (t3.startsWith(op)) return t3.slice(op.length).trim().length > 0;
     }
-    if (t2.length > 1 && t2.charAt(0) === "^") return true;
-    if (t2.length > 1 && t2.charAt(t2.length - 1) === "$") return true;
-    return t2.indexOf("%") >= 0;
+    if (t3.length > 1 && t3.charAt(0) === "^") return true;
+    if (t3.length > 1 && t3.charAt(t3.length - 1) === "$") return true;
+    return t3.indexOf("%") >= 0;
   }
   function hasSmartSyntax(raw) {
     const text = String(raw != null ? raw : "");
@@ -399,16 +399,16 @@
     return !!termNs && hayNs.indexOf(termNs) >= 0;
   }
   function matchQueryTerm(haystack, term, options) {
-    const t2 = String(term != null ? term : "").trim();
-    if (!t2) return true;
+    const t3 = String(term != null ? term : "").trim();
+    if (!t3) return true;
     const hay = String(haystack != null ? haystack : "");
     const quoted = (options == null ? void 0 : options.quoted) === true;
-    if (!quoted && t2.length > 1 && t2.charAt(0) === "!") {
-      return !matchQueryTerm(hay, t2.slice(1).trim(), options);
+    if (!quoted && t3.length > 1 && t3.charAt(0) === "!") {
+      return !matchQueryTerm(hay, t3.slice(1).trim(), options);
     }
-    if (termIsExpression(t2)) return matchColumnExpression(hay, t2);
-    if (quoted || t2.indexOf(" ") >= 0) return literalContains(hay, t2);
-    return spaceInsensitiveContains(hay, t2);
+    if (termIsExpression(t3)) return matchColumnExpression(hay, t3);
+    if (quoted || t3.indexOf(" ") >= 0) return literalContains(hay, t3);
+    return spaceInsensitiveContains(hay, t3);
   }
 
   // src/grid-view/search/contract.ts
@@ -504,18 +504,18 @@
       tokens.add("quoted" /* Quoted */);
       return tokens;
     }
-    const t2 = String(term != null ? term : "").trim();
-    if (!t2) return tokens;
-    if (t2.indexOf(" ") >= 0) tokens.add("phrase_text" /* PhraseText */);
-    if (parseRangeBounds(t2) !== null) tokens.add("numeric_range" /* NumericRange */);
+    const t3 = String(term != null ? term : "").trim();
+    if (!t3) return tokens;
+    if (t3.indexOf(" ") >= 0) tokens.add("phrase_text" /* PhraseText */);
+    if (parseRangeBounds(t3) !== null) tokens.add("numeric_range" /* NumericRange */);
     for (const op of EXPR_OPS) {
-      if (t2.startsWith(op) && t2.slice(op.length).trim()) {
+      if (t3.startsWith(op) && t3.slice(op.length).trim()) {
         tokens.add("numeric_cmp" /* NumericCmp */);
         break;
       }
     }
-    if (t2.indexOf("%") >= 0) tokens.add("wildcard" /* Wildcard */);
-    if (t2.length > 1 && t2.charAt(0) === "^" || t2.length > 1 && t2.charAt(t2.length - 1) === "$" || t2.length > 1 && t2.charAt(0) === "!") {
+    if (t3.indexOf("%") >= 0) tokens.add("wildcard" /* Wildcard */);
+    if (t3.length > 1 && t3.charAt(0) === "^" || t3.length > 1 && t3.charAt(t3.length - 1) === "$" || t3.length > 1 && t3.charAt(0) === "!") {
       tokens.add("wildcard" /* Wildcard */);
     }
     if (!tokens.size) tokens.add("plain_text" /* PlainText */);
@@ -560,11 +560,11 @@
     return true;
   }
   function termIsComplete(term) {
-    const t2 = term.trim();
-    if (!t2) return false;
-    if (t2.includes("..")) return parseRangeBounds(t2) !== null;
+    const t3 = term.trim();
+    if (!t3) return false;
+    if (t3.includes("..")) return parseRangeBounds(t3) !== null;
     for (const op of EXPR_OPS) {
-      if (t2.startsWith(op) && !t2.slice(op.length).trim()) return false;
+      if (t3.startsWith(op) && !t3.slice(op.length).trim()) return false;
     }
     return true;
   }
@@ -609,16 +609,16 @@
 
   // src/grid-view/search/match.ts
   function termIsCellScoped(term) {
-    const t2 = String(term != null ? term : "").trim();
-    return termIsExpression(t2) || t2.indexOf("%") >= 0;
+    const t3 = String(term != null ? term : "").trim();
+    return termIsExpression(t3) || t3.indexOf("%") >= 0;
   }
   function numericExprMatchesValue2(value, query) {
     return matchColumnExpression(String(value), query);
   }
   function matchExprTermsOnSameCell(cell, terms) {
     if (!terms.length) return true;
-    const numericTerms = terms.filter((t2) => termIsExpression(t2) && t2.indexOf("%") < 0);
-    const otherTerms = terms.filter((t2) => numericTerms.indexOf(t2) < 0);
+    const numericTerms = terms.filter((t3) => termIsExpression(t3) && t3.indexOf("%") < 0);
+    const otherTerms = terms.filter((t3) => numericTerms.indexOf(t3) < 0);
     for (const term of otherTerms) {
       if (!matchColumnExpression(cell, term)) return false;
     }
@@ -775,7 +775,7 @@
     const trimmed = String(cellText === null || cellText === void 0 ? "" : cellText).trim();
     if (isEmptyCellValue(trimmed)) return [];
     if (match === "any_token") {
-      return trimmed.split(/\s+/).map((t2) => t2.trim()).filter((t2) => !isEmptyCellValue(t2));
+      return trimmed.split(/\s+/).map((t3) => t3.trim()).filter((t3) => !isEmptyCellValue(t3));
     }
     return [trimmed];
   }
@@ -788,7 +788,7 @@
         try {
           const parsed = JSON.parse(raw);
           if (Array.isArray(parsed)) {
-            return parsed.map((t2) => String(t2 != null ? t2 : "").trim()).filter((t2) => !isEmptyCellValue(t2));
+            return parsed.map((t3) => String(t3 != null ? t3 : "").trim()).filter((t3) => !isEmptyCellValue(t3));
           }
         } catch (e) {
         }
@@ -799,7 +799,7 @@
   }
   function resolveSetFilterTokens(cellText, match, options) {
     if ((options == null ? void 0 : options.tokens) !== void 0) {
-      return options.tokens.map((t2) => String(t2).trim()).filter((t2) => !isEmptyCellValue(t2));
+      return options.tokens.map((t3) => String(t3).trim()).filter((t3) => !isEmptyCellValue(t3));
     }
     return cellTokensFromText(cellText, match);
   }
@@ -3106,8 +3106,8 @@
                 return;
               }
               let cellEmpty = true;
-              tokens.forEach((t2) => {
-                const text2 = String(t2 != null ? t2 : "").trim();
+              tokens.forEach((t3) => {
+                const text2 = String(t3 != null ? t3 : "").trim();
                 if (isEmptyCellValue(text2)) return;
                 cellEmpty = false;
                 values.add(text2);
@@ -5181,7 +5181,9 @@
           return;
         }
         const params = buildInfiniteQueryParams(blockParams, handle, options);
-        (_a = handle.showLoading) == null ? void 0 : _a.call(handle);
+        if (blockParams.startRow === 0) {
+          (_a = handle.showLoading) == null ? void 0 : _a.call(handle);
+        }
         fetch(url + "?" + params.toString()).then(function(response) {
           if (!response.ok) throw new Error("HTTP " + response.status);
           return response.json();
@@ -5312,10 +5314,10 @@
   function resolveOverlay(overlayId) {
     return document.getElementById(`cm-overlay-${overlayId}`);
   }
-  function closeOverlay(overlay) {
+  function closeOverlay(overlay2) {
     var _a;
-    overlay.hidden = true;
-    const triggerId = overlay.dataset.cmOverlayTrigger;
+    overlay2.hidden = true;
+    const triggerId = overlay2.dataset.cmOverlayTrigger;
     if (triggerId) (_a = document.getElementById(triggerId)) == null ? void 0 : _a.focus();
   }
   var overlayEscapeBound = false;
@@ -5324,8 +5326,8 @@
     overlayEscapeBound = true;
     document.addEventListener("keydown", (event) => {
       if (event.key !== "Escape") return;
-      document.querySelectorAll("[data-cm-overlay]:not([hidden])").forEach((overlay) => {
-        if (overlay.dataset.cmCloseOnEscape === "1") closeOverlay(overlay);
+      document.querySelectorAll("[data-cm-overlay]:not([hidden])").forEach((overlay2) => {
+        if (overlay2.dataset.cmCloseOnEscape === "1") closeOverlay(overlay2);
       });
     });
   }
@@ -5337,24 +5339,24 @@
       trigger.addEventListener("click", () => {
         var _a, _b;
         const overlayId = (_a = trigger.getAttribute("data-overlay-id")) != null ? _a : "";
-        const overlay = resolveOverlay(overlayId);
-        if (!overlay) return;
+        const overlay2 = resolveOverlay(overlayId);
+        if (!overlay2) return;
         if (!trigger.id) trigger.id = `cm-overlay-trigger-${overlayId}`;
-        overlay.dataset.cmOverlayTrigger = trigger.id;
-        overlay.hidden = false;
-        (_b = overlay.querySelector("[data-cm-overlay-close]")) == null ? void 0 : _b.focus();
+        overlay2.dataset.cmOverlayTrigger = trigger.id;
+        overlay2.hidden = false;
+        (_b = overlay2.querySelector("[data-cm-overlay-close]")) == null ? void 0 : _b.focus();
       });
     });
-    scope.querySelectorAll("[data-cm-overlay]").forEach((overlay) => {
-      if (overlay.dataset.cmOverlayInit) return;
-      overlay.dataset.cmOverlayInit = "1";
-      overlay.addEventListener("click", (event) => {
-        if (event.target === overlay && overlay.dataset.cmCloseOnBackdrop === "1") {
-          closeOverlay(overlay);
+    scope.querySelectorAll("[data-cm-overlay]").forEach((overlay2) => {
+      if (overlay2.dataset.cmOverlayInit) return;
+      overlay2.dataset.cmOverlayInit = "1";
+      overlay2.addEventListener("click", (event) => {
+        if (event.target === overlay2 && overlay2.dataset.cmCloseOnBackdrop === "1") {
+          closeOverlay(overlay2);
         }
       });
-      overlay.querySelectorAll("[data-cm-overlay-close]").forEach((button) => {
-        button.addEventListener("click", () => closeOverlay(overlay));
+      overlay2.querySelectorAll("[data-cm-overlay-close]").forEach((button) => {
+        button.addEventListener("click", () => closeOverlay(overlay2));
       });
     });
   }
@@ -5396,7 +5398,224 @@
   }
 
   // src/runtime/gallery.ts
-  function initGalleryBlocks(_scope = document) {
+  var OVERLAY_ID = "cm-gallery-overlay";
+  var overlay = null;
+  var stageImg = null;
+  var captionEl = null;
+  var prevBtn = null;
+  var nextBtn = null;
+  var activeItems = [];
+  var activeIndex = 0;
+  var activeGalleryId = "";
+  var lastFocus = null;
+  var delegated = false;
+  function t2(key, fallback) {
+    return i18n.t(key, fallback);
+  }
+  function parseLightboxEnabled(root) {
+    return root.getAttribute("data-cm-gallery-lightbox") !== "false";
+  }
+  function itemsFromDom(root) {
+    const nodes = root.querySelectorAll("[data-cm-gallery-item]");
+    const items = [];
+    nodes.forEach((node) => {
+      const url = node.getAttribute("data-cm-gallery-full") || "";
+      if (!url) return;
+      const img = node.querySelector("img");
+      items.push({ url, alt: (img == null ? void 0 : img.getAttribute("alt")) || "" });
+    });
+    return items;
+  }
+  function ensureOverlay() {
+    if (overlay) return overlay;
+    const root = document.createElement("div");
+    root.id = OVERLAY_ID;
+    root.className = "cm-gallery-overlay";
+    root.hidden = true;
+    root.setAttribute("role", "dialog");
+    root.setAttribute("aria-modal", "true");
+    root.tabIndex = -1;
+    root.innerHTML = '<button type="button" class="cm-gallery-close" data-cm-gallery-close></button><button type="button" class="cm-gallery-prev" data-cm-gallery-prev></button><button type="button" class="cm-gallery-next" data-cm-gallery-next></button><div class="cm-gallery-stage"><img alt="" /><div class="cm-gallery-caption" data-cm-gallery-caption></div></div>';
+    document.body.appendChild(root);
+    overlay = root;
+    stageImg = root.querySelector("img");
+    captionEl = root.querySelector("[data-cm-gallery-caption]");
+    prevBtn = root.querySelector("[data-cm-gallery-prev]");
+    nextBtn = root.querySelector("[data-cm-gallery-next]");
+    const closeBtn = root.querySelector("[data-cm-gallery-close]");
+    if (closeBtn) closeBtn.textContent = "\xD7";
+    if (closeBtn) closeBtn.setAttribute("aria-label", t2("gallery.close", "Close"));
+    if (prevBtn) prevBtn.textContent = "\u2039";
+    if (prevBtn) prevBtn.setAttribute("aria-label", t2("gallery.prev", "Previous"));
+    if (nextBtn) nextBtn.textContent = "\u203A";
+    if (nextBtn) nextBtn.setAttribute("aria-label", t2("gallery.next", "Next"));
+    root.addEventListener("click", (event) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      if (target === root || target.closest("[data-cm-gallery-close]")) {
+        closeLightbox();
+        return;
+      }
+      if (target.closest("[data-cm-gallery-prev]")) {
+        step(-1);
+        return;
+      }
+      if (target.closest("[data-cm-gallery-next]")) {
+        step(1);
+      }
+    });
+    return root;
+  }
+  function renderSlide() {
+    if (!stageImg || !activeItems.length) return;
+    const item = activeItems[activeIndex];
+    if (!item) return;
+    stageImg.src = item.url;
+    stageImg.alt = item.alt;
+    if (captionEl) {
+      const of = t2("gallery.of", "%(current)s of %(total)s").replace("%(current)s", String(activeIndex + 1)).replace("%(total)s", String(activeItems.length));
+      captionEl.textContent = item.alt ? `${item.alt} \xB7 ${of}` : of;
+    }
+    const many = activeItems.length > 1;
+    if (prevBtn) prevBtn.hidden = !many;
+    if (nextBtn) nextBtn.hidden = !many;
+  }
+  function openLightbox(galleryId, items, index) {
+    if (!items.length) return;
+    lastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    activeGalleryId = galleryId;
+    activeItems = items;
+    activeIndex = index >= 0 && index < items.length ? index : 0;
+    const node = ensureOverlay();
+    node.hidden = false;
+    renderSlide();
+    node.focus();
+    const detail = {
+      galleryId,
+      index: activeIndex,
+      images: items
+    };
+    document.dispatchEvent(new CustomEvent("gridview:gallery-open", { detail }));
+  }
+  function closeLightbox() {
+    if (!overlay || overlay.hidden) return;
+    overlay.hidden = true;
+    if (stageImg) stageImg.removeAttribute("src");
+    document.dispatchEvent(
+      new CustomEvent("gridview:gallery-close", {
+        detail: { galleryId: activeGalleryId, index: activeIndex, images: activeItems }
+      })
+    );
+    activeItems = [];
+    activeGalleryId = "";
+    lastFocus == null ? void 0 : lastFocus.focus();
+    lastFocus = null;
+  }
+  function step(delta) {
+    if (!activeItems.length) return;
+    activeIndex = (activeIndex + delta + activeItems.length) % activeItems.length;
+    renderSlide();
+  }
+  function onKey(event) {
+    if (!overlay || overlay.hidden) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      closeLightbox();
+      return;
+    }
+    if (event.key === "ArrowLeft") {
+      event.preventDefault();
+      event.stopPropagation();
+      step(-1);
+      return;
+    }
+    if (event.key === "ArrowRight") {
+      event.preventDefault();
+      event.stopPropagation();
+      step(1);
+    }
+  }
+  function itemIndex(node) {
+    var _a;
+    const raw = (_a = node.closest("[data-cm-gallery-item]")) == null ? void 0 : _a.getAttribute("data-cm-gallery-index");
+    const parsed = raw ? Number.parseInt(raw, 10) : 0;
+    return Number.isNaN(parsed) ? 0 : parsed;
+  }
+  function onDocumentClick(event) {
+    const target = event.target;
+    if (!(target instanceof Element)) return;
+    const openBtn = target.closest("[data-cm-gallery-open]");
+    if (!openBtn) return;
+    const gallery = openBtn.closest("[data-cm-gallery]");
+    if (!gallery || !parseLightboxEnabled(gallery)) return;
+    event.preventDefault();
+    const galleryId = gallery.getAttribute("data-cm-gallery-id") || "";
+    openLightbox(galleryId, itemsFromDom(gallery), itemIndex(openBtn));
+  }
+  function normalizePayload(data) {
+    const list = Array.isArray(data) ? data : data && typeof data === "object" && Array.isArray(data.images) ? data.images : [];
+    const items = [];
+    for (const row of list) {
+      if (!row || typeof row !== "object") continue;
+      const rec = row;
+      if (typeof rec.url !== "string" || !rec.url) continue;
+      items.push({ url: rec.url, alt: typeof rec.alt === "string" ? rec.alt : "" });
+    }
+    return items;
+  }
+  function appendThumbs(root, items) {
+    items.forEach((item, index) => {
+      const figure = document.createElement("figure");
+      figure.className = "cm-gallery-item";
+      figure.setAttribute("data-cm-gallery-item", "");
+      figure.setAttribute("data-cm-gallery-index", String(index));
+      figure.setAttribute("data-cm-gallery-full", item.url);
+      const button = document.createElement("button");
+      button.type = "button";
+      button.className = "cm-gallery-open";
+      button.setAttribute("data-cm-gallery-open", "");
+      button.setAttribute("aria-label", item.alt);
+      const img = document.createElement("img");
+      img.src = item.url;
+      img.alt = item.alt;
+      button.appendChild(img);
+      figure.appendChild(button);
+      root.appendChild(figure);
+    });
+  }
+  async function hydrateLazy(root) {
+    const endpoint = root.getAttribute("data-cm-gallery-src");
+    if (!endpoint || root.querySelector("[data-cm-gallery-item]")) return;
+    try {
+      const response = await fetch(endpoint);
+      if (!response.ok) return;
+      const payload = await response.json();
+      const items = normalizePayload(payload);
+      if (!items.length) return;
+      appendThumbs(root, items);
+    } catch (e) {
+    }
+  }
+  function ensureDelegated() {
+    if (delegated) return;
+    delegated = true;
+    document.addEventListener("click", onDocumentClick);
+    document.addEventListener("keydown", onKey, true);
+  }
+  function initGalleryBlocks(scope = document) {
+    ensureDelegated();
+    const galleries = scope.querySelectorAll("[data-cm-gallery]");
+    galleries.forEach((node) => {
+      void hydrateLazy(node);
+    });
+  }
+  function openGalleryLightbox(images, index = 0, galleryId = "host") {
+    ensureDelegated();
+    openLightbox(galleryId, normalizePayload(images), index);
+  }
+  function closeGalleryLightbox() {
+    closeLightbox();
   }
 
   // src/runtime/renderers/builtins.ts
@@ -6234,7 +6453,9 @@
       registerCommit,
       registerAction,
       invokeCommit,
-      invokeAction
+      invokeAction,
+      openGallery: openGalleryLightbox,
+      closeGallery: closeGalleryLightbox
     };
   }
   function bootstrapGridView() {

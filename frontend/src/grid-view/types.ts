@@ -170,6 +170,11 @@ export interface GridViewPublic {
     name: string,
     ctx: { rowId?: string; gridId?: string; params?: Record<string, unknown>; event?: Event }
   ) => void;
+  openGallery: (
+    images: { url: string; alt?: string }[],
+    index?: number,
+    galleryId?: string,
+  ) => void;
   [key: string]: unknown;
 }
 

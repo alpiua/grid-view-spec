@@ -1,5 +1,26 @@
-<div class="cm-gallery cm-gallery-{{ block.presentation | e }}">
+{% set gallery_src = block.datasource.endpoint if block.datasource and block.datasource.endpoint else "" %}
+<div class="cm-gallery cm-gallery-{{ block.presentation | e }}"
+     data-cm-gallery
+     data-cm-gallery-id="{{ block.id | e }}"
+     data-cm-gallery-lightbox="{% if block.lightbox %}true{% else %}false{% endif %}"
+     {% if gallery_src %}data-cm-gallery-src="{{ gallery_src | e }}"{% endif %}
+     {% if block.columns or block.aspect %}style="{% if block.columns %}--cm-gallery-columns: {{ block.columns }};{% endif %}{% if block.aspect %}--cm-gallery-aspect: {{ block.aspect }};{% endif %}"{% endif %}>
   {% for image in block.images %}
-  <figure class="cm-gallery-item" data-image-id="{{ image.id | e }}"><img src="{{ image.url | e }}" alt="{{ image.alt | e }}" /></figure>
+  {% set thumb = image.thumb if image.thumb else image.url %}
+  <figure class="cm-gallery-item"
+          data-cm-gallery-item
+          data-cm-gallery-index="{{ loop.index0 }}"
+          data-cm-gallery-full="{{ image.url | e }}"
+          data-image-id="{{ image.id | e }}">
+    {% if block.lightbox %}
+    <button type="button" class="cm-gallery-open" data-cm-gallery-open aria-label="{{ image.alt | e }}">
+      <img src="{{ thumb | e }}" alt="{{ image.alt | e }}"
+           {% if image.variants %}srcset="{% for variant in image.variants %}{{ variant.url | e }}{% if variant.width %} {{ variant.width }}w{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}"{% endif %} />
+    </button>
+    {% else %}
+    <img src="{{ thumb | e }}" alt="{{ image.alt | e }}"
+         {% if image.variants %}srcset="{% for variant in image.variants %}{{ variant.url | e }}{% if variant.width %} {{ variant.width }}w{% endif %}{% if not loop.last %}, {% endif %}{% endfor %}"{% endif %} />
+    {% endif %}
+  </figure>
   {% endfor %}
 </div>

@@ -1645,7 +1645,10 @@ from grid_view_spec.types import (
     GridViewFilter,
     GridViewFilters,
     GridViewForm,
+    GridViewGallery,
     GridViewHeader,
+    GridViewImage,
+    GridViewImageSource,
     GridViewKpi,
     GridViewLayout,
     GridViewNav,
@@ -1905,6 +1908,27 @@ Usually called automatically from `GridView.bootScope()`.
 Client matching must stay aligned with Python search modules. Conformance fixtures live under
 `tests/fixtures/`; run `npm run test:conformance` in `frontend/` and pytest filter tests after
 behaviour changes. See Filter semantics (see section: filtering/semantics.md).
+
+## Gallery
+
+`GridView.bootScope()` calls `initGalleryBlocks`. Thumbs come from `GridViewGallery` markup
+(`data-cm-gallery`). When `lightbox` is true, click opens the package overlay (Escape, arrows,
+prev/next). Overlay DOM is created on first open.
+
+Hosts without gallery markup can open the same overlay:
+
+```javascript
+GridView.openGallery([{ url: "/media/a.jpg", alt: "A" }], 0);
+GridView.closeGallery();
+```
+
+Lazy galleries (`data-cm-gallery-src`) fetch JSON and insert thumbs. Hosts may listen:
+
+```javascript
+document.addEventListener("gridview:gallery-open", function (event) {
+  console.log(event.detail.galleryId, event.detail.index);
+});
+```
 
 ## i18n
 

@@ -1009,6 +1009,16 @@ def product_gallery_spec() -> GridViewSpec:
                             ),
                         ),
                     ),
+                    GridViewImageSource(
+                        id="img_2",
+                        url="/products/2.png",
+                        alt="Product 2",
+                    ),
+                    GridViewImageSource(
+                        id="img_3",
+                        url="/products/3.png",
+                        alt="Product 3",
+                    ),
                 ),
                 lightbox=True,
             ),

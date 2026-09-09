@@ -39,6 +39,7 @@ import {
 } from "./registry-api";
 import { initTableEdit } from "./table-edit";
 import type { GridViewPublic } from "./types";
+import { closeGalleryLightbox, openGalleryLightbox } from "../runtime/gallery";
 
 function mergePluginExports<T extends Record<string, unknown>>(
   base: T,
@@ -91,6 +92,8 @@ export function createGridView(): GridViewPublic {
     registerAction,
     invokeCommit,
     invokeAction,
+    openGallery: openGalleryLightbox,
+    closeGallery: closeGalleryLightbox,
   };
 }
 

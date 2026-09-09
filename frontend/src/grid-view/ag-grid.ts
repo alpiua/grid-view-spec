@@ -166,7 +166,9 @@ export function createInfiniteDatasource(options: {
         return;
       }
       const params = buildInfiniteQueryParams(blockParams, handle, options);
-      handle.showLoading?.();
+      if (blockParams.startRow === 0) {
+        handle.showLoading?.();
+      }
       fetch(url + "?" + params.toString())
         .then(function (response) {
           if (!response.ok) throw new Error("HTTP " + response.status);

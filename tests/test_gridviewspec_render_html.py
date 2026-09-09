@@ -28,7 +28,7 @@ from grid_view_spec.types.media import GridViewGallery, GridViewImage, GridViewI
 from grid_view_spec.types.nav import GridViewNav, GridViewNavItem
 from grid_view_spec.types.overlay import GridViewOverlay
 from grid_view_spec.types.spec import GridViewSpec
-from grid_view_spec.types.table_v2 import GridViewColumn, GridViewTable
+from grid_view_spec.types.table_v2 import GridViewColumn, GridViewDataSource, GridViewTable
 from grid_view_spec.types.toolbar import GridViewToolbar
 from tests.gridviewspec_fixtures import minimal_valid_spec
 
@@ -180,3 +180,44 @@ def test_single_block_type_renders(block_type: str) -> None:
     html = render_grid_view_spec(spec, (), host=host, backend="html")
     assert isinstance(html, str)
     assert f"cm-block-{block_type}" in html
+
+
+def test_gallery_lightbox_markup() -> None:
+    spec = GridViewSpec(
+        id="gallery_page",
+        blocks=(
+            GridViewGallery(
+                id="photos",
+                lightbox=True,
+                columns=4,
+                images=(
+                    GridViewImageSource(id="a", url="/a.png", alt="Alpha", thumb="/a-t.png"),
+                    GridViewImageSource(id="b", url="/b.png", alt="Beta"),
+                ),
+            ),
+        ),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=("photos",))),
+    )
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+    assert "data-cm-gallery" in html
+    assert 'data-cm-gallery-id="photos"' in html
+    assert 'data-cm-gallery-lightbox="true"' in html
+    assert 'data-cm-gallery-full="/a.png"' in html
+    assert 'src="/a-t.png"' in html
+    assert "data-cm-gallery-open" in html
+
+
+def test_gallery_lazy_datasource_attr() -> None:
+    spec = GridViewSpec(
+        id="lazy_gallery_page",
+        blocks=(
+            GridViewGallery(
+                id="photos",
+                images=(),
+                datasource=GridViewDataSource(endpoint="/gallery.json"),
+            ),
+        ),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=("photos",))),
+    )
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+    assert 'data-cm-gallery-src="/gallery.json"' in html

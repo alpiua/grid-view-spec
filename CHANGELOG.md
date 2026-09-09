@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- Package `GridViewGallery` lightbox in `gridviewspec.min.js` (thumbs, overlay,
+  keyboard, optional `datasource` fetch). No extra pip/npm dependency.
+
 ### Fixed
 
 - Column settings dialog uses `min(920px, 94vw)` instead of a 1500px shell.

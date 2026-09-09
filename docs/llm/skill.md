@@ -21,6 +21,7 @@ Professional brief for coding agents working on **grid-view-spec** (PyPI `grid-v
 | Large/infinite grid | `GridViewTable(backend="ag_grid")` + host JSON API |
 | KPI + charts + table | Multiple blocks in one `GridViewSpec` |
 | PDF/XLSX | Same loader as HTML -> `register_*_export` with `GridViewExportJob` |
+| Image gallery + lightbox | `GridViewGallery(..., lightbox=True)` — package runtime, host URLs |
 | Validation / MCP | `gridview_validate`, `gridview_catalog` |
 
 ## Django host checklist

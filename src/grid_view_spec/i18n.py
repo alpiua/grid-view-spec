@@ -113,6 +113,10 @@ JS_I18N_KEYS: tuple[str, ...] = (
     "filter_bar.apply",
     "section.total",
     "table.grand_total",
+    "gallery.close",
+    "gallery.prev",
+    "gallery.next",
+    "gallery.of",
 )
 
 

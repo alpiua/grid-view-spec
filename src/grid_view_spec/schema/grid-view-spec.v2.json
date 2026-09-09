@@ -509,6 +509,39 @@
         }
       ]
     },
+    "GridViewImageVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": { "type": "string" },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "media": { "type": "string" }
+      },
+      "required": ["url"]
+    },
+    "GridViewImageSource": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "string" },
+        "url": { "type": "string" },
+        "alt": { "type": "string" },
+        "thumb": { "type": "string" },
+        "variants": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GridViewImageVariant" }
+        },
+        "width": { "type": "integer" },
+        "height": { "type": "integer" },
+        "href": { "type": "string" },
+        "meta": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+        }
+      },
+      "required": ["id"]
+    },
     "GridViewGallery": {
       "allOf": [
         { "$ref": "#/$defs/GridViewBlockBase" },
@@ -516,9 +549,19 @@
           "type": "object",
           "properties": {
             "type": { "const": "gallery" },
+            "images": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/GridViewImageSource" }
+            },
+            "datasource": {
+              "oneOf": [{ "type": "null" }, { "type": "object" }]
+            },
             "presentation": {
               "enum": ["grid", "carousel", "masonry", "filmstrip"]
-            }
+            },
+            "columns": { "type": "integer" },
+            "aspect": { "type": "string" },
+            "lightbox": { "type": "boolean" }
           }
         }
       ]
@@ -531,8 +574,9 @@
           "required": ["image"],
           "properties": {
             "type": { "const": "image" },
-            "image": { "type": "object" },
-            "fit": { "enum": ["cover", "contain", "fill"] }
+            "image": { "$ref": "#/$defs/GridViewImageSource" },
+            "fit": { "enum": ["cover", "contain", "fill"] },
+            "aspect": { "type": "string" }
           }
         }
       ]

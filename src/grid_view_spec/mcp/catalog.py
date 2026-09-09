@@ -320,6 +320,11 @@ RULES: tuple[str, ...] = (
         "images use GridViewGallery / GridViewImage / renderer=image; "
         "spec carries resolved URLs only — image backend is a host builder, never in the spec"
     ),
+    (
+        "GridViewGallery.lightbox is package runtime in gridviewspec.min.js; "
+        "no extra pip/npm dependency; host may listen to gridview:gallery-open / "
+        "gridview:gallery-close"
+    ),
     "inline editing uses GridViewTable.edit + GridViewColumn.editable",
     "GridViewForm is the declarative form; GridViewTemplate is bespoke host content only",
     "spec values must be JSON-serializable (JsonValue); no callables, ORM, or request",

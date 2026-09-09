@@ -352,3 +352,14 @@ msgstr "%(label)s: %(values)s"
 
 msgid "toolbar.more_actions"
 msgstr "Дії"
+msgid "gallery.close"
+msgstr "Закрити"
+
+msgid "gallery.prev"
+msgstr "Попереднє"
+
+msgid "gallery.next"
+msgstr "Наступне"
+
+msgid "gallery.of"
+msgstr "%(current)s з %(total)s"

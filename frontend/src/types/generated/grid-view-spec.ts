@@ -112,12 +112,18 @@ export type GridViewCardGroups = GridViewBlockBase & {
 };
 export type GridViewGallery = GridViewBlockBase & {
   type?: "gallery";
+  images?: GridViewImageSource[];
+  datasource?: null | {};
   presentation?: "grid" | "carousel" | "masonry" | "filmstrip";
+  columns?: number;
+  aspect?: string;
+  lightbox?: boolean;
 };
 export type GridViewImage = GridViewBlockBase & {
   type?: "image";
-  image: {};
+  image: GridViewImageSource;
   fit?: "cover" | "contain" | "fill";
+  aspect?: string;
 };
 export type GridViewTabs = GridViewBlockBase & {
   type?: "tabs";
@@ -309,6 +315,25 @@ export interface GridViewCardGroup {
   items?: string[];
   count?: string | number;
   empty_message?: string;
+}
+export interface GridViewImageSource {
+  id: string;
+  url?: string;
+  alt?: string;
+  thumb?: string;
+  variants?: GridViewImageVariant[];
+  width?: number;
+  height?: number;
+  href?: string;
+  meta?: {
+    [k: string]: JsonValue;
+  };
+}
+export interface GridViewImageVariant {
+  url: string;
+  width?: number;
+  height?: number;
+  media?: string;
 }
 export interface GridViewField {
   name: string;
