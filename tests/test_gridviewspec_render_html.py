@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 import pytest
@@ -28,6 +29,7 @@ from grid_view_spec.types.media import GridViewGallery, GridViewImage, GridViewI
 from grid_view_spec.types.nav import GridViewNav, GridViewNavItem
 from grid_view_spec.types.overlay import GridViewOverlay
 from grid_view_spec.types.spec import GridViewSpec
+from grid_view_spec.types.spec_meta import GridViewConfig
 from grid_view_spec.types.table_v2 import GridViewColumn, GridViewDataSource, GridViewTable
 from grid_view_spec.types.toolbar import GridViewToolbar
 from tests.gridviewspec_fixtures import minimal_valid_spec
@@ -100,6 +102,20 @@ def test_minimal_spec_renders_html() -> None:
     assert "cm-table-surface" in html
     assert 'data-cm-table-backend="simple"' in html
     assert "Records" in html
+
+
+def test_root_renders_page_state_scope_attribute() -> None:
+    """The rendered root exposes the browser page-state namespace."""
+    spec = GridViewSpec(
+        id="page_state_scope_render",
+        config=GridViewConfig(page_state_scope="orders:active"),
+    )
+
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+
+    root = re.search(r'<div\b[^>]*\bid="cm-spec-page_state_scope_render"[^>]*>', html)
+    assert root is not None
+    assert 'data-cm-page-state-scope="orders:active"' in root.group()
 
 
 def _toolbar_spec_with_table(toolbar: GridViewToolbar) -> GridViewSpec:

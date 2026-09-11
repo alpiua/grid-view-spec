@@ -1,5 +1,81 @@
-<form class="cm-form cm-form-{{ block.presentation | e }}" method="{{ block.method | e }}" action="{{ block.endpoint | e }}">
-  {% for field in block.fields %}
-  <label class="cm-field" data-field-name="{{ field.name | e }}">{{ field.label | e }}</label>
+{% macro widget_slot(field, control_id, locale) -%}
+{% if field.widget %}<span class="cm-field-widget-slot" id="{{ control_id }}-widget" data-cm-widget-slot="{{ field.widget | e }}" data-control-id="{{ control_id | e }}" data-field-name="{{ field.name | e }}"{% if locale %} data-locale="{{ locale.code | e }}"{% endif %}></span>{% endif %}
+{%- endmacro %}
+
+{% macro render_field(field, locale, values, errors) -%}
+{% set localized = locale is not none %}
+{% set locale_code = locale.code if localized else '' %}
+{% set control_id = 'cm-field-' ~ block.id ~ '-' ~ field.name ~ ('-' ~ locale_code if localized else '') %}
+{% set label_control_id = control_id ~ '-start' if field.type == 'date_range' else control_id %}
+{% set field_value = values[field.name] if field.name in values else field.default %}
+{% set field_errors = errors.get(field.name, ()) %}
+{% set help_id = control_id ~ '-help' %}
+{% set errors_id = control_id ~ '-errors' %}
+{% set ns = namespace(input_type='text', required=field.required, min=none, max=none, minlength=none, maxlength=none, pattern=none, step=none) %}
+{% for validator in field.validators %}
+  {% if validator.kind == 'required' %}{% set ns.required = true %}{% endif %}
+  {% if validator.kind == 'email' %}{% set ns.input_type = 'email' %}{% endif %}
+  {% if validator.kind == 'url' %}{% set ns.input_type = 'url' %}{% endif %}
+  {% if validator.kind == 'integer' %}{% set ns.step = '1' %}{% endif %}
+  {% if validator.kind == 'min' %}{% set ns.min = validator.value %}{% endif %}
+  {% if validator.kind == 'max' %}{% set ns.max = validator.value %}{% endif %}
+  {% if validator.kind == 'min_length' %}{% set ns.minlength = validator.value %}{% endif %}
+  {% if validator.kind == 'max_length' %}{% set ns.maxlength = validator.value %}{% endif %}
+  {% if validator.kind == 'pattern' %}{% set ns.pattern = validator.value %}{% endif %}
+{% endfor %}
+{% set described = (help_id if field.help else '') ~ (' ' ~ errors_id if field_errors else '') %}
+<div class="cm-field cm-field-{{ field.type | e }}{% if localized %} cm-field-localized{% endif %}" data-cm-field data-field-name="{{ field.name | e }}" data-field-type="{{ field.type | e }}"{% if localized %} data-locale="{{ locale_code | e }}"{% endif %}{% if field.visible_when %} data-cm-visible-when-field="{{ field.visible_when.field | e }}" data-cm-visible-when-value="{{ field.visible_when.equals | e }}"{% endif %}>
+  <label for="{{ label_control_id | e }}">{{ field.label | e }}{% if ns.required %} <span aria-hidden="true">*</span>{% endif %}</label>
+  {% if field.type == 'textarea' %}
+  <textarea id="{{ control_id | e }}" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ ']') if localized else field.name | e }}"{% if field.placeholder %} placeholder="{{ field.placeholder | e }}"{% endif %}{% if ns.required %} required{% endif %}{% if field_errors %} aria-invalid="true"{% endif %}{% if described %} aria-describedby="{{ described | e }}"{% endif %}>{{ field_value if field_value is not none else '' }}</textarea>{{ widget_slot(field, control_id, locale) }}
+  {% elif field.type == 'select' or field.type == 'multiselect' %}
+  <select id="{{ control_id | e }}" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ ']') if localized else field.name | e }}"{% if field.type == 'multiselect' %} multiple{% endif %}{% if ns.required %} required{% endif %}{% if field_errors %} aria-invalid="true"{% endif %}{% if described %} aria-describedby="{{ described | e }}"{% endif %}>
+    {% if field.type == 'select' and not ns.required %}<option value="">—</option>{% endif %}
+    {% for option in field.options %}<option value="{{ option.value | e }}"{% if field.type == 'select' and field_value == option.value %} selected{% elif field.type == 'multiselect' and field_value is not none and option.value in field_value %} selected{% endif %}{% if option.disabled %} disabled{% endif %}>{{ option.label | e }}</option>{% endfor %}
+  </select>{{ widget_slot(field, control_id, locale) }}
+  {% elif field.type == 'boolean' %}
+  <input type="hidden" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ ']') if localized else field.name | e }}" value="false"><input id="{{ control_id | e }}" type="checkbox" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ ']') if localized else field.name | e }}" value="true"{% if field_value is sameas true %} checked{% endif %}{% if ns.required %} required{% endif %}{% if field_errors %} aria-invalid="true"{% endif %}{% if described %} aria-describedby="{{ described | e }}"{% endif %}>{{ widget_slot(field, control_id, locale) }}
+  {% elif field.type == 'date_range' %}
+  {% set range_value = field_value if field_value is mapping else {} %}
+  <div class="cm-field-date-range"><label class="cm-field-subcontrol" for="{{ control_id }}-start">Start</label><input id="{{ control_id | e }}-start" type="date" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ '][start]') if localized else field.name ~ '[start]' | e }}" value="{{ range_value.get('start') if range_value.get('start') is not none else '' | e }}"{% if ns.required %} required{% endif %}{% if field_errors %} aria-invalid="true"{% endif %}{% if described %} aria-describedby="{{ described | e }}"{% endif %}>{{ widget_slot(field, control_id ~ '-start', locale) }}<label class="cm-field-subcontrol" for="{{ control_id }}-end">End</label><input id="{{ control_id | e }}-end" type="date" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ '][end]') if localized else field.name ~ '[end]' | e }}" value="{{ range_value.get('end') if range_value.get('end') is not none else '' | e }}"{% if ns.required %} required{% endif %}{% if field_errors %} aria-invalid="true"{% endif %}{% if described %} aria-describedby="{{ described | e }}"{% endif %}>{{ widget_slot(field, control_id ~ '-end', locale) }}</div>
+  {% elif field.type == 'file' %}
+  <input id="{{ control_id | e }}" type="file" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ ']') if localized else field.name | e }}"{% if ns.required %} required{% endif %}{% if field_errors %} aria-invalid="true"{% endif %}{% if described %} aria-describedby="{{ described | e }}"{% endif %}>{{ widget_slot(field, control_id, locale) }}
+  {% elif field.type == 'number' %}
+  <input id="{{ control_id | e }}" type="number" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ ']') if localized else field.name | e }}" value="{{ field_value if field_value is not none else '' | e }}"{% if field.placeholder %} placeholder="{{ field.placeholder | e }}"{% endif %}{% if ns.step is not none %} step="{{ ns.step | e }}"{% endif %}{% if ns.min is not none %} min="{{ ns.min | e }}"{% endif %}{% if ns.max is not none %} max="{{ ns.max | e }}"{% endif %}{% if ns.required %} required{% endif %}{% if field_errors %} aria-invalid="true"{% endif %}{% if described %} aria-describedby="{{ described | e }}"{% endif %}>{{ widget_slot(field, control_id, locale) }}
+  {% elif field.type == 'date' %}
+  <input id="{{ control_id | e }}" type="date" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ ']') if localized else field.name | e }}" value="{{ field_value if field_value is not none else '' | e }}"{% if field.placeholder %} placeholder="{{ field.placeholder | e }}"{% endif %}{% if ns.required %} required{% endif %}{% if field_errors %} aria-invalid="true"{% endif %}{% if described %} aria-describedby="{{ described | e }}"{% endif %}>{{ widget_slot(field, control_id, locale) }}
+  {% else %}
+  <input id="{{ control_id | e }}" type="{{ ns.input_type | e }}" name="{{ ('translations[' ~ locale_code ~ '][' ~ field.name ~ ']') if localized else field.name | e }}" value="{{ field_value if field_value is not none else '' | e }}"{% if field.placeholder %} placeholder="{{ field.placeholder | e }}"{% endif %}{% if ns.minlength is not none %} minlength="{{ ns.minlength | e }}"{% endif %}{% if ns.maxlength is not none %} maxlength="{{ ns.maxlength | e }}"{% endif %}{% if ns.pattern is not none %} pattern="{{ ns.pattern | e }}"{% endif %}{% if ns.required %} required{% endif %}{% if field_errors %} aria-invalid="true"{% endif %}{% if described %} aria-describedby="{{ described | e }}"{% endif %}>{{ widget_slot(field, control_id, locale) }}
+  {% endif %}
+  {% if field.help %}<small class="cm-field-help" id="{{ help_id | e }}">{{ field.help | e }}</small>{% endif %}
+  {% if field_errors %}<div class="cm-field-errors" id="{{ errors_id | e }}" role="alert">{% for error in field_errors %}<span>{{ error | e }}</span>{% endfor %}</div>{% endif %}
+</div>
+{%- endmacro %}
+
+{% macro render_fields_for_set(fieldset) -%}
+  {% if block.translations %}
+    {% for locale in block.translations.locales %}
+      {% set locale_fields = namespace(has=false) %}
+      {% for field in block.fields %}{% if field.localized and field.name in fieldset.fields %}{% set locale_fields.has = true %}{% endif %}{% endfor %}
+      {% if locale_fields.has %}<fieldset class="cm-field-locale-group" data-cm-locale="{{ locale.code | e }}"><legend>{{ locale.label | e }}</legend>{% for field in block.fields %}{% if field.localized and field.name in fieldset.fields %}{{ render_field(field, locale, block.translations.values.get(locale.code, {}), block.translations.errors.get(locale.code, {})) }}{% endif %}{% endfor %}</fieldset>{% endif %}
+    {% endfor %}
+  {% endif %}
+  {% for field in block.fields %}{% if not field.localized and field.name in fieldset.fields %}{{ render_field(field, none, block.values, block.errors) }}{% endif %}{% endfor %}
+{%- endmacro %}
+
+{% set grouped = namespace(fields=[]) %}
+<form id="cm-form-{{ block.id | e }}" class="cm-form cm-form-{{ block.presentation | e }}" data-cm-form data-form-id="{{ block.id | e }}" method="{{ block.method | e }}" action="{{ block.endpoint | e }}">
+  {% for fieldset in block.fieldsets %}
+    {% set grouped.fields = grouped.fields + fieldset.fields | list %}
+    <fieldset class="cm-fieldset" data-cm-fieldset="{{ fieldset.id | e }}"{% if fieldset.columns > 1 %} style="--cm-form-columns: {{ fieldset.columns }}"{% endif %}><legend>{{ fieldset.label or fieldset.id | e }}</legend>{{ render_fields_for_set(fieldset) }}</fieldset>
   {% endfor %}
+  {% if block.translations %}
+    {% for locale in block.translations.locales %}
+      {% set locale_fields = namespace(has=false) %}
+      {% for field in block.fields %}{% if field.localized and field.name not in grouped.fields %}{% set locale_fields.has = true %}{% endif %}{% endfor %}
+      {% if locale_fields.has %}<fieldset class="cm-field-locale-group" data-cm-locale="{{ locale.code | e }}"><legend>{{ locale.label | e }}</legend>{% for field in block.fields %}{% if field.localized and field.name not in grouped.fields %}{{ render_field(field, locale, block.translations.values.get(locale.code, {}), block.translations.errors.get(locale.code, {})) }}{% endif %}{% endfor %}</fieldset>{% endif %}
+    {% endfor %}
+  {% endif %}
+  {% for field in block.fields %}{% if not field.localized and field.name not in grouped.fields %}{{ render_field(field, none, block.values, block.errors) }}{% endif %}{% endfor %}
+  {% if block.submit %}<button type="submit" class="cm-form-submit" data-cm-form-submit>{{ block.submit.label | e }}</button>{% endif %}
 </form>

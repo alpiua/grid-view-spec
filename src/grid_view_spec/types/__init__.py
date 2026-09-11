@@ -46,6 +46,8 @@ from grid_view_spec.types.form import (
     GridViewFieldCondition,
     GridViewFieldset,
     GridViewForm,
+    GridViewLocale,
+    GridViewTranslationEnvelope,
     GridViewValidator,
 )
 from grid_view_spec.types.header import GridViewEntity, GridViewFact, GridViewHeader
@@ -125,6 +127,7 @@ __all__ = [
     "GridViewFilterValue",
     "GridViewFilters",
     "GridViewForm",
+    "GridViewLocale",
     "GridViewGallery",
     "GridViewHeader",
     "GridViewHost",
@@ -162,6 +165,7 @@ __all__ = [
     "GridViewTemplate",
     "GridViewTemplateAsset",
     "GridViewToolbar",
+    "GridViewTranslationEnvelope",
     "GridViewTrustedStyle",
     "GridViewValidator",
     "BlockType",

@@ -74,6 +74,8 @@ from grid_view_spec.types.form import (
     GridViewFieldCondition,
     GridViewFieldset,
     GridViewForm,
+    GridViewLocale,
+    GridViewTranslationEnvelope,
     GridViewValidator,
 )
 from grid_view_spec.types.header import (
@@ -623,6 +625,8 @@ def decode_field(raw: Mapping[str, object]) -> GridViewField:
         name=wire_str(raw.get("name")),
         label=wire_str(raw.get("label")),
         type=wire_literal(raw.get("type"), GRIDVIEW_FIELD_TYPES, "text"),
+        localized=wire_bool(raw.get("localized")),
+        widget=wire_str(raw.get("widget")),
         options=tuple(decode_filter_option(item) for item in _objects(raw.get("options"))),
         required=wire_bool(raw.get("required")),
         default=wire_json_value(raw.get("default")),
@@ -656,6 +660,36 @@ def _form_errors(value: object) -> dict[str, tuple[str, ...]]:
     if not is_wire_mapping(value):
         return {}
     return {key: wire_str_tuple(item) for key, item in value.items()}
+
+
+def _translation_errors(value: object) -> dict[str, dict[str, tuple[str, ...]]]:
+    """Decode locale-keyed server-side validation errors."""
+    if not is_wire_mapping(value):
+        return {}
+    errors: dict[str, dict[str, tuple[str, ...]]] = {}
+    for locale, raw_errors in value.items():
+        if is_wire_mapping(raw_errors):
+            errors[locale] = {key: wire_str_tuple(item) for key, item in raw_errors.items()}
+    return errors
+
+
+def decode_locale(raw: Mapping[str, object]) -> GridViewLocale:
+    """Decode one declared form locale."""
+    return GridViewLocale(code=wire_str(raw.get("code")), label=wire_str(raw.get("label")))
+
+
+def decode_translation_envelope(raw: Mapping[str, object]) -> GridViewTranslationEnvelope:
+    """Decode localized form values and host-authoritative errors."""
+    values_raw = raw.get("values", {})
+    return GridViewTranslationEnvelope(
+        locales=tuple(decode_locale(item) for item in _objects(raw.get("locales"))),
+        default_locale=wire_str(raw.get("default_locale")),
+        fallback_locale=wire_optional_str(raw.get("fallback_locale")),
+        values={key: wire_json_object(item) for key, item in values_raw.items()}
+        if is_wire_mapping(values_raw)
+        else {},
+        errors=_translation_errors(raw.get("errors", {})),
+    )
 
 
 # --- media -------------------------------------------------------------------
@@ -946,6 +980,7 @@ def decode_block(raw: Mapping[str, object]) -> GridViewBlock:
             dismissible=wire_bool(raw.get("dismissible")),
         )
     if block_type == "form":
+        translations_raw = raw.get("translations")
         return GridViewForm(
             **common,
             presentation=wire_literal(
@@ -955,6 +990,11 @@ def decode_block(raw: Mapping[str, object]) -> GridViewBlock:
             fieldsets=tuple(decode_fieldset(item) for item in _objects(raw.get("fieldsets"))),
             values=wire_json_object(raw.get("values", {})),
             errors=_form_errors(raw.get("errors")),
+            translations=(
+                decode_translation_envelope(translations_raw)
+                if is_wire_mapping(translations_raw)
+                else None
+            ),
             submit=_opt_action(raw, "submit"),
             method=wire_literal(raw.get("method"), GRIDVIEW_FORM_METHODS, "post"),
             endpoint=wire_str(raw.get("endpoint")),

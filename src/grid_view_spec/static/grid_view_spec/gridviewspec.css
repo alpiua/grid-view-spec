@@ -3852,6 +3852,122 @@ body.cm-col-resize-active .cm-table thead th.cm-th-filterable {
   }
 }
 
+/* styles/forms.css */
+.cm-form {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.cm-form-inline {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: end;
+}
+.cm-form-grid,
+.cm-fieldset {
+  display: grid;
+  grid-template-columns: repeat(var(--cm-form-columns, 1), minmax(0, 1fr));
+  gap: 1rem;
+}
+.cm-form-panel,
+.cm-fieldset,
+.cm-field-locale-group {
+  padding: 1rem;
+  border: 1px solid var(--cm-border);
+  border-radius: 10px;
+  background: var(--cm-surface);
+}
+.cm-fieldset,
+.cm-field-locale-group {
+  margin: 0;
+}
+.cm-fieldset legend,
+.cm-field-locale-group legend {
+  grid-column: 1 / -1;
+  padding: 0 .25rem;
+  font-weight: 600;
+  color: var(--cm-text);
+}
+.cm-field-locale-group {
+  display: grid;
+  grid-template-columns: repeat(var(--cm-form-columns, 1), minmax(0, 1fr));
+  gap: 1rem;
+}
+.cm-field {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: .35rem;
+}
+.cm-field > label {
+  color: var(--cm-text);
+  font-size: .85rem;
+  font-weight: 600;
+}
+.cm-field input:not([type=checkbox]):not([type=hidden]),
+.cm-field textarea,
+.cm-field select {
+  width: 100%;
+  box-sizing: border-box;
+  padding: .55rem .65rem;
+  color: var(--cm-text);
+  background: var(--cm-bg);
+  border: 1px solid var(--cm-border);
+  border-radius: 7px;
+  font: inherit;
+}
+.cm-field textarea {
+  min-height: 7rem;
+  resize: vertical;
+}
+.cm-field select[multiple] {
+  min-height: 6rem;
+}
+.cm-field-date-range {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: .35rem .6rem;
+  align-items: center;
+}
+.cm-field-subcontrol {
+  color: var(--cm-muted);
+  font-size: .75rem;
+}
+.cm-field-help {
+  color: var(--cm-muted);
+  font-size: .75rem;
+}
+.cm-field-errors {
+  display: flex;
+  flex-direction: column;
+  gap: .15rem;
+  color: var(--cm-danger, #dc2626);
+  font-size: .75rem;
+}
+.cm-field [aria-invalid=true] {
+  border-color: var(--cm-danger, #dc2626);
+}
+.cm-field-widget-slot {
+  display: block;
+  min-height: .25rem;
+}
+.cm-form-submit {
+  align-self: flex-start;
+  padding: .55rem 1rem;
+  border: 1px solid var(--cm-primary, #6366f1);
+  border-radius: 7px;
+  color: #fff;
+  background: var(--cm-primary, #6366f1);
+  cursor: pointer;
+}
+@media (max-width: 700px) {
+  .cm-form-grid,
+  .cm-fieldset,
+  .cm-field-locale-group {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* styles/column-settings.css */
 .cm-col-selector-panel {
   position: fixed;

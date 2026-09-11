@@ -68,6 +68,7 @@
       "properties": {
         "htmx": { "type": "boolean", "default": true },
         "template": { "type": "string" },
+        "page_state_scope": { "type": "string", "default": "" },
         "assets": {
           "type": "array",
           "items": { "$ref": "#/$defs/GridViewTemplateAsset" }
@@ -693,6 +694,8 @@
             "file"
           ]
         },
+        "localized": { "type": "boolean", "default": false },
+        "widget": { "type": "string", "default": "" },
         "options": {
           "type": "array",
           "items": { "$ref": "#/$defs/GridViewFilterOption" }
@@ -755,12 +758,57 @@
                 "items": { "type": "string" }
               }
             },
+            "translations": {
+              "oneOf": [
+                { "type": "null" },
+                { "$ref": "#/$defs/GridViewTranslationEnvelope" }
+              ]
+            },
             "submit": { "oneOf": [{ "type": "null" }, { "type": "object" }] },
             "endpoint": { "type": "string" },
             "method": { "enum": ["get", "post"] }
           }
         }
       ]
+    },
+    "GridViewLocale": {
+      "type": "object",
+      "required": ["code", "label"],
+      "additionalProperties": false,
+      "properties": {
+        "code": { "type": "string" },
+        "label": { "type": "string" }
+      }
+    },
+    "GridViewTranslationEnvelope": {
+      "type": "object",
+      "required": ["locales", "default_locale"],
+      "additionalProperties": false,
+      "properties": {
+        "locales": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/GridViewLocale" }
+        },
+        "default_locale": { "type": "string" },
+        "fallback_locale": { "type": ["string", "null"] },
+        "values": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+          }
+        },
+        "errors": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": { "type": "string" }
+            }
+          }
+        }
+      }
     },
     "GridViewOverlay": {
       "allOf": [
@@ -913,4 +961,3 @@
     }
   }
 }
-        "page_state_scope": { "type": "string", "default": "" },

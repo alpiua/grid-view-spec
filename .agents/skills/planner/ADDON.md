@@ -2,7 +2,7 @@
 
 - `repository`: `grid-view-spec`
 - `planner_root`: `../../planner`
-- `plans`: `grid-view-spec/plans`
+- `plans`: `gridviewspec/plans`
 - `roadmap`: none
 - `mempalace_wing`: `planner-grid-view-spec`
 - `documentation`: `docs/**/*.md`

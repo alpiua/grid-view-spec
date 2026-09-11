@@ -87,10 +87,27 @@ class GridViewFieldCondition:
 
 
 @dataclass(frozen=True, slots=True)
+class GridViewLocale:
+    code: str
+    label: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GridViewTranslationEnvelope:
+    locales: tuple[GridViewLocale, ...]
+    default_locale: str
+    fallback_locale: str | None = None
+    values: dict[str, JsonObject] = field(default_factory=dict)
+    errors: dict[str, dict[str, tuple[str, ...]]] = field(default_factory=dict)
+
+
+@dataclass(frozen=True, slots=True)
 class GridViewField:
     name: str
     label: str = ""
     type: GridViewFieldType = "text"
+    localized: bool = False
+    widget: str = ""
     options: tuple[GridViewFilterOption, ...] = ()
     required: bool = False
     default: JsonValue | None = None
@@ -117,6 +134,7 @@ class GridViewForm(GridViewBlockBase):
     fieldsets: tuple[GridViewFieldset, ...] = ()
     values: JsonObject = field(default_factory=empty_json_map)
     errors: dict[str, tuple[str, ...]] = field(default_factory=dict)
+    translations: GridViewTranslationEnvelope | None = None
     submit: GridViewAction | None = None
     method: GridViewFormMethod = "post"
     endpoint: str = ""

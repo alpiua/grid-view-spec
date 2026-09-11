@@ -810,6 +810,12 @@ See Columns and renderers (see section: tables/columns.md).
 
 Wide tables scroll inside the viewport. Toolbar lives in a `table-card` area — Layout (see section: spec/layout.md).
 
+## Browser-local layout
+
+Simple Table shares the page-state column namespace
+`grid.<block-id>.columns`. It does not use the AG-Grid-specific
+`grid.<block-id>.ag_grid` namespace. See Page state (see section: persistence/page-state.md).
+
 ## Section rows
 
 Rows with `__section__: True` render as full-width group headers inside the table body.
@@ -854,7 +860,7 @@ Export overview (see section: export/page-pattern.md) · XLSX (see section: expo
 # AG-Grid integration
 
 Extension layer for [AG Grid Community](https://www.ag-grid.com/) 31.x in Django: toolbar,
-`AgGridHost`, session persistence, infinite-model HTTP contract, server XLSX sync.
+`AgGridHost`, browser-local page state, infinite-model HTTP contract, server XLSX sync.
 
 | Component | Owner |
 |-----------|-------|
@@ -903,7 +909,7 @@ flowchart TB
     AG[gridApi infinite model]
     MGR[AgGridHost]
     AJS[GridView.AgGrid]
-    LS[(localStorage session)]
+    LS[(GridView.PageState)]
   end
 
   subgraph host_django
@@ -1092,10 +1098,10 @@ sequenceDiagram
   participant S as data API
 
   T->>M: initGrid(container, gridOptions)
-  M->>G: createGrid
-  Note over G: columnDefs may be late-bound
-  G->>G: setGridOption columnDefs
-  M->>M: reapplyPersistedState()
+  M->>M: resolve page state and native initialState
+  M->>G: createGrid(initialState)
+  Note over G: restored columns are present before first paint
+  G->>G: setGridOption columnDefs when a dynamic source resolves
   G->>A: setGridOption datasource
   A->>S: GET startRow endRow filters sort q
   S-->>A: data lastRow
@@ -1103,8 +1109,9 @@ sequenceDiagram
 ```
 
 ```javascript
+// This is a later dynamic-column update, after createGrid has made manager.gridApi.
+// PageState is resolved before grid creation and is not reapplied here.
 manager.gridApi.setGridOption("columnDefs", ProductColumns);
-manager.reapplyPersistedState();
 manager.gridApi.setGridOption(
   "datasource",
   GridView.AgGrid.createInfiniteDatasource({
@@ -1121,15 +1128,20 @@ manager.gridApi.setGridOption(
 | Key | Default | Contract |
 |-----|---------|----------|
 | `gridId` | — | Equals `grid_id` in `scripts.html` and `GridPreference.grid_id` |
-| `storageScope` | — | Suffix: `agGridState_{gridId}__{storageScope}` |
+| `legacyStorageScope` | — | Migration-only suffix for an existing legacy browser key |
+| `storageScope` | — | Deprecated alias for `legacyStorageScope` |
 | `syncUrlState` | `true` | `history.replaceState` for `q`, `filters`, `urlPageStateKeys` |
 | `urlPageStateKeys` | keys from `getPageState()` | Domain params mirrored to URL |
 | `getPageState()` | — | Returns `{ period: ["2024-01"], … }` for filter bar |
 | `applyPageState(state, opts)` | — | Restores domain filter bar |
 | `onFilterChanged(manager)` | — | Hook after AG filter change (export sync) |
 | `onDataReload(manager)` | — | Hook after manual search reload; otherwise export links are synced automatically |
-| `restoreQuickFilter` | `true` | Restore search from localStorage when URL has no `q` |
 | `dictionaryUrl` | — | Base URL for set-filter dictionary fetch |
+
+New pages do not configure a grid storage scope. The rendered spec identity and
+optional `GridViewConfig.page_state_scope` select browser page state.
+`legacyStorageScope` only identifies an existing browser key during its one-time
+migration.
 
 ### Export href sync
 
@@ -1222,65 +1234,35 @@ register_xlsx_export("products_page", build_products_xlsx_job, filename_fn=…)
 
 ## Persistence
 
-Column settings UI lives in `grid-view.min.js` (`GridView.createColumnSettings`). `AgGridHost` delegates after `gridApi` init; Simple Table uses the DOM adapter. See Column settings (see section: tables/settings.md).
+Column settings UI lives in `grid-view.min.js` (`GridView.createColumnSettings`).
+`AgGridHost` binds it after `gridApi` initialization; Simple Table uses the DOM
+adapter. See Column settings (see section: tables/settings.md).
 
-Three storage layers:
+AG Grid uses two persistence mechanisms:
 
-```mermaid
-flowchart LR
-  subgraph session [Session — localStorage]
-    CS[colState]
-    FS[filterState]
-    QF[quickFilter]
-    PS[pageState]
-  end
+| Mechanism | Identity | Contents |
+|-----------|----------|----------|
+| Browser-local `GridView.PageState` | `spec.id` + optional scope + namespace | `grid.<block-id>.columns` and `grid.<block-id>.ag_grid` snapshots |
+| Named `GridPreference` | Authenticated user + `grid_id` | User-named column presets and saved search bookmarks |
 
-  subgraph named [Named — localStorage + GridPreference]
-    CP[col_presets]
-    SR[searches]
-  end
+The URL is not a persistence mechanism. It carries shareable request state. URL
+`q`, filters, and host URL values override browser-local fallback values.
 
-  subgraph url [Shareable URL]
-    UQ[q]
-    UF[filters]
-    UP[period etc]
-  end
+`GridView.PageState` stores shared column layout in `grid.<block-id>.columns` and
+AG-Grid-specific state in `grid.<block-id>.ag_grid`. It keeps the last browser-local
+layout without writing it to Django. Named presets and searches use
+`POST api_grid_preferences` when the host provides that endpoint.
 
-  session --> url
-  MGR[AgGridHost] --> session
-  MGR --> named
-```
+### Restore precedence
 
-| Layer | Key / model | Contents |
-|-------|-------------|----------|
-| Session | `agGridState_{grid_id}` or `…__{storageScope}` | `colState`, `filterState`, `quickFilter`, `pageState` |
-| Named presets | `GridPreference.col_presets` | User-named `getColumnState()` snapshots |
-| Saved searches | `GridPreference.searches` | Quick-search bookmark strings |
-
-Session layout auto-saves on column/filter/search/domain-filter changes. Named presets and searches save via `POST api_grid_preferences`. Last column layout is not auto-persisted to Django.
-
-### Session JSON
-
-```json
-{
-  "colState": [{ "colId": "name", "width": 220, "hide": false }],
-  "filterState": { "customer": { "values": ["Ada"] } },
-  "quickFilter": "uuid-fragment",
-  "pageState": { "period": ["2024-01", "2024-02"] }
-}
-```
-
-### Restore priority
-
-| Field | Source order |
+| State | Source order |
 |-------|--------------|
-| Quick search | URL `?q=` → localStorage |
-| AG filters | URL `?filters=` (JSON) → localStorage |
-| Domain filters | URL keys in `urlPageStateKeys` → `pageState` in localStorage |
+| Quick search | URL `?q=` → browser-local page state |
+| AG filters | URL `?filters=` → browser-local page state |
+| Host URL state | Host URL value → host page-state namespace |
 
-Cross-tab: `storage` event on session key reapplies state and purges infinite cache.
-
-See Saved preferences (see section: persistence/preferences.md) for `POST` body schema.
+See Page state (see section: persistence/page-state.md) for namespaces and compatibility.
+See Saved preferences (see section: persistence/preferences.md) for the named-preference API.
 
 ## Integration checklist
 
@@ -1638,6 +1620,7 @@ from grid_view_spec.types import (
     GridViewCharts,
     GridViewColumn,
     GridViewColumnGroup,
+    GridViewConfig,
     GridViewContent,
     GridViewCounter,
     GridViewExportAction,
@@ -1708,6 +1691,24 @@ from grid_view_spec.render import render_grid_view_spec, build_render_context
 ```
 
 Strict typing: package ships `py.typed`; run `basedpyright --warnings` on host code that constructs specs.
+
+## Page-state identity
+
+`GridViewConfig.page_state_scope` is an optional string that separates intentional
+same-spec contexts in browser-local persistent page state. `GridViewSpec.id` remains
+the primary identity.
+
+```python
+spec = GridViewSpec(
+    id="orders",
+    config=GridViewConfig(page_state_scope="comparison"),
+    blocks=(...),
+)
+```
+
+The field changes only the browser page-state identity. It does not configure
+`GridPreference`, a server session, or a storage backend. See
+Page state (see section: persistence/page-state.md).
 
 
 ---
@@ -1858,8 +1859,27 @@ GridView.AgGrid.syncExportLinks("my-grid");
 Toolbar markup uses `data-cm-grid-id`, `data-cm-col-action`, `data-cm-grid-action`, and
 `data-cm-grid-search` — no inline JS required.
 
-`AgGridHost` persists filters, columns, and search to `localStorage` and optionally mirrors them in
-the URL. See [AG-Grid — Persistence](../tables/ag-grid.md#persistence).
+AG Grid stores browser-local table state through `GridView.PageState`; URL filter and
+search values take precedence. See [AG-Grid — Persistence](../tables/ag-grid.md#persistence).
+
+## Page state
+
+`GridView.PageState` stores opaque browser-local persistent JSON for a rendered
+spec root. It does not manage runtime state or render UI.
+
+```javascript
+const pageState = GridView.PageState.forRoot(root);
+
+if (pageState) {
+  pageState.put("layout.drawer", { open: true, width: 480 });
+  const drawer = pageState.get("layout.drawer");
+  pageState.remove("layout.drawer");
+}
+```
+
+`forRoot()` returns `null` outside a connected GridViewSpec root. See
+Page state (see section: persistence/page-state.md) for identity, scopes, namespaces,
+storage failures, and URL precedence.
 
 ## AG-Grid adapter (filtered KPI / charts)
 

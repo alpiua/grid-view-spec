@@ -4,8 +4,11 @@ from __future__ import annotations
 
 import json
 
+from grid_view_spec.types.assets import GridViewTemplateAsset
 from grid_view_spec.types.content import GridViewCardGroups
+from grid_view_spec.types.lazy import GridViewLazyDefaults
 from grid_view_spec.types.spec import GridViewSpec
+from grid_view_spec.types.spec_meta import GridViewConfig
 from grid_view_spec.types.wire import is_wire_mapping
 from grid_view_spec.validate import spec_to_wire
 from grid_view_spec.wire_decode import decode_spec
@@ -31,6 +34,28 @@ def test_rich_spec_roundtrips_all_fields() -> None:
     """Rich fixture covering every block type survives round-trip unchanged."""
     spec = rich_spec()
     assert _roundtrip(spec) == spec
+
+
+def test_page_state_scope_survives_wire_roundtrip() -> None:
+    """The browser page-state namespace is preserved across the JSON wire boundary."""
+    spec = GridViewSpec(
+        id="page_state_scope_wire",
+        config=GridViewConfig(page_state_scope="orders:active"),
+    )
+
+    assert _roundtrip(spec).config.page_state_scope == "orders:active"
+
+
+def test_grid_view_config_legacy_positionals_keep_assets_and_lazy_slots() -> None:
+    """Adding page_state_scope does not shift the established positional arguments."""
+    assets = (GridViewTemplateAsset(id="theme", kind="style", src="/theme.css"),)
+    lazy = GridViewLazyDefaults(enabled=True, timeout_ms=500)
+
+    config = GridViewConfig(True, "", assets, lazy)
+
+    assert config.assets == assets
+    assert config.lazy == lazy
+    assert config.page_state_scope == ""
 
 
 def test_card_group_items_decode_from_wire_string_lists() -> None:

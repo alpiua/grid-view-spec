@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from collections.abc import Mapping
 from dataclasses import fields, is_dataclass
 
 from grid_view_spec.types.actions import (
@@ -16,9 +18,13 @@ from grid_view_spec.types.filters_v2 import (
 )
 from grid_view_spec.types.form import (
     GRIDVIEW_VALIDATOR_KINDS,
+    GridViewField,
     GridViewForm,
+    GridViewTranslationEnvelope,
+    GridViewValidator,
 )
 from grid_view_spec.types.header import GridViewHeader
+from grid_view_spec.types.json import JsonValue
 from grid_view_spec.types.media import GridViewGallery, GridViewImage, GridViewImageSource
 from grid_view_spec.types.overlay import GridViewOverlay
 from grid_view_spec.types.result import GridViewDiagnostic, GridViewPolicy, GridViewResult
@@ -61,6 +67,8 @@ BUILTIN_RENDERERS = frozenset(
 
 BlockIndex = dict[str, GridViewBlock]
 Diagnostics = list[GridViewDiagnostic]
+
+_FORM_TOKEN = re.compile(r"^[A-Za-z][A-Za-z0-9_-]{0,127}$")
 
 
 def error(code: str, message: str, path: str = "") -> GridViewDiagnostic:
@@ -426,14 +434,255 @@ def _check_media_sources(spec: GridViewSpec) -> list[GridViewDiagnostic]:
     return diagnostics
 
 
+def _form_token(value: object) -> bool:
+    """Return whether a form identity is safe for deterministic HTML hooks."""
+    return isinstance(value, str) and bool(_FORM_TOKEN.fullmatch(value))
+
+
+def _form_value_valid(field: GridViewField, value: JsonValue) -> bool:
+    """Validate one supplied/default value against the native form matrix."""
+    if value is None:
+        return True
+    if field.type in ("text", "textarea", "date"):
+        return isinstance(value, str)
+    if field.type == "number":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    if field.type == "select":
+        return isinstance(value, str) and value in {option.value for option in field.options}
+    if field.type == "multiselect":
+        if not isinstance(value, (list, tuple)):
+            return False
+        if not all(isinstance(item, str) for item in value):
+            return False
+        items = [item for item in value if isinstance(item, str)]
+        return len(items) == len(set(items)) and all(
+            item in {option.value for option in field.options} for item in items
+        )
+    if field.type == "boolean":
+        return isinstance(value, bool)
+    if field.type == "date_range":
+        if not isinstance(value, Mapping):
+            return False
+        range_value: Mapping[str, JsonValue] = value
+        return set(range_value) == {"start", "end"} and all(
+            isinstance(range_value[key], str) or range_value[key] is None
+            for key in ("start", "end")
+        )
+    if field.type == "file":
+        return False
+    return False
+
+
+def _form_value_diagnostics(
+    field: GridViewField,
+    value: JsonValue,
+    path: str,
+    *,
+    default: bool = False,
+) -> GridViewDiagnostic | None:
+    """Build an explicit diagnostic for a value outside the field matrix."""
+    if _form_value_valid(field, value):
+        return None
+    code = c.FORM_DEFAULT_INVALID if default else c.FORM_VALUE_INVALID
+    return error(code, f"value for {field.name!r} does not match field type {field.type!r}", path)
+
+
+def _check_validator(
+    field: GridViewField,
+    validator: GridViewValidator,
+    path: str,
+    policy: GridViewPolicy,
+) -> list[GridViewDiagnostic]:
+    """Validate a validator descriptor and its native-attribute compatibility."""
+    diagnostics: list[GridViewDiagnostic] = []
+    kind = validator.kind
+    value = validator.value
+    name = validator.name
+    if kind not in GRIDVIEW_VALIDATOR_KINDS:
+        return [error(c.UNKNOWN_VALIDATOR_KIND, f"unknown validator kind {kind!r}", path)]
+    if kind in {"required", "email", "url", "number", "integer"} and value is not None:
+        diagnostics.append(
+            error(
+                c.FORM_VALIDATOR_PARAMETER_INVALID, f"{kind} validator does not accept value", path
+            )
+        )
+    elif kind in {"min", "max"} and (
+        not isinstance(value, (int, float)) or isinstance(value, bool)
+    ):
+        diagnostics.append(
+            error(c.FORM_VALIDATOR_PARAMETER_INVALID, f"{kind} validator requires a number", path)
+        )
+    elif kind in {"min_length", "max_length"} and (
+        not isinstance(value, int) or isinstance(value, bool) or value < 0
+    ):
+        diagnostics.append(
+            error(
+                c.FORM_VALIDATOR_PARAMETER_INVALID,
+                f"{kind} validator requires a non-negative integer",
+                path,
+            )
+        )
+    elif kind == "pattern" and (not isinstance(value, str) or not value):
+        diagnostics.append(
+            error(c.PATTERN_REQUIRES_VALUE, "pattern validator requires a non-empty regex", path)
+        )
+    elif kind == "domain" and value is not None and (not isinstance(value, str) or not value):
+        diagnostics.append(
+            error(
+                c.FORM_VALIDATOR_PARAMETER_INVALID, "domain value must be a non-empty string", path
+            )
+        )
+    elif kind == "custom" and value is not None:
+        diagnostics.append(
+            error(
+                c.FORM_VALIDATOR_PARAMETER_INVALID, "custom validator does not accept value", path
+            )
+        )
+    if kind == "custom":
+        if not name:
+            diagnostics.append(
+                error(c.CUSTOM_VALIDATOR_MISSING_NAME, "custom validator requires a name", path)
+            )
+        elif policy.registered_validators and name not in policy.registered_validators:
+            diagnostics.append(
+                error(
+                    c.CUSTOM_VALIDATOR_MISSING_NAME,
+                    f"custom validator {name!r} not registered",
+                    path,
+                )
+            )
+    compatible: dict[str, frozenset[str]] = {
+        "email": frozenset({"text"}),
+        "url": frozenset({"text"}),
+        "number": frozenset({"number"}),
+        "integer": frozenset({"number"}),
+        "min": frozenset({"number"}),
+        "max": frozenset({"number"}),
+        "min_length": frozenset({"text", "textarea"}),
+        "max_length": frozenset({"text", "textarea"}),
+        "pattern": frozenset({"text"}),
+        "domain": frozenset({"text"}),
+    }
+    if kind in compatible and field.type not in compatible[kind]:
+        diagnostics.append(
+            error(
+                c.FORM_VALIDATOR_INCOMPATIBLE,
+                f"{kind} validator is incompatible with field type {field.type!r}",
+                path,
+            )
+        )
+    return diagnostics
+
+
+def _check_translation_envelope(
+    block: GridViewForm,
+    fields_by_name: Mapping[str, GridViewField],
+    envelope: GridViewTranslationEnvelope,
+) -> list[GridViewDiagnostic]:
+    """Validate locale declarations and locale-keyed values/errors."""
+    diagnostics: list[GridViewDiagnostic] = []
+    locales = {locale.code for locale in envelope.locales}
+    if len(locales) != len(envelope.locales):
+        diagnostics.append(
+            error(c.FORM_LOCALE_DUPLICATE_CODE, "translation locale codes must be unique")
+        )
+    for locale in envelope.locales:
+        path = f"blocks.{block.id}.translations.locales.{locale.code}"
+        if not _form_token(locale.code):
+            diagnostics.append(
+                error(c.FORM_TOKEN_INVALID, "locale code is not a valid form token", path)
+            )
+        if not locale.label:
+            diagnostics.append(
+                error(c.FORM_LOCALE_LABEL_EMPTY, "locale label must not be empty", path)
+            )
+    if envelope.default_locale not in locales:
+        diagnostics.append(
+            error(
+                c.FORM_TRANSLATION_DEFAULT_LOCALE_UNKNOWN,
+                f"default locale {envelope.default_locale!r} is not declared",
+                f"blocks.{block.id}.translations.default_locale",
+            )
+        )
+    if envelope.fallback_locale is not None and envelope.fallback_locale not in locales:
+        diagnostics.append(
+            error(
+                c.FORM_TRANSLATION_FALLBACK_LOCALE_UNKNOWN,
+                f"fallback locale {envelope.fallback_locale!r} is not declared",
+                f"blocks.{block.id}.translations.fallback_locale",
+            )
+        )
+    localized_names = {name for name, field in fields_by_name.items() if field.localized}
+    for locale, values in envelope.values.items():
+        if locale not in locales:
+            diagnostics.append(
+                error(
+                    c.FORM_TRANSLATION_UNKNOWN_LOCALE,
+                    f"unknown locale {locale!r}",
+                    f"blocks.{block.id}.translations.values.{locale}",
+                )
+            )
+            continue
+        for name, value in values.items():
+            field = fields_by_name.get(name)
+            if field is None or name not in localized_names:
+                diagnostics.append(
+                    error(
+                        c.FORM_TRANSLATION_UNKNOWN_FIELD,
+                        f"unknown or non-localized field {name!r}",
+                        f"blocks.{block.id}.translations.values.{locale}.{name}",
+                    )
+                )
+                continue
+            diagnostic = _form_value_diagnostics(
+                field, value, f"blocks.{block.id}.translations.values.{locale}.{name}"
+            )
+            if diagnostic:
+                diagnostics.append(diagnostic)
+    for locale, errors in envelope.errors.items():
+        if locale not in locales:
+            diagnostics.append(
+                error(
+                    c.FORM_TRANSLATION_UNKNOWN_LOCALE,
+                    f"unknown locale {locale!r}",
+                    f"blocks.{block.id}.translations.errors.{locale}",
+                )
+            )
+            continue
+        for name in errors:
+            if name not in localized_names:
+                diagnostics.append(
+                    error(
+                        c.FORM_TRANSLATION_UNKNOWN_FIELD,
+                        f"unknown or non-localized field {name!r}",
+                        f"blocks.{block.id}.translations.errors.{locale}.{name}",
+                    )
+                )
+    return diagnostics
+
+
 def _check_form_rules(spec: GridViewSpec, policy: GridViewPolicy) -> list[GridViewDiagnostic]:
-    """Validator kinds, pattern value, custom name, duplicate field names, fieldset refs."""
+    """Validate declarative form identities, values, locales, fieldsets, and validators."""
     diagnostics: list[GridViewDiagnostic] = []
     for block in iter_all_blocks(spec):
         if not isinstance(block, GridViewForm):
             continue
+        if not _form_token(block.id):
+            diagnostics.append(
+                error(
+                    c.FORM_TOKEN_INVALID,
+                    "form id is not a valid form token",
+                    f"blocks.{block.id}.id",
+                )
+            )
         field_names: set[str] = set()
+        fields_by_name: dict[str, GridViewField] = {}
         for field in block.fields:
+            field_path = f"blocks.{block.id}.fields.{field.name}"
+            if not _form_token(field.name):
+                diagnostics.append(
+                    error(c.FORM_TOKEN_INVALID, "field name is not a valid form token", field_path)
+                )
             if field.name in field_names:
                 diagnostics.append(
                     error(
@@ -443,47 +692,133 @@ def _check_form_rules(spec: GridViewSpec, policy: GridViewPolicy) -> list[GridVi
                     )
                 )
             field_names.add(field.name)
-            for validator in field.validators:
-                vpath = f"blocks.{block.id}.fields.{field.name}.validators.{validator.kind}"
-                if validator.kind not in GRIDVIEW_VALIDATOR_KINDS:
-                    diagnostics.append(
-                        error(
-                            c.UNKNOWN_VALIDATOR_KIND,
-                            f"unknown validator kind {validator.kind!r}",
-                            vpath,
-                        )
+            fields_by_name.setdefault(field.name, field)
+            if field.widget and not _form_token(field.widget):
+                diagnostics.append(
+                    error(
+                        c.FORM_WIDGET_INVALID,
+                        "widget is not a valid capability token",
+                        f"{field_path}.widget",
                     )
-                    continue
-                if validator.kind == "pattern" and not validator.value:
-                    diagnostics.append(
-                        error(
-                            c.PATTERN_REQUIRES_VALUE,
-                            "pattern validator requires a non-empty value (regex)",
-                            vpath,
-                        )
+                )
+            if field.options and field.type not in {"select", "multiselect"}:
+                diagnostics.append(
+                    error(
+                        c.FORM_OPTION_INVALID,
+                        "options are only valid for select fields",
+                        f"{field_path}.options",
                     )
-                if validator.kind == "custom":
-                    if not validator.name:
-                        diagnostics.append(
-                            error(
-                                c.CUSTOM_VALIDATOR_MISSING_NAME,
-                                "custom validator requires a name",
-                                vpath,
-                            )
-                        )
-                    elif (
-                        policy.registered_validators
-                        and validator.name not in policy.registered_validators
-                    ):
-                        diagnostics.append(
-                            error(
-                                c.CUSTOM_VALIDATOR_MISSING_NAME,
-                                f"custom validator {validator.name!r} not in registered_validators",
-                                vpath,
-                            )
-                        )
+                )
+            option_values = [option.value for option in field.options]
+            if len(option_values) != len(set(option_values)):
+                diagnostics.append(
+                    error(
+                        c.FORM_OPTION_INVALID,
+                        "option values must be unique",
+                        f"{field_path}.options",
+                    )
+                )
+            diagnostic = _form_value_diagnostics(
+                field, field.default, f"{field_path}.default", default=True
+            )
+            if diagnostic:
+                diagnostics.append(diagnostic)
+            for validator_index, validator in enumerate(field.validators):
+                vpath = f"{field_path}.validators[{validator_index}]"
+                diagnostics.extend(_check_validator(field, validator, vpath, policy))
+
+        for field in block.fields:
+            if field.visible_when and field.visible_when.field not in field_names:
+                diagnostics.append(
+                    error(
+                        c.FORM_FIELD_CONDITION_UNKNOWN,
+                        f"unknown condition field {field.visible_when.field!r}",
+                        f"blocks.{block.id}.fields.{field.name}.visible_when.field",
+                    )
+                )
+        for name, value in block.values.items():
+            field = fields_by_name.get(name)
+            if field is None:
+                diagnostics.append(
+                    error(
+                        c.FORM_VALUE_INVALID,
+                        f"unknown form value field {name!r}",
+                        f"blocks.{block.id}.values.{name}",
+                    )
+                )
+            elif field.localized:
+                diagnostics.append(
+                    error(
+                        c.FORM_TRANSLATION_NONLOCALIZED_FIELD,
+                        "localized field values belong in translations",
+                        f"blocks.{block.id}.values.{name}",
+                    )
+                )
+            else:
+                diagnostic = _form_value_diagnostics(
+                    field, value, f"blocks.{block.id}.values.{name}"
+                )
+                if diagnostic:
+                    diagnostics.append(diagnostic)
+        for name in block.errors:
+            if name not in fields_by_name:
+                diagnostics.append(
+                    error(
+                        c.FORM_VALUE_INVALID,
+                        f"unknown form error field {name!r}",
+                        f"blocks.{block.id}.errors.{name}",
+                    )
+                )
+            elif fields_by_name[name].localized:
+                diagnostics.append(
+                    error(
+                        c.FORM_TRANSLATION_NONLOCALIZED_FIELD,
+                        "localized field errors belong in translations",
+                        f"blocks.{block.id}.errors.{name}",
+                    )
+                )
+        localized_fields = [field for field in block.fields if field.localized]
+        if localized_fields and block.translations is None:
+            diagnostics.append(
+                error(
+                    c.FORM_TRANSLATIONS_REQUIRED,
+                    "localized fields require a translation envelope",
+                    f"blocks.{block.id}.translations",
+                )
+            )
+        if block.translations is not None:
+            diagnostics.extend(
+                _check_translation_envelope(block, fields_by_name, block.translations)
+            )
         defined = {field.name for field in block.fields}
+        fieldset_ids: set[str] = set()
+        grouped_fields: set[str] = set()
         for fieldset in block.fieldsets:
+            if not _form_token(fieldset.id):
+                diagnostics.append(
+                    error(
+                        c.FORM_TOKEN_INVALID,
+                        "fieldset id is not a valid form token",
+                        f"blocks.{block.id}.fieldsets.{fieldset.id}",
+                    )
+                )
+            if fieldset.id in fieldset_ids:
+                diagnostics.append(
+                    error(
+                        c.FORM_FIELDSET_DUPLICATE_ID,
+                        f"duplicate fieldset id {fieldset.id!r}",
+                        f"blocks.{block.id}.fieldsets.{fieldset.id}",
+                    )
+                )
+            fieldset_ids.add(fieldset.id)
+            if fieldset.columns < 1:
+                diagnostics.append(
+                    error(
+                        c.FORM_FIELDSET_COLUMNS_INVALID,
+                        "fieldset columns must be positive",
+                        f"blocks.{block.id}.fieldsets.{fieldset.id}.columns",
+                    )
+                )
             for ref in fieldset.fields:
                 if ref not in defined:
                     diagnostics.append(
@@ -493,6 +828,15 @@ def _check_form_rules(spec: GridViewSpec, policy: GridViewPolicy) -> list[GridVi
                             f"blocks.{block.id}.fieldsets.{fieldset.id}",
                         )
                     )
+                elif ref in grouped_fields:
+                    diagnostics.append(
+                        error(
+                            c.FORM_FIELDSET_DUPLICATE_FIELD,
+                            f"field {ref!r} is referenced by more than one fieldset",
+                            f"blocks.{block.id}.fieldsets.{fieldset.id}.fields",
+                        )
+                    )
+                grouped_fields.add(ref)
     return diagnostics
 
 

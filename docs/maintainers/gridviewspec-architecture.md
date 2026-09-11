@@ -1069,7 +1069,9 @@ Form rule:
 ## Form
 
 `GridViewForm` is a declarative, typed POST/edit form. Field widgets reuse the same vocabulary as
-filters but the type is independent (`GridViewField`, not `GridViewFilter`).
+filters but the type is independent (`GridViewField`, not `GridViewFilter`). The package renders
+accessible native controls, declared fieldsets, locale groups, values, help, and host-authoritative
+errors. It does not own drafts, persistence, active-locale browser state, or widget instances.
 
 ```python
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -1080,6 +1082,7 @@ class GridViewForm(GridViewBlockBase):
     fieldsets: tuple[GridViewFieldset, ...] = ()     # optional grouping/layout
     values: Mapping[str, JsonValue] = field(default_factory=dict)
     errors: Mapping[str, tuple[str, ...]] = field(default_factory=dict)  # host-authoritative
+    translations: GridViewTranslationEnvelope | None = None
     submit: GridViewAction | None = None
     method: Literal["get", "post"] = "post"
     endpoint: str = ""
@@ -1092,6 +1095,8 @@ class GridViewField:
         "text", "textarea", "number", "select", "multiselect",
         "date", "date_range", "boolean", "file",
     ] = "text"
+    localized: bool = False
+    widget: str = ""
     options: tuple[GridViewFilterOption, ...] = ()   # reuse option shape
     required: bool = False
     default: JsonValue | None = None
@@ -1121,7 +1126,7 @@ class GridViewValidator:
     ]
     value: str | int | float | None = None   # bound (min/max/length); regex (pattern); allowed domains (domain)
     message: str = ""
-    name: str = ""                            # host-registered verifier id when kind="custom"
+    name: str = ""                            # server-side verifier id when kind="custom"
 ```
 
 Form rules:
@@ -1129,10 +1134,15 @@ Form rules:
 - validators are **declarative descriptors**, never inlined functions (serializable + LLM-safe);
 - `kind="pattern"` carries a regex in `value` — this is the regexp validator (no separate `regexp`);
 - `kind="domain"` validates a well-formed domain; optional `value` restricts to allowed domains;
-- `kind="custom"` references a host-registered verifier id in `name` (registry, like renderers/editors);
-- the client runs built-in validators for UX, but **host `errors` are authoritative** (no rule
-  duplicated in two languages for critical checks);
-- the package owns field widgets, layout, and error rendering.
+- `kind="custom"` carries a server-side verifier id in `name`; it is metadata, not a browser registry hook;
+- compatible validator descriptors map to native attributes (`required`, input type, bounds, length,
+  and pattern); `domain` and named `custom` validators remain server-authoritative metadata;
+- **host `errors` are authoritative** and the package does not execute validator JavaScript;
+- a localized field requires a translation envelope whose declared locales, values, and errors are
+  validated explicitly; locale-neutral field names are encoded as bracketed translation names;
+- a non-empty `widget` is a safe capability token for one adjacent `data-cm-widget-slot`. The native
+  control remains the fallback and the host owns enhancement, value synchronization, failure UI, and
+  disposal.
 
 ## Template Block
 
@@ -1361,6 +1371,7 @@ class GridViewConfig:
     template: str = ""
     assets: tuple[GridViewTemplateAsset, ...] = ()
     lazy: GridViewLazyDefaults = field(default_factory=GridViewLazyDefaults)
+    page_state_scope: str = ""
 ```
 
 `template` is a shell override for the whole `GridViewSpec`. For block-level custom content,
@@ -1376,6 +1387,12 @@ Config rules:
 - export is represented by `GridViewExportAction`;
 - settings capabilities live on the target block, currently `GridViewTable.settings`;
 - permissions are resolved by the host before the spec is created.
+- `page_state_scope` separates intentional same-spec browser contexts; `spec.id`
+  remains the primary page-state identity.
+- page state is browser-local persistent JSON attached to a rendered spec root; it
+  is not part of `GridViewHost`, a request session, or a domain-state contract.
+- named user views remain `GridViewHost.get_grid_prefs` / `save_grid_prefs` data;
+  URL state remains authoritative when it is present.
 
 ## Renderer
 
@@ -1736,7 +1753,7 @@ Hard separation:
 - A2UI projection is adapter-only.
 - MCP contract: `docs/grid-view-spec.mcp`.
 
-## Registries (cell renderers, cell editors, form verifiers)
+## Registries (cell renderers and cell editors)
 
 Hosts extend behavior through **named, registered units**, never inline JS in the spec. This keeps
 the spec serializable, deterministic, and LLM/A2UI-safe.
@@ -1744,7 +1761,6 @@ the spec serializable, deterministic, and LLM/A2UI-safe.
 ```text
 GridView.registerRenderer(name, fn)   # cell renderer for GridViewColumn.renderer
 GridView.registerEditor(name, fn)     # custom cell editor (beyond type-derived editors)
-GridView.registerValidator(name, fn)  # form verifier for GridViewValidator(kind="custom", name=...)
 GridView.registerCommit(name, fn)     # commit hook for GridViewTableEdit.commit_callback
 ```
 
@@ -1752,13 +1768,11 @@ Registry rules:
 
 - the contract carries **only the string id**; the function lives in host JS registered before boot;
 - the package ships built-in renderers (`badge`, `tag`, `link`, `money`, `progress`, `date`,
-  `image`/`thumbnail`, …),
-  built-in validators (`required`/`email`/`url`/`number`/`pattern`/`domain`/…), and type-derived
-  editors; hosts register only what is missing;
-- an unknown registry id is a validation **error** (renderer) or falls back to host-authoritative
-  server result (validator/commit) — never silent arbitrary code;
-- registries are the single mechanism behind `GridViewColumn.renderer`, `GridViewTableEdit`,
-  and `GridViewValidator(kind="custom")`.
+  `image`/`thumbnail`, …) and type-derived table editors; hosts register only what is missing;
+- an unknown renderer id is a validation **error**; form validators are declarative metadata and
+  do not resolve through a browser registry or package-owned validator runtime;
+- registries are the mechanism behind `GridViewColumn.renderer` and `GridViewTableEdit`, not form
+  lifecycle, persistence, or widget mounting.
 
 ## Typing Boundaries (Python / TS / CSS)
 
@@ -1780,8 +1794,8 @@ JsonValue = str | int | float | bool | None | Mapping[str, "JsonValue"] | tuple[
 - the package owns all `GridView*` dataclasses (`frozen=True, slots=True, kw_only=True` for blocks);
 - spec values are strictly **JSON-serializable** — `JsonValue`, `Mapping[str, JsonValue]`, tuples,
   enums-as-`Literal`; **no ORM objects, no `request`, no callables** inside a spec;
-- non-serializable behavior is expressed as a **registered name** (renderer/editor/validator/commit
-  id) or an `endpoint`, never an inlined function;
+- non-serializable behavior is expressed as a **registered name** (renderer/editor/commit id) or an
+  `endpoint`, never an inlined function; form custom-validator names remain server metadata;
 - bare `object` is not used at boundaries; rare options use documented `extra: Mapping[str, JsonValue]`
   with `strict_unknown_config`;
 - the host owns ORM/querysets, `page_data`, export builders, and registry registration.
@@ -1798,8 +1812,7 @@ JsonValue = str | int | float | bool | None | Mapping[str, "JsonValue"] | tuple[
   `tests/test_ts_schema_parity.py`; the generated dir is exempt from eslint but type-checked by `tsc`;
 - `frontend/tsconfig.json` runs `noImplicitAny: true` (strict) across all `src`; the strict gate
   (`tsconfig.strict.json`) additionally enforces `noImplicitThis`;
-- runtime registries (renderers/editors/validators/commit) are keyed by the same string ids the
-  contract uses;
+- runtime registries (renderers/editors/commit) are keyed by the same string ids the contract uses;
 - filter/search semantics parity with Python is guarded by conformance fixtures
   (`tests/fixtures/*.json` + `npm run test:conformance` / `test:chart-conformance`);
 - one boot path: `GridView.boot(root)` / `GridView.bootScope(root)`; no free-form host JS in the spec.
@@ -1822,7 +1835,7 @@ JsonValue = str | int | float | bool | None | Mapping[str, "JsonValue"] | tuple[
 - `test_gridviewspec_schema_drift`: encoded wire conforms to `grid-view-spec.v2.json` (incl. `card_groups`, `pagination`, `section`, forms);
 - `test_ts_schema_parity`: the committed TS types in `frontend/src/types/generated/` match what the schema regenerates (no drift);
 - `test_css_token_allowlist_matches_grid_view_style_literals`: `GridViewStyle` tokens stay within the allowlist;
-- `test_unknown_renderer_when_registry_set`: unknown renderer ids are errors; unknown validator ids defer to server.
+- `test_unknown_renderer_when_registry_set`: unknown renderer ids are errors; form validator ids remain server-authoritative metadata.
 
 > Note: the wire schema (`grid-view-spec.v2.json`) is the single source of truth for cross-language
 > payloads. The TS frontend **generates** its wire/authoring types from it (`npm run gen:types` →
