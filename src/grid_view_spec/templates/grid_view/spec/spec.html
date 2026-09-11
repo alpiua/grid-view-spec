@@ -25,7 +25,7 @@
 </section>
 {%- endmacro %}
 <div id="cm-spec-wrap-{{ spec.id | e }}" style="display:contents">
-<div class="cm-grid-view-spec" id="cm-spec-{{ spec.id | e }}" data-spec-id="{{ spec.id | e }}" data-cm-grid-view-spec>
+<div class="cm-grid-view-spec" id="cm-spec-{{ spec.id | e }}" data-spec-id="{{ spec.id | e }}" data-cm-page-state-scope="{{ spec.config.page_state_scope | e }}" data-cm-grid-view-spec>
   {{ render_area(spec.layout.root) }}
 </div>
 </div>

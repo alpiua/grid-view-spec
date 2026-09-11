@@ -11,20 +11,42 @@ import type {
   ColumnSettingsHandle,
   ColumnSettingsOptions,
   ColumnStateItem,
+  PageStateHooks,
+  SavedColumnPreset,
   SortableInstance,
   SortableStatic,
+  StoredColumnPreset,
 } from "./types";
+import {
+  isJsonRecord,
+  legacyScopedKey,
+  mergeLegacyWidths,
+  normalizeColumnState,
+  pageColumnStoreForRoot,
+  putPageColumns,
+  readLegacyJson,
+  readPageColumns,
+  removeLegacyKeys,
+  type PageColumnStore,
+} from "./page-state";
+
+function isSavedColumnPreset(value: StoredColumnPreset): value is SavedColumnPreset {
+  return !Array.isArray(value);
+}
 
 export class ColumnSettingsHost implements ColumnSettingsHandle {
   gridId: string;
   adapter: ColumnAdapter;
   groupsOrder: string[];
-  savedColPresets: Record<string, ColumnStateItem[]>;
+  savedColPresets: Record<string, StoredColumnPreset>;
   preferencesUrl: string;
   storageScope: string;
+  pageColumnStore: PageColumnStore | null;
+  persistLocalState: boolean;
   onStateChange: ((state: ColumnStateItem[]) => void) | null;
   colOrderSortable: SortableInstance | null;
   activePresetName: string | null = null;
+  pageStateHooks: PageStateHooks;
 
   constructor(gridId: string, adapter: ColumnAdapter, options?: ColumnSettingsOptions) {
     const opts = options || {};
@@ -32,6 +54,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
     this.adapter = adapter;
     this.groupsOrder = opts.groupsOrder || [];
     this.savedColPresets = opts.initialPresets || {};
+    this.pageStateHooks = opts.pageStateHooks || {};
     try {
       const stored =
         localStorage.getItem("agGridPresets_" + this.gridId) ||
@@ -40,7 +63,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
         const parsed: unknown = JSON.parse(stored);
         if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
           this.savedColPresets = {
-            ...(parsed as Record<string, ColumnStateItem[]>),
+            ...(parsed as Record<string, StoredColumnPreset>),
             ...this.savedColPresets,
           };
         }
@@ -49,7 +72,9 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       /* ignore */
     }
     this.preferencesUrl = opts.preferencesUrl || "";
-    this.storageScope = opts.storageScope || "";
+    this.storageScope = opts.legacyStorageScope || opts.storageScope || "";
+    this.pageColumnStore = pageColumnStoreForRoot(opts.pageStateRoot, this.gridId);
+    this.persistLocalState = opts.persistLocalState !== false;
     this.onStateChange = opts.onStateChange || null;
     this.colOrderSortable = null;
     try {
@@ -67,8 +92,13 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
   }
 
   applyPreset(name: string): void {
-    if (!this.savedColPresets[name]) return;
-    this.adapter.applyColumnState(this.savedColPresets[name], true);
+    const preset = this.savedColPresets[name];
+    if (!preset) return;
+    const columns = Array.isArray(preset) ? preset : preset.columns;
+    this.adapter.applyColumnState(columns, true);
+    if (isSavedColumnPreset(preset) && preset.pageState && this.pageStateHooks.applyPageState) {
+      this.pageStateHooks.applyPageState(preset.pageState);
+    }
     this.activePresetName = name;
     try {
       localStorage.setItem("cmActivePreset_" + this.gridId, name);
@@ -125,28 +155,50 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
 
   _applyInitialState(initialState: ColumnStateItem[] | undefined): void {
     let state: ColumnStateItem[] | undefined = initialState;
-    if (!state) {
+    if (!state && this.pageColumnStore) {
+      state = readPageColumns(this.pageColumnStore) ?? undefined;
+      if (!state) {
+        const legacyState = normalizeColumnState(readLegacyJson(this._storageKey()));
+        const legacyWidthKey = "cmColWidths_" + this.gridId;
+        const legacyWidths = readLegacyJson(legacyWidthKey);
+        const hasLegacyWidths =
+          isJsonRecord(legacyWidths) && Object.keys(legacyWidths).length > 0;
+        let migrationBase = legacyState;
+
+        // SimpleTable historically persisted widths separately. Start from the
+        // adapter's actual columns when that is the only legacy state available.
+        if (!migrationBase && hasLegacyWidths) {
+          try {
+            const currentState = normalizeColumnState(this.adapter.getColumnState());
+            migrationBase = currentState && currentState.length > 0 ? currentState : null;
+          } catch {
+            migrationBase = null;
+          }
+        }
+
+        if (migrationBase) {
+          const migrated = mergeLegacyWidths(
+            migrationBase,
+            legacyWidths,
+          );
+          if (putPageColumns(this.pageColumnStore, migrated)) {
+            const migratedKeys = [legacyWidthKey];
+            if (legacyState) migratedKeys.unshift(this._storageKey());
+            removeLegacyKeys(migratedKeys);
+          }
+          state = migrated;
+        }
+      }
+    } else if (!state) {
       try {
         const raw = localStorage.getItem(this._storageKey());
-        if (raw) state = JSON.parse(raw) as ColumnStateItem[];
+        if (raw) state = normalizeColumnState(JSON.parse(raw)) ?? undefined;
       } catch {
         /* ignore corrupt storage */
       }
     }
     if (state && Array.isArray(state)) {
-      if (typeof this.adapter.clearWidths === "function") {
-        this.adapter.clearWidths();
-      }
-      const layoutState = state.map((item) => {
-        if (!item || !item.colId) return item;
-        return {
-          colId: item.colId,
-          hide: !!item.hide,
-          pinned: item.pinned || null,
-          width: null,
-        };
-      });
-      this.adapter.applyColumnState(layoutState, true);
+      this.adapter.applyColumnState(state, true);
     }
   }
 
@@ -154,12 +206,20 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
     return this.adapter.getColumnState();
   }
 
+  setPageStateHooks(hooks: PageStateHooks): void {
+    this.pageStateHooks = hooks;
+  }
+
   saveState(): void {
     const state = this.getColumnState();
-    try {
-      localStorage.setItem(this._storageKey(), JSON.stringify(state));
-    } catch {
-      /* quota exceeded */
+    if (this.pageColumnStore) {
+      putPageColumns(this.pageColumnStore, state);
+    } else if (this.persistLocalState) {
+      try {
+        localStorage.setItem(this._storageKey(), JSON.stringify(state));
+      } catch {
+        /* quota exceeded */
+      }
     }
     this.syncExportLinks();
     if (typeof this.onStateChange === "function") this.onStateChange(state);
@@ -654,7 +714,10 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
     const name =
       nameInput instanceof HTMLInputElement ? nameInput.value.trim() : "";
     if (!name) return;
-    this.savedColPresets[name] = this.getColumnState();
+    const pageState = this.pageStateHooks.getPageState?.() ?? {};
+    this.savedColPresets[name] = Object.keys(pageState).length
+      ? { columns: this.getColumnState(), pageState }
+      : this.getColumnState();
     if (nameInput instanceof HTMLInputElement) nameInput.value = "";
     this.renderSavedPresets();
     this.saveColPresetsToServer();

@@ -2,6 +2,7 @@
 
 import type { ChartRuntimeDict, RowDict } from "../types/chart-bind";
 import type { KpiSpecDict, ResolvedKpiDict } from "../types/kpi-bind";
+import type { PageStateApi } from "../page-state/types";
 
 export type FilterState = Record<string, string | string[]>;
 
@@ -102,6 +103,7 @@ export interface I18nApi {
 /** Public surface mounted on window.GridView (see create-grid-view.ts). */
 export interface GridViewPublic {
   preferencesUrl: string;
+  PageState: PageStateApi;
   init: (opts?: GridInitOptions) => (() => void) | undefined;
   byId: ByIdRegistry;
   SimpleTable: { initAll: (root?: Document | Element) => void };

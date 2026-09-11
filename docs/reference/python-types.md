@@ -15,6 +15,7 @@ from grid_view_spec.types import (
     GridViewCharts,
     GridViewColumn,
     GridViewColumnGroup,
+    GridViewConfig,
     GridViewContent,
     GridViewCounter,
     GridViewExportAction,
@@ -85,3 +86,21 @@ from grid_view_spec.render import render_grid_view_spec, build_render_context
 ```
 
 Strict typing: package ships `py.typed`; run `basedpyright --warnings` on host code that constructs specs.
+
+## Page-state identity
+
+`GridViewConfig.page_state_scope` is an optional string that separates intentional
+same-spec contexts in browser-local persistent page state. `GridViewSpec.id` remains
+the primary identity.
+
+```python
+spec = GridViewSpec(
+    id="orders",
+    config=GridViewConfig(page_state_scope="comparison"),
+    blocks=(...),
+)
+```
+
+The field changes only the browser page-state identity. It does not configure
+`GridPreference`, a server session, or a storage backend. See
+[Page state](../persistence/page-state.md).

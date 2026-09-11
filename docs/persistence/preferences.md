@@ -1,8 +1,8 @@
 # Saved preferences
 
-Named column presets and saved quick-search bookmarks for AG-Grid pages. Session state
-(columns, filters, search, domain `pageState`) lives in `localStorage` — see
-[AG-Grid integration — Persistence](../tables/ag-grid.md#persistence).
+Named view presets and saved quick-search bookmarks are user-managed data for
+AG-Grid pages. They are separate from browser-local persistent
+[page state](page-state.md).
 
 ```mermaid
 sequenceDiagram
@@ -12,10 +12,8 @@ sequenceDiagram
   participant API as POST api_grid_preferences
   participant DB as GridPreference
 
-  U->>M: resize column / filter / search
-  M->>LS: agGridState_{grid_id}
   U->>M: save named preset
-  M->>LS: agGridPresets_{grid_id}
+  M->>LS: optional browser cache
   M->>API: colPresets + grid_id
   API->>DB: upsert col_presets
   U->>M: bookmark search
@@ -29,7 +27,7 @@ sequenceDiagram
 |-------|------|------------|
 | `user` | FK → `AUTH_USER_MODEL` | Owner |
 | `grid_id` | `CharField(100)` | Matches `scripts.html` `grid_id` and `context.gridId` |
-| `col_presets` | JSON object | `{ "Preset name": [ colState, … ] }` |
+| `col_presets` | JSON object | `{ "Preset name": [ colState, … ] }` or `{ "Preset name": { "columns": [ colState, … ], "pageState": { … } } }` |
 | `searches` | JSON list of strings | Quick-search bookmarks |
 
 Unique: `(user, grid_id)`.
@@ -65,7 +63,7 @@ return render(request, "page.html", {
 |---|---|
 | Method | `POST` |
 | URL | Host-defined; name must be `api_grid_preferences` |
-| Auth | `login_required` |
+| Auth | Authenticated users persist to `GridPreference`; anonymous requests are local-only |
 | Content-Type | `application/json` |
 
 ### Request body
@@ -86,17 +84,31 @@ return render(request, "page.html", {
 | `colPresets` | no | Full replacement of named presets when present |
 | `searches` | no | Full replacement of search list when present |
 
-`colPresets` values are AG Grid `getColumnState()` arrays.
+`colPresets` values are AG Grid `getColumnState()` arrays for column-only views. A
+host can register `PageStateHooks` on the column-settings handle. A newly saved
+preset then stores an envelope with columns and host-owned `pageState`. This payload
+belongs to the named preset and is applied only when that preset is selected. It is
+not `GridView.PageState` and is not a generic host UI store.
+
+```js
+const settings = window.GridView.byId.get("orders")._colSettings;
+settings.setPageStateHooks({
+  getPageState: () => ({ filters: readHostFilters() }),
+  applyPageState: ({ filters }) => applyHostFilters(filters),
+});
+```
 
 ### Responses
 
 | Status | Body |
 |--------|------|
 | `200` | `{"status": "ok"}` |
+| `200` | `{"status": "ok", "local_only": true}` for an anonymous request |
 | `400` | `{"status": "error", "message": "Invalid JSON"}` |
 | `400` | `{"status": "error", "message": "Missing grid_id parameter"}` |
 
-Anonymous users: session state in `localStorage` only; save API returns login redirect.
+Anonymous requests do not create a `GridPreference` row. The Django endpoint returns
+`local_only: true`; the browser can retain its local named-view cache.
 
 ## Security
 

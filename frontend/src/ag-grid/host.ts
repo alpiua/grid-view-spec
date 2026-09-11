@@ -1,4 +1,11 @@
-import type { ColumnMetaInput } from "../column-settings/types";
+import type { ColumnMetaInput, StoredColumnPreset } from "../column-settings/types";
+import { isJsonRecord } from "../column-settings/page-state";
+import {
+  legacyAgGridStateKey,
+  prepareAgGridPageState,
+  readLegacyAgGridState,
+  type AgGridPageStateAdapter,
+} from "./page-state";
 import {
   gridViewT,
   isInfiniteRowModel,
@@ -6,12 +13,14 @@ import {
   readSearchInputValue,
   writeSearchInputValue,
   type AgGridColumnDef,
+  type AgGridColumnSizingState,
   type AgGridContextHooks,
   type AgGridHostApi,
   type AgGridHostGridOptions,
+  type AgGridSortState,
   type ColSettingsMethod,
-  type ColumnSettingsHandle,
   type ColumnStateItem,
+  type ColumnSettingsHandle,
   type LoadStateOptions,
   type PersistedGridState,
   type UrlGridParams,
@@ -34,17 +43,48 @@ function isAgGridHostApi(value: unknown): value is AgGridHostApi {
   );
 }
 
+type SortableColumnStateItem = ColumnStateItem & {
+  flex?: number | null;
+  sort?: "asc" | "desc" | null;
+  sortIndex?: number | null;
+};
+
+/** Reconstruct legacy AG-only state for non-spec hosts. */
+function withAgGridState(
+  columns: ColumnStateItem[],
+  sort: AgGridSortState | undefined,
+  columnSizing: AgGridColumnSizingState | undefined,
+): ColumnStateItem[] {
+  const sortIndexById = new Map(
+    sort?.sortModel.map(({ colId, sort }, index) => [colId, { sort, index }]),
+  );
+  const flexById = new Map(
+    columnSizing?.columnSizingModel.map(({ colId, flex }) => [colId, flex]),
+  );
+  return columns.map((column) => {
+    const entry = sortIndexById.get(column.colId);
+    const sortable: SortableColumnStateItem = {
+      ...column,
+      flex: flexById.get(column.colId) ?? null,
+      sort: entry?.sort ?? null,
+      sortIndex: entry?.index ?? null,
+    };
+    return sortable;
+  });
+}
+
 export class AgGridHost implements GridHandle {
   gridId: string;
   containerId: string;
   gridOptions: AgGridHostGridOptions;
-  savedColPresets: Record<string, ColumnStateItem[]>;
+  savedColPresets: Record<string, StoredColumnPreset>;
   savedQuickSearches: string[];
   groupsOrder: string[];
   gridApi?: AgGridHostApi;
   _colSettings: ColumnSettingsHandle | null;
   _searchText: string;
   _columnMeta: Record<string, Partial<ColumnMetaInput>>;
+  _pageStateAdapter: AgGridPageStateAdapter | null;
   _storageSyncBound: boolean;
   _deferredColStateScheduled: boolean;
 
@@ -52,7 +92,7 @@ export class AgGridHost implements GridHandle {
     gridId: string,
     containerId: string,
     optionsVar: AgGridHostGridOptions | null | undefined,
-    initialPresets: Record<string, ColumnStateItem[]> | null | undefined,
+    initialPresets: Record<string, StoredColumnPreset> | null | undefined,
     initialSearches: string[] | null | undefined,
     groupsOrder: string[] | null | undefined
   ) {
@@ -94,6 +134,7 @@ export class AgGridHost implements GridHandle {
     this._colSettings = null;
     this._searchText = "";
     this._columnMeta = {};
+    this._pageStateAdapter = null;
     this._storageSyncBound = false;
     this._deferredColStateScheduled = false;
 
@@ -180,15 +221,16 @@ export class AgGridHost implements GridHandle {
   _readUrlGridParams(): UrlGridParams {
     const params = new URLSearchParams(window.location.search);
     const out: UrlGridParams = {};
-    const q = params.get("q");
-    if (q) out.q = q;
-    const filters = params.get("filters");
-    if (filters) {
+    if (params.has("q")) {
+      out.hasQ = true;
+      out.q = params.get("q") ?? "";
+    }
+    if (params.has("filters")) {
+      out.hasFilterState = true;
+      const filters = params.get("filters");
       try {
-        const parsed: unknown = JSON.parse(filters);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          out.filterState = parsed as Record<string, unknown>;
-        }
+        const parsed: unknown = JSON.parse(filters || "null");
+        if (isJsonRecord(parsed)) out.filterState = parsed;
       } catch (_e) {
         /* ignore malformed URL filter payload */
       }
@@ -255,6 +297,7 @@ export class AgGridHost implements GridHandle {
   }
 
   _bindStorageSync(): void {
+    if (this._pageStateAdapter) return;
     if (this._storageSyncBound) return;
     this._storageSyncBound = true;
     window.addEventListener("storage", (event) => {
@@ -264,11 +307,32 @@ export class AgGridHost implements GridHandle {
   }
 
   _storageKey(): string {
+    return legacyAgGridStateKey(this.gridId, this._legacyStorageScope());
+  }
+
+  _legacyStorageScope(): string {
     const ctx = this.gridOptions.context ?? {};
-    if (ctx.storageScope) {
-      return "agGridState_" + this.gridId + "__" + ctx.storageScope;
+    return ctx.legacyStorageScope ?? ctx.storageScope ?? "";
+  }
+
+  _readLegacyGridState(): PersistedGridState {
+    return readLegacyAgGridState(this.gridId, this._legacyStorageScope());
+  }
+
+  _readStoredGridState(): PersistedGridState {
+    return this._pageStateAdapter?.read() ?? this._readLegacyGridState();
+  }
+
+  _preparePageState(gridDiv: HTMLElement): void {
+    this._pageStateAdapter = prepareAgGridPageState(
+      gridDiv,
+      this.gridId,
+      this._legacyStorageScope(),
+      this.gridOptions.initialState,
+    );
+    if (this._pageStateAdapter?.initialState) {
+      this.gridOptions.initialState = this._pageStateAdapter.initialState;
     }
-    return "agGridState_" + this.gridId;
   }
 
   _gridColumnsReady(): boolean {
@@ -281,14 +345,7 @@ export class AgGridHost implements GridHandle {
   _scheduleDeferredColumnState(): void {
     const api = this.gridApi;
     if (this._deferredColStateScheduled || !api) return;
-    const stateStr = localStorage.getItem(this._storageKey());
-    if (!stateStr) return;
-    let state: PersistedGridState;
-    try {
-      state = JSON.parse(stateStr) as PersistedGridState;
-    } catch (_e) {
-      return;
-    }
+    const state = this._readLegacyGridState();
     if (!state.colState) return;
 
     this._deferredColStateScheduled = true;
@@ -330,6 +387,8 @@ export class AgGridHost implements GridHandle {
     observer.observe(document.documentElement, { attributes: true });
 
     this._extractColumnMeta();
+    this._colSettings = null;
+    this._preparePageState(gridDiv);
 
     const agGridLib = window.agGrid;
     if (!agGridLib) throw new Error("AG Grid is not loaded");
@@ -338,8 +397,8 @@ export class AgGridHost implements GridHandle {
       throw new Error("AG Grid createGrid returned an invalid API");
     }
     this.gridApi = created;
-    this.loadState({ deferColumnState: true });
-    this._scheduleDeferredColumnState();
+    this.loadState({ deferColumnState: !this._pageStateAdapter });
+    if (!this._pageStateAdapter) this._scheduleDeferredColumnState();
 
     window.setTimeout(() => {
       gridDiv.classList.add("cm-ag-grid-root--ready");
@@ -389,36 +448,30 @@ export class AgGridHost implements GridHandle {
     const api = this.gridApi;
     if (!api) return;
 
-    const stateStr = localStorage.getItem(this._storageKey());
-    let state: PersistedGridState = {};
-    if (stateStr) {
-      try {
-        state = JSON.parse(stateStr) as PersistedGridState;
-      } catch (e) {
-        console.error("Error parsing grid state:", e);
-      }
-    }
+    const state = this._readStoredGridState();
 
     const urlParams = this._readUrlGridParams();
     const urlPageState = this._pageStateFromUrl();
     const hasColumns = this._gridColumnsReady();
 
-    if (state.colState && hasColumns && !options.deferColumnState) {
-      api.applyColumnState({ state: state.colState, applyOrder: true });
+    if (state.colState && hasColumns && !options.deferColumnState && !this._pageStateAdapter) {
+      api.applyColumnState({
+        state: withAgGridState(state.colState, state.sort, state.columnSizing),
+        applyOrder: true,
+      });
     }
 
-    const filterState = urlParams.filterState;
-    if (filterState) {
-      api.setFilterModel(filterState);
-    } else {
-      api.setFilterModel(null);
-    }
+    const filterState = urlParams.hasFilterState ? urlParams.filterState : state.filterState;
+    api.setFilterModel(filterState ?? null);
 
-    const urlQ = urlParams.q ?? new URLSearchParams(window.location.search).get("q");
     const qsInput = this._resolveSearchInput();
-    if (urlQ) {
+    if (urlParams.hasQ) {
+      const urlQ = urlParams.q ?? "";
       writeSearchInputValue(qsInput, urlQ);
       this._searchText = urlQ;
+    } else if (typeof state.quickFilter === "string") {
+      writeSearchInputValue(qsInput, state.quickFilter);
+      this._searchText = state.quickFilter;
     }
 
     const pageState = Object.keys(urlPageState).length
@@ -449,14 +502,24 @@ export class AgGridHost implements GridHandle {
     const state: PersistedGridState = {
       colState: api.getColumnState(),
       filterState: api.getFilterModel(),
+      quickFilter: readSearchInputValue(qfEl),
       pageState: this._collectPageState(),
     };
-    localStorage.setItem(this._storageKey(), JSON.stringify(state));
+    if (this._pageStateAdapter) {
+      this._pageStateAdapter.save(state);
+    } else {
+      try {
+        localStorage.setItem(this._storageKey(), JSON.stringify(state));
+      } catch {
+        // Browser preferences remain optional when storage is unavailable.
+      }
+    }
     this.syncBrowserUrl();
     document.dispatchEvent(new CustomEvent("cm-grid-state-change", { detail: { gridId: this.gridId } }));
   }
 
   _initColSettings(): void {
+    if (this._colSettings) return;
     const api = this.gridApi;
     const gridView = window.GridView;
     if (!api || !gridView?.createColumnSettings || !gridView.createAgGridColumnAdapter) return;
@@ -469,7 +532,10 @@ export class AgGridHost implements GridHandle {
         groupsOrder: this.groupsOrder,
         initialPresets: this.savedColPresets,
         preferencesUrl,
-        storageScope: ctx.storageScope ?? "",
+        legacyStorageScope: ctx.legacyStorageScope ?? ctx.storageScope ?? "",
+        pageStateRoot: document.getElementById(this.containerId),
+        initialState: api.getColumnState(),
+        persistLocalState: false,
         onStateChange: () => {
           this.saveGridState();
         },
@@ -622,7 +688,15 @@ export class AgGridHost implements GridHandle {
     const url = new URL(window.location.href);
     ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
     window.history.replaceState({}, "", url);
-    localStorage.removeItem(this._storageKey());
+    if (this._pageStateAdapter) {
+      this._pageStateAdapter.clear();
+    } else {
+      try {
+        localStorage.removeItem(this._storageKey());
+      } catch {
+        // Browser preferences remain optional when storage is unavailable.
+      }
+    }
     this.syncSearchToolbarUi();
     document.dispatchEvent(new CustomEvent("cm-grid-state-change", { detail: { gridId: this.gridId } }));
     if (isInfiniteRowModel(api)) {

@@ -86,8 +86,27 @@ GridView.AgGrid.syncExportLinks("my-grid");
 Toolbar markup uses `data-cm-grid-id`, `data-cm-col-action`, `data-cm-grid-action`, and
 `data-cm-grid-search` — no inline JS required.
 
-`AgGridHost` persists filters, columns, and search to `localStorage` and optionally mirrors them in
-the URL. See [AG-Grid — Persistence](../tables/ag-grid.md#persistence).
+AG Grid stores browser-local table state through `GridView.PageState`; URL filter and
+search values take precedence. See [AG-Grid — Persistence](../tables/ag-grid.md#persistence).
+
+## Page state
+
+`GridView.PageState` stores opaque browser-local persistent JSON for a rendered
+spec root. It does not manage runtime state or render UI.
+
+```javascript
+const pageState = GridView.PageState.forRoot(root);
+
+if (pageState) {
+  pageState.put("layout.drawer", { open: true, width: 480 });
+  const drawer = pageState.get("layout.drawer");
+  pageState.remove("layout.drawer");
+}
+```
+
+`forRoot()` returns `null` outside a connected GridViewSpec root. See
+[Page state](../persistence/page-state.md) for identity, scopes, namespaces,
+storage failures, and URL precedence.
 
 ## AG-Grid adapter (filtered KPI / charts)
 

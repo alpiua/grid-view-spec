@@ -6,8 +6,18 @@ All notable changes to this project are documented here.
 
 ### Added
 
+- Browser-local `GridView.PageState` namespaces for page layout and table state,
+  keyed by `GridViewSpec.id` with optional `GridViewConfig.page_state_scope`.
 - Package `GridViewGallery` lightbox in `gridviewspec.min.js` (thumbs, overlay,
   keyboard, optional `datasource` fetch). No extra pip/npm dependency.
+- Named view presets can include host-owned `pageState` alongside column state
+  through `PageStateHooks`; legacy column-only presets remain supported.
+
+### Changed
+
+- Existing `GridPreference` data and its server API remain unchanged. Table
+  adapters migrate supported legacy browser grid keys once, clear obsolete keys,
+  and then stop dual-writing them.
 
 ### Fixed
 

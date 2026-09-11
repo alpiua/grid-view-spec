@@ -246,30 +246,7 @@ export function syncColgroupOrder(table: HTMLTableElement, colKeys: readonly str
   }
 }
 
-function storageKeyForTable(table: HTMLTableElement): string {
-  const closestShell = table.closest("[data-grid-id]");
-  const shell = closestShell instanceof HTMLElement ? closestShell : null;
-  const gridId = shell?.dataset?.gridId || table.id || "table";
-  return "cmColWidths_" + gridId;
-}
-
-function saveWidthsFallback(table: HTMLTableElement) {
-  const widths: Record<string, number> = {};
-  leafHeaderCells(table).forEach(function (th) {
-    const key = th.dataset.cmColKey;
-    if (!key || th.classList.contains("cm-col-hidden")) return;
-    const w = readColumnWidthPx(table, key);
-    if (w !== null && w > 0) widths[key] = w;
-  });
-  try {
-    localStorage.setItem(storageKeyForTable(table), JSON.stringify(widths));
-  } catch {
-    /* ignore */
-  }
-}
-
 function persistColumnWidths(table: HTMLTableElement) {
-  saveWidthsFallback(table);
   const shell = table.closest('[data-cm-column-settings="1"]') as
     | (HTMLElement & { _colSettings?: { saveState?: () => void } })
     | null;

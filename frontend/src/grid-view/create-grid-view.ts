@@ -40,6 +40,7 @@ import {
 import { initTableEdit } from "./table-edit";
 import type { GridViewPublic } from "./types";
 import { closeGalleryLightbox, openGalleryLightbox } from "../runtime/gallery";
+import { PageState } from "../page-state/page-state";
 
 function mergePluginExports<T extends Record<string, unknown>>(
   base: T,
@@ -55,6 +56,7 @@ export function createGridView(): GridViewPublic {
 
   return {
     preferencesUrl: inheritedPreferencesUrl,
+    PageState,
     init,
     boot,
     byId,

@@ -913,3 +913,4 @@
     }
   }
 }
+        "page_state_scope": { "type": "string", "default": "" },

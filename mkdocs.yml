@@ -113,6 +113,7 @@ nav:
       - PDF: export/pdf.md
       - XLSX: export/xlsx.md
   - Persistence:
+      - Page state: persistence/page-state.md
       - Saved preferences: persistence/preferences.md
   - Tools:
       - MCP server: tools/mcp-server.md

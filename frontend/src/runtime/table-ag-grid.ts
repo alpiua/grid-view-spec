@@ -199,6 +199,8 @@ interface AgGridSpecConfig {
   columns?: AgGridSpecColumn[];
   columnsVar?: string;
   columnSource?: AgGridColumnSourceConfig;
+  legacyStorageScope?: string;
+  /** @deprecated Accepted only while reading older rendered configs. */
   storageScope?: string;
   syncUrlState?: boolean;
   urlPageStateKeys?: string[];
@@ -483,7 +485,7 @@ function bootFromSpecConfig(config: AgGridSpecConfig): void {
       },
       context: {
         gridId,
-        storageScope: config.storageScope || gridId,
+        legacyStorageScope: config.legacyStorageScope || config.storageScope || gridId,
         syncUrlState: config.syncUrlState ?? true,
         urlPageStateKeys: config.urlPageStateKeys || [],
         getPageState,

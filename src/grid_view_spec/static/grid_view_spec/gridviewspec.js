@@ -1779,28 +1779,7 @@
     }
     return null;
   }
-  function storageKeyForTable(table) {
-    var _a;
-    const closestShell = table.closest("[data-grid-id]");
-    const shell = closestShell instanceof HTMLElement ? closestShell : null;
-    const gridId = ((_a = shell == null ? void 0 : shell.dataset) == null ? void 0 : _a.gridId) || table.id || "table";
-    return "cmColWidths_" + gridId;
-  }
-  function saveWidthsFallback(table) {
-    const widths = {};
-    leafHeaderCells(table).forEach(function(th) {
-      const key = th.dataset.cmColKey;
-      if (!key || th.classList.contains("cm-col-hidden")) return;
-      const w = readColumnWidthPx(table, key);
-      if (w !== null && w > 0) widths[key] = w;
-    });
-    try {
-      localStorage.setItem(storageKeyForTable(table), JSON.stringify(widths));
-    } catch (e) {
-    }
-  }
   function persistColumnWidths(table) {
-    saveWidthsFallback(table);
     const shell = table.closest('[data-cm-column-settings="1"]');
     const host = shell == null ? void 0 : shell._colSettings;
     if (host && typeof host.saveState === "function") {
@@ -6076,7 +6055,7 @@
         },
         context: {
           gridId,
-          storageScope: config.storageScope || gridId,
+          legacyStorageScope: config.legacyStorageScope || config.storageScope || gridId,
           syncUrlState: (_b = config.syncUrlState) != null ? _b : true,
           urlPageStateKeys: config.urlPageStateKeys || [],
           getPageState,
@@ -6407,6 +6386,180 @@
     });
   }
 
+  // src/page-state/page-state.ts
+  var ROOT_SELECTOR = "[data-cm-grid-view-spec]";
+  var STORAGE_PREFIX = "cmGridViewPageState:v1:";
+  var VERSION = 1;
+  var FORBIDDEN_OBJECT_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+  var INVALID_JSON_VALUE = Symbol("invalid-json-value");
+  function isSafeKey(key) {
+    return !FORBIDDEN_OBJECT_KEYS.has(key);
+  }
+  function isRecord3(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  function isNamespace(value) {
+    return value.length > 0 && isSafeKey(value);
+  }
+  function isIdentityPart(value, required) {
+    return !required || value.length > 0;
+  }
+  function cloneJsonValue(value, seen = /* @__PURE__ */ new WeakSet()) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+    if (typeof value === "number") return Number.isFinite(value) ? value : INVALID_JSON_VALUE;
+    if (typeof value !== "object") return INVALID_JSON_VALUE;
+    if (seen.has(value)) return INVALID_JSON_VALUE;
+    seen.add(value);
+    try {
+      if (Array.isArray(value)) {
+        const result2 = [];
+        for (const item of value) {
+          const validated = cloneJsonValue(item, seen);
+          if (validated === INVALID_JSON_VALUE) return INVALID_JSON_VALUE;
+          result2.push(validated);
+        }
+        return result2;
+      }
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) return INVALID_JSON_VALUE;
+      const result = /* @__PURE__ */ Object.create(null);
+      for (const [key, item] of Object.entries(value)) {
+        if (!isSafeKey(key)) return INVALID_JSON_VALUE;
+        const validated = cloneJsonValue(item, seen);
+        if (validated === INVALID_JSON_VALUE) return INVALID_JSON_VALUE;
+        result[key] = validated;
+      }
+      return result;
+    } catch (e) {
+      return INVALID_JSON_VALUE;
+    } finally {
+      seen.delete(value);
+    }
+  }
+  function emptyState() {
+    return { version: VERSION, namespaces: /* @__PURE__ */ Object.create(null) };
+  }
+  function parseStoredState(raw) {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!isRecord3(parsed)) return null;
+      const envelope = parsed;
+      if (envelope.version !== VERSION) return null;
+      const namespaces = envelope.namespaces;
+      if (!isRecord3(namespaces)) return null;
+      const validState = emptyState();
+      for (const [namespace, value] of Object.entries(namespaces)) {
+        if (!isNamespace(namespace)) return null;
+        const validated = cloneJsonValue(value);
+        if (validated === INVALID_JSON_VALUE) return null;
+        validState.namespaces[namespace] = validated;
+      }
+      return validState;
+    } catch (e) {
+      return null;
+    }
+  }
+  function browserStorage() {
+    try {
+      return typeof window === "undefined" ? null : window.localStorage;
+    } catch (e) {
+      return null;
+    }
+  }
+  function readState(storage, key) {
+    try {
+      return parseStoredState(storage.getItem(key));
+    } catch (e) {
+      return null;
+    }
+  }
+  function writeState(storage, key, state) {
+    try {
+      storage.setItem(key, JSON.stringify(state));
+    } catch (e) {
+    }
+  }
+  function removeState(storage, key) {
+    try {
+      storage.removeItem(key);
+    } catch (e) {
+    }
+  }
+  function resolveSpecRoot(root) {
+    if (!root.isConnected) return null;
+    const specRoot = root.matches(ROOT_SELECTOR) ? root : root.closest(ROOT_SELECTOR);
+    return specRoot instanceof HTMLElement ? specRoot : null;
+  }
+  function pageStateIdentity(root) {
+    var _a, _b;
+    const specId = (_a = root.getAttribute("data-spec-id")) != null ? _a : "";
+    const scope = (_b = root.getAttribute("data-cm-page-state-scope")) != null ? _b : "";
+    if (!isIdentityPart(specId, true) || !isIdentityPart(scope, false)) return null;
+    try {
+      return {
+        storageKey: `${STORAGE_PREFIX}${encodeURIComponent(specId)}:${encodeURIComponent(scope)}`
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+  var LocalPageStateHandle = class {
+    constructor(root, storageKey) {
+      this.root = root;
+      this.storageKey = storageKey;
+    }
+    get(namespace) {
+      if (!this.isLive() || !isNamespace(namespace)) return void 0;
+      const storage = browserStorage();
+      const stored = storage ? readState(storage, this.storageKey) : null;
+      const value = stored == null ? void 0 : stored.namespaces[namespace];
+      if (value === void 0) return void 0;
+      const cloned = cloneJsonValue(value);
+      return cloned === INVALID_JSON_VALUE ? void 0 : cloned;
+    }
+    put(namespace, value) {
+      var _a;
+      if (!this.isLive() || !isNamespace(namespace)) return;
+      const validated = cloneJsonValue(value);
+      if (validated === INVALID_JSON_VALUE) return;
+      const storage = browserStorage();
+      if (!storage) return;
+      const state = (_a = readState(storage, this.storageKey)) != null ? _a : emptyState();
+      state.namespaces[namespace] = validated;
+      writeState(storage, this.storageKey, state);
+    }
+    remove(namespace) {
+      if (!this.isLive() || !isNamespace(namespace)) return;
+      const storage = browserStorage();
+      if (!storage) return;
+      const state = readState(storage, this.storageKey);
+      if (!state) {
+        removeState(storage, this.storageKey);
+        return;
+      }
+      if (!(namespace in state.namespaces)) return;
+      delete state.namespaces[namespace];
+      if (Object.keys(state.namespaces).length === 0) {
+        removeState(storage, this.storageKey);
+        return;
+      }
+      writeState(storage, this.storageKey, state);
+    }
+    isLive() {
+      return this.root.isConnected;
+    }
+  };
+  var PageState = {
+    forRoot(root) {
+      if (typeof Element === "undefined" || !(root instanceof Element)) return null;
+      const specRoot = resolveSpecRoot(root);
+      if (!specRoot) return null;
+      const identity = pageStateIdentity(specRoot);
+      return identity ? new LocalPageStateHandle(specRoot, identity.storageKey) : null;
+    }
+  };
+
   // src/grid-view/create-grid-view.ts
   function mergePluginExports(base, prior) {
     if (!prior) return base;
@@ -6418,6 +6571,7 @@
     const inheritedPreferencesUrl = ((_a = g.GridView) == null ? void 0 : _a.preferencesUrl) || "";
     return {
       preferencesUrl: inheritedPreferencesUrl,
+      PageState,
       init,
       boot,
       byId,
@@ -6965,7 +7119,158 @@
     return null;
   }
 
+  // src/column-settings/page-state.ts
+  var WIDTH_PATTERN = /^\d+(?:\.\d+)?(?:px|%|rem|em|vw|vh)?$/i;
+  var FORBIDDEN_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+  function isRecord4(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  function isSafeKey2(key) {
+    return !FORBIDDEN_KEYS.has(key);
+  }
+  function isJsonValue(value, seen = /* @__PURE__ */ new WeakSet()) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value !== "object" || seen.has(value)) return false;
+    seen.add(value);
+    try {
+      if (Array.isArray(value)) return value.every((item) => isJsonValue(item, seen));
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) return false;
+      return Object.entries(value).every(
+        ([key, item]) => isSafeKey2(key) && isJsonValue(item, seen)
+      );
+    } finally {
+      seen.delete(value);
+    }
+  }
+  function isJsonRecord(value) {
+    return isRecord4(value) && isJsonValue(value);
+  }
+  function normalizeWidth(value) {
+    if (value == null) return null;
+    if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : null;
+    if (typeof value !== "string") return null;
+    const width = value.trim();
+    return width.length <= 32 && WIDTH_PATTERN.test(width) ? width : null;
+  }
+  function normalizeColumnState(value) {
+    if (!Array.isArray(value)) return null;
+    const seen = /* @__PURE__ */ new Set();
+    const normalized = [];
+    for (const raw of value) {
+      if (!isRecord4(raw) || typeof raw.colId !== "string") return null;
+      const colId = raw.colId.trim();
+      if (!colId || colId.length > 256 || seen.has(colId)) return null;
+      seen.add(colId);
+      normalized.push({
+        colId,
+        hide: raw.hide === true,
+        pinned: raw.pinned === "left" || raw.pinned === "right" ? raw.pinned : null,
+        width: normalizeWidth(raw.width)
+      });
+    }
+    return normalized;
+  }
+  function normalizePageColumnState(value) {
+    if (!Array.isArray(value)) return null;
+    const seen = /* @__PURE__ */ new Set();
+    const normalized = [];
+    for (const raw of value) {
+      if (!isJsonRecord(raw) || typeof raw.id !== "string" || typeof raw.hidden !== "boolean") {
+        return null;
+      }
+      const colId = raw.id.trim();
+      if (!colId || colId.length > 256 || seen.has(colId)) return null;
+      const pinned = raw.pinned;
+      if (pinned !== void 0 && pinned !== "left" && pinned !== "right" && pinned !== null) {
+        return null;
+      }
+      const width = raw.width === void 0 ? null : normalizeWidth(raw.width);
+      if (raw.width !== void 0 && width === null) return null;
+      seen.add(colId);
+      normalized.push({
+        colId,
+        hide: raw.hidden,
+        pinned: pinned === "left" || pinned === "right" ? pinned : null,
+        width
+      });
+    }
+    return normalized;
+  }
+  function statesEqual(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+  function pageColumnStoreForRoot(root, gridId) {
+    const handle = PageState.forRoot(root);
+    if (!handle) return null;
+    return {
+      handle,
+      columnsNamespace: `grid.${gridId}.columns`,
+      agGridNamespace: `grid.${gridId}.ag_grid`
+    };
+  }
+  function readPageColumns(store) {
+    return normalizePageColumnState(store.handle.get(store.columnsNamespace));
+  }
+  function serializeColumnState(state) {
+    return state.map((column) => {
+      const serialized = {
+        id: column.colId,
+        hidden: column.hide
+      };
+      if (column.pinned) serialized.pinned = column.pinned;
+      if (column.width != null) serialized.width = column.width;
+      return serialized;
+    });
+  }
+  function putPageColumns(store, state) {
+    const normalized = normalizeColumnState(state);
+    if (!normalized) return false;
+    store.handle.put(store.columnsNamespace, serializeColumnState(normalized));
+    const persisted = readPageColumns(store);
+    return persisted !== null && statesEqual(persisted, normalized);
+  }
+  function browserStorage2() {
+    try {
+      return typeof window === "undefined" ? null : window.localStorage;
+    } catch (e) {
+      return null;
+    }
+  }
+  function readLegacyJson(key) {
+    const storage = browserStorage2();
+    if (!storage) return null;
+    try {
+      const value = JSON.parse(storage.getItem(key) || "null");
+      return isJsonValue(value) ? value : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  function removeLegacyKeys(keys) {
+    const storage = browserStorage2();
+    if (!storage) return;
+    keys.forEach((key) => {
+      try {
+        storage.removeItem(key);
+      } catch (e) {
+      }
+    });
+  }
+  function mergeLegacyWidths(state, legacyWidths) {
+    if (!isJsonRecord(legacyWidths)) return state;
+    return state.map((column) => {
+      if (column.width != null) return column;
+      const width = normalizeWidth(legacyWidths[column.colId]);
+      return width == null ? column : { ...column, width };
+    });
+  }
+
   // src/column-settings/host.ts
+  function isSavedColumnPreset(value) {
+    return !Array.isArray(value);
+  }
   var ColumnSettingsHost = class {
     constructor(gridId, adapter, options) {
       this.activePresetName = null;
@@ -6974,6 +7279,7 @@
       this.adapter = adapter;
       this.groupsOrder = opts.groupsOrder || [];
       this.savedColPresets = opts.initialPresets || {};
+      this.pageStateHooks = opts.pageStateHooks || {};
       try {
         const stored = localStorage.getItem("agGridPresets_" + this.gridId) || localStorage.getItem("cmColPresets_" + this.gridId);
         if (stored) {
@@ -6988,7 +7294,9 @@
       } catch (e) {
       }
       this.preferencesUrl = opts.preferencesUrl || "";
-      this.storageScope = opts.storageScope || "";
+      this.storageScope = opts.legacyStorageScope || opts.storageScope || "";
+      this.pageColumnStore = pageColumnStoreForRoot(opts.pageStateRoot, this.gridId);
+      this.persistLocalState = opts.persistLocalState !== false;
       this.onStateChange = opts.onStateChange || null;
       this.colOrderSortable = null;
       try {
@@ -7004,8 +7312,13 @@
       this.syncExportLinks();
     }
     applyPreset(name) {
-      if (!this.savedColPresets[name]) return;
-      this.adapter.applyColumnState(this.savedColPresets[name], true);
+      const preset = this.savedColPresets[name];
+      if (!preset) return;
+      const columns = Array.isArray(preset) ? preset : preset.columns;
+      this.adapter.applyColumnState(columns, true);
+      if (isSavedColumnPreset(preset) && preset.pageState && this.pageStateHooks.applyPageState) {
+        this.pageStateHooks.applyPageState(preset.pageState);
+      }
       this.activePresetName = name;
       try {
         localStorage.setItem("cmActivePreset_" + this.gridId, name);
@@ -7051,38 +7364,63 @@
       });
     }
     _applyInitialState(initialState) {
+      var _a, _b;
       let state = initialState;
-      if (!state) {
+      if (!state && this.pageColumnStore) {
+        state = (_a = readPageColumns(this.pageColumnStore)) != null ? _a : void 0;
+        if (!state) {
+          const legacyState = normalizeColumnState(readLegacyJson(this._storageKey()));
+          const legacyWidthKey = "cmColWidths_" + this.gridId;
+          const legacyWidths = readLegacyJson(legacyWidthKey);
+          const hasLegacyWidths = isJsonRecord(legacyWidths) && Object.keys(legacyWidths).length > 0;
+          let migrationBase = legacyState;
+          if (!migrationBase && hasLegacyWidths) {
+            try {
+              const currentState = normalizeColumnState(this.adapter.getColumnState());
+              migrationBase = currentState && currentState.length > 0 ? currentState : null;
+            } catch (e) {
+              migrationBase = null;
+            }
+          }
+          if (migrationBase) {
+            const migrated = mergeLegacyWidths(
+              migrationBase,
+              legacyWidths
+            );
+            if (putPageColumns(this.pageColumnStore, migrated)) {
+              const migratedKeys = [legacyWidthKey];
+              if (legacyState) migratedKeys.unshift(this._storageKey());
+              removeLegacyKeys(migratedKeys);
+            }
+            state = migrated;
+          }
+        }
+      } else if (!state) {
         try {
           const raw = localStorage.getItem(this._storageKey());
-          if (raw) state = JSON.parse(raw);
+          if (raw) state = (_b = normalizeColumnState(JSON.parse(raw))) != null ? _b : void 0;
         } catch (e) {
         }
       }
       if (state && Array.isArray(state)) {
-        if (typeof this.adapter.clearWidths === "function") {
-          this.adapter.clearWidths();
-        }
-        const layoutState = state.map((item) => {
-          if (!item || !item.colId) return item;
-          return {
-            colId: item.colId,
-            hide: !!item.hide,
-            pinned: item.pinned || null,
-            width: null
-          };
-        });
-        this.adapter.applyColumnState(layoutState, true);
+        this.adapter.applyColumnState(state, true);
       }
     }
     getColumnState() {
       return this.adapter.getColumnState();
     }
+    setPageStateHooks(hooks) {
+      this.pageStateHooks = hooks;
+    }
     saveState() {
       const state = this.getColumnState();
-      try {
-        localStorage.setItem(this._storageKey(), JSON.stringify(state));
-      } catch (e) {
+      if (this.pageColumnStore) {
+        putPageColumns(this.pageColumnStore, state);
+      } else if (this.persistLocalState) {
+        try {
+          localStorage.setItem(this._storageKey(), JSON.stringify(state));
+        } catch (e) {
+        }
       }
       this.syncExportLinks();
       if (typeof this.onStateChange === "function") this.onStateChange(state);
@@ -7527,10 +7865,12 @@
       }
     }
     saveCurrentPreset() {
+      var _a, _b, _c;
       const nameInput = document.getElementById("preset-name-" + this.gridId);
       const name = nameInput instanceof HTMLInputElement ? nameInput.value.trim() : "";
       if (!name) return;
-      this.savedColPresets[name] = this.getColumnState();
+      const pageState = (_c = (_b = (_a = this.pageStateHooks).getPageState) == null ? void 0 : _b.call(_a)) != null ? _c : {};
+      this.savedColPresets[name] = Object.keys(pageState).length ? { columns: this.getColumnState(), pageState } : this.getColumnState();
       if (nameInput instanceof HTMLInputElement) nameInput.value = "";
       this.renderSavedPresets();
       this.saveColPresetsToServer();
@@ -7603,6 +7943,9 @@
   function isColumnStateItem(value) {
     return typeof value === "object" && value !== null && "colId" in value && typeof value.colId === "string";
   }
+  function isSavedColumnPreset2(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value) && "columns" in value && Array.isArray(value.columns) && value.columns.every(isColumnStateItem);
+  }
   function parsePresets(raw) {
     try {
       const parsed = JSON.parse(raw);
@@ -7610,6 +7953,8 @@
       const out = {};
       for (const [name, state] of Object.entries(parsed)) {
         if (Array.isArray(state) && state.every(isColumnStateItem)) {
+          out[name] = state;
+        } else if (isSavedColumnPreset2(state)) {
           out[name] = state;
         }
       }
@@ -7639,7 +7984,8 @@
     const host = new ColumnSettingsHost(shell.dataset.gridId || "table", adapter, {
       groupsOrder,
       initialPresets: presets,
-      preferencesUrl: shell.dataset.cmPreferencesUrl || ""
+      preferencesUrl: shell.dataset.cmPreferencesUrl || "",
+      pageStateRoot: shell
     });
     shell.dataset.cmColSettingsBound = "1";
     shell._colSettings = host;

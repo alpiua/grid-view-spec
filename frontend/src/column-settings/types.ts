@@ -7,6 +7,20 @@ export interface ColumnStateItem {
   width?: string | number | null;
 }
 
+/** A named view can restore columns together with host-owned page state. */
+export interface SavedColumnPreset {
+  columns: ColumnStateItem[];
+  pageState?: Record<string, unknown>;
+}
+
+/** Legacy presets are column-state arrays; new presets use the envelope above. */
+export type StoredColumnPreset = ColumnStateItem[] | SavedColumnPreset;
+
+export interface PageStateHooks {
+  getPageState?: () => Record<string, unknown>;
+  applyPageState?: (pageState: Record<string, unknown>) => void;
+}
+
 export interface ColumnMetaInput {
   colId: string;
   label?: string;
@@ -57,15 +71,23 @@ export interface ColumnAdapter {
 
 export interface ColumnSettingsOptions {
   groupsOrder?: string[];
-  initialPresets?: Record<string, ColumnStateItem[]>;
+  initialPresets?: Record<string, StoredColumnPreset>;
   preferencesUrl?: string;
+  /** Legacy localStorage scope used only to migrate prior column state. */
+  legacyStorageScope?: string;
+  /** @deprecated Use legacyStorageScope for migration-only legacy keys. */
   storageScope?: string;
+  /** Rendered GridViewSpec root that owns portable page preferences. */
+  pageStateRoot?: Element | null;
   initialState?: ColumnStateItem[];
+  /** False when a host persists column state through its own authoritative store. */
+  persistLocalState?: boolean;
   onStateChange?: (state: ColumnStateItem[]) => void;
+  pageStateHooks?: PageStateHooks;
 }
 
 export interface ColumnSettingsHandle {
-  savedColPresets: Record<string, ColumnStateItem[]>;
+  savedColPresets: Record<string, StoredColumnPreset>;
   toggleColSelector: () => void;
   openColSelectorModal: () => void;
   closeColSelectorModal: () => void;
@@ -77,6 +99,7 @@ export interface ColumnSettingsHandle {
   saveColPresetsToServer: () => void;
   syncExportLinks: () => void;
   getColumnState: () => ColumnStateItem[];
+  setPageStateHooks: (hooks: PageStateHooks) => void;
 }
 
 export interface AgGridColumnLike {

@@ -1030,6 +1030,7 @@ def decode_config(raw: Mapping[str, object]) -> GridViewConfig:
     return GridViewConfig(
         htmx=wire_bool(raw.get("htmx", True)),
         template=wire_str(raw.get("template")),
+        page_state_scope=wire_str(raw.get("page_state_scope")),
         assets=_template_assets(raw.get("assets")),
         lazy=decode_lazy_defaults(wire_object(raw.get("lazy", {}), label="config.lazy")),
     )

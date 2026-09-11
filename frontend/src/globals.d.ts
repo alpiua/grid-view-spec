@@ -12,6 +12,7 @@ import type {
 } from "./column-settings/types";
 import type { ChartsApi } from "./grid-view/charts-bridge";
 import type { ByIdRegistry } from "./grid-view/types";
+import type { PageStateApi } from "./page-state/types";
 
 interface SortableInstance {
   destroy: () => void;
@@ -39,6 +40,7 @@ interface GridViewColumnLayoutStatic {
 
 interface GridViewGlobal {
   preferencesUrl?: string;
+  PageState?: PageStateApi;
   init?: (opts?: Record<string, unknown>) => (() => void) | undefined;
   byId?: ByIdRegistry;
   AgGrid?: {

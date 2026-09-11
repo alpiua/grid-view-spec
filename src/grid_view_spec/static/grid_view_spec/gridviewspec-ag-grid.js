@@ -1,5 +1,583 @@
 "use strict";
 (() => {
+  // src/page-state/page-state.ts
+  var ROOT_SELECTOR = "[data-cm-grid-view-spec]";
+  var STORAGE_PREFIX = "cmGridViewPageState:v1:";
+  var VERSION = 1;
+  var FORBIDDEN_OBJECT_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+  var INVALID_JSON_VALUE = Symbol("invalid-json-value");
+  function isSafeKey(key) {
+    return !FORBIDDEN_OBJECT_KEYS.has(key);
+  }
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  function isNamespace(value) {
+    return value.length > 0 && isSafeKey(value);
+  }
+  function isIdentityPart(value, required) {
+    return !required || value.length > 0;
+  }
+  function cloneJsonValue(value, seen = /* @__PURE__ */ new WeakSet()) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+    if (typeof value === "number") return Number.isFinite(value) ? value : INVALID_JSON_VALUE;
+    if (typeof value !== "object") return INVALID_JSON_VALUE;
+    if (seen.has(value)) return INVALID_JSON_VALUE;
+    seen.add(value);
+    try {
+      if (Array.isArray(value)) {
+        const result2 = [];
+        for (const item of value) {
+          const validated = cloneJsonValue(item, seen);
+          if (validated === INVALID_JSON_VALUE) return INVALID_JSON_VALUE;
+          result2.push(validated);
+        }
+        return result2;
+      }
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) return INVALID_JSON_VALUE;
+      const result = /* @__PURE__ */ Object.create(null);
+      for (const [key, item] of Object.entries(value)) {
+        if (!isSafeKey(key)) return INVALID_JSON_VALUE;
+        const validated = cloneJsonValue(item, seen);
+        if (validated === INVALID_JSON_VALUE) return INVALID_JSON_VALUE;
+        result[key] = validated;
+      }
+      return result;
+    } catch (e) {
+      return INVALID_JSON_VALUE;
+    } finally {
+      seen.delete(value);
+    }
+  }
+  function emptyState() {
+    return { version: VERSION, namespaces: /* @__PURE__ */ Object.create(null) };
+  }
+  function parseStoredState(raw) {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!isRecord(parsed)) return null;
+      const envelope = parsed;
+      if (envelope.version !== VERSION) return null;
+      const namespaces = envelope.namespaces;
+      if (!isRecord(namespaces)) return null;
+      const validState = emptyState();
+      for (const [namespace, value] of Object.entries(namespaces)) {
+        if (!isNamespace(namespace)) return null;
+        const validated = cloneJsonValue(value);
+        if (validated === INVALID_JSON_VALUE) return null;
+        validState.namespaces[namespace] = validated;
+      }
+      return validState;
+    } catch (e) {
+      return null;
+    }
+  }
+  function browserStorage() {
+    try {
+      return typeof window === "undefined" ? null : window.localStorage;
+    } catch (e) {
+      return null;
+    }
+  }
+  function readState(storage, key) {
+    try {
+      return parseStoredState(storage.getItem(key));
+    } catch (e) {
+      return null;
+    }
+  }
+  function writeState(storage, key, state) {
+    try {
+      storage.setItem(key, JSON.stringify(state));
+    } catch (e) {
+    }
+  }
+  function removeState(storage, key) {
+    try {
+      storage.removeItem(key);
+    } catch (e) {
+    }
+  }
+  function resolveSpecRoot(root) {
+    if (!root.isConnected) return null;
+    const specRoot = root.matches(ROOT_SELECTOR) ? root : root.closest(ROOT_SELECTOR);
+    return specRoot instanceof HTMLElement ? specRoot : null;
+  }
+  function pageStateIdentity(root) {
+    var _a, _b;
+    const specId = (_a = root.getAttribute("data-spec-id")) != null ? _a : "";
+    const scope = (_b = root.getAttribute("data-cm-page-state-scope")) != null ? _b : "";
+    if (!isIdentityPart(specId, true) || !isIdentityPart(scope, false)) return null;
+    try {
+      return {
+        storageKey: `${STORAGE_PREFIX}${encodeURIComponent(specId)}:${encodeURIComponent(scope)}`
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+  var LocalPageStateHandle = class {
+    constructor(root, storageKey) {
+      this.root = root;
+      this.storageKey = storageKey;
+    }
+    get(namespace) {
+      if (!this.isLive() || !isNamespace(namespace)) return void 0;
+      const storage = browserStorage();
+      const stored = storage ? readState(storage, this.storageKey) : null;
+      const value = stored == null ? void 0 : stored.namespaces[namespace];
+      if (value === void 0) return void 0;
+      const cloned = cloneJsonValue(value);
+      return cloned === INVALID_JSON_VALUE ? void 0 : cloned;
+    }
+    put(namespace, value) {
+      var _a;
+      if (!this.isLive() || !isNamespace(namespace)) return;
+      const validated = cloneJsonValue(value);
+      if (validated === INVALID_JSON_VALUE) return;
+      const storage = browserStorage();
+      if (!storage) return;
+      const state = (_a = readState(storage, this.storageKey)) != null ? _a : emptyState();
+      state.namespaces[namespace] = validated;
+      writeState(storage, this.storageKey, state);
+    }
+    remove(namespace) {
+      if (!this.isLive() || !isNamespace(namespace)) return;
+      const storage = browserStorage();
+      if (!storage) return;
+      const state = readState(storage, this.storageKey);
+      if (!state) {
+        removeState(storage, this.storageKey);
+        return;
+      }
+      if (!(namespace in state.namespaces)) return;
+      delete state.namespaces[namespace];
+      if (Object.keys(state.namespaces).length === 0) {
+        removeState(storage, this.storageKey);
+        return;
+      }
+      writeState(storage, this.storageKey, state);
+    }
+    isLive() {
+      return this.root.isConnected;
+    }
+  };
+  var PageState = {
+    forRoot(root) {
+      if (typeof Element === "undefined" || !(root instanceof Element)) return null;
+      const specRoot = resolveSpecRoot(root);
+      if (!specRoot) return null;
+      const identity = pageStateIdentity(specRoot);
+      return identity ? new LocalPageStateHandle(specRoot, identity.storageKey) : null;
+    }
+  };
+
+  // src/column-settings/page-state.ts
+  var WIDTH_PATTERN = /^\d+(?:\.\d+)?(?:px|%|rem|em|vw|vh)?$/i;
+  var FORBIDDEN_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+  function isRecord2(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  function isSafeKey2(key) {
+    return !FORBIDDEN_KEYS.has(key);
+  }
+  function isJsonValue(value, seen = /* @__PURE__ */ new WeakSet()) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value !== "object" || seen.has(value)) return false;
+    seen.add(value);
+    try {
+      if (Array.isArray(value)) return value.every((item) => isJsonValue(item, seen));
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) return false;
+      return Object.entries(value).every(
+        ([key, item]) => isSafeKey2(key) && isJsonValue(item, seen)
+      );
+    } finally {
+      seen.delete(value);
+    }
+  }
+  function isJsonRecord(value) {
+    return isRecord2(value) && isJsonValue(value);
+  }
+  function normalizeWidth(value) {
+    if (value == null) return null;
+    if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : null;
+    if (typeof value !== "string") return null;
+    const width = value.trim();
+    return width.length <= 32 && WIDTH_PATTERN.test(width) ? width : null;
+  }
+  function normalizeColumnState(value) {
+    if (!Array.isArray(value)) return null;
+    const seen = /* @__PURE__ */ new Set();
+    const normalized = [];
+    for (const raw of value) {
+      if (!isRecord2(raw) || typeof raw.colId !== "string") return null;
+      const colId = raw.colId.trim();
+      if (!colId || colId.length > 256 || seen.has(colId)) return null;
+      seen.add(colId);
+      normalized.push({
+        colId,
+        hide: raw.hide === true,
+        pinned: raw.pinned === "left" || raw.pinned === "right" ? raw.pinned : null,
+        width: normalizeWidth(raw.width)
+      });
+    }
+    return normalized;
+  }
+  function normalizePageColumnState(value) {
+    if (!Array.isArray(value)) return null;
+    const seen = /* @__PURE__ */ new Set();
+    const normalized = [];
+    for (const raw of value) {
+      if (!isJsonRecord(raw) || typeof raw.id !== "string" || typeof raw.hidden !== "boolean") {
+        return null;
+      }
+      const colId = raw.id.trim();
+      if (!colId || colId.length > 256 || seen.has(colId)) return null;
+      const pinned = raw.pinned;
+      if (pinned !== void 0 && pinned !== "left" && pinned !== "right" && pinned !== null) {
+        return null;
+      }
+      const width = raw.width === void 0 ? null : normalizeWidth(raw.width);
+      if (raw.width !== void 0 && width === null) return null;
+      seen.add(colId);
+      normalized.push({
+        colId,
+        hide: raw.hidden,
+        pinned: pinned === "left" || pinned === "right" ? pinned : null,
+        width
+      });
+    }
+    return normalized;
+  }
+  function statesEqual(left, right) {
+    return JSON.stringify(left) === JSON.stringify(right);
+  }
+  function pageColumnStoreForRoot(root, gridId) {
+    const handle = PageState.forRoot(root);
+    if (!handle) return null;
+    return {
+      handle,
+      columnsNamespace: `grid.${gridId}.columns`,
+      agGridNamespace: `grid.${gridId}.ag_grid`
+    };
+  }
+  function readPageColumns(store) {
+    return normalizePageColumnState(store.handle.get(store.columnsNamespace));
+  }
+  function serializeColumnState(state) {
+    return state.map((column) => {
+      const serialized = {
+        id: column.colId,
+        hidden: column.hide
+      };
+      if (column.pinned) serialized.pinned = column.pinned;
+      if (column.width != null) serialized.width = column.width;
+      return serialized;
+    });
+  }
+  function putPageColumns(store, state) {
+    const normalized = normalizeColumnState(state);
+    if (!normalized) return false;
+    store.handle.put(store.columnsNamespace, serializeColumnState(normalized));
+    const persisted = readPageColumns(store);
+    return persisted !== null && statesEqual(persisted, normalized);
+  }
+  function readPageAgGridState(store) {
+    const value = store.handle.get(store.agGridNamespace);
+    return isJsonRecord(value) ? value : null;
+  }
+  function putPageAgGridState(store, state) {
+    if (!isJsonRecord(state)) return false;
+    store.handle.put(store.agGridNamespace, state);
+    return readPageAgGridState(store) !== null;
+  }
+  function browserStorage2() {
+    try {
+      return typeof window === "undefined" ? null : window.localStorage;
+    } catch (e) {
+      return null;
+    }
+  }
+  function readLegacyJson(key) {
+    const storage = browserStorage2();
+    if (!storage) return null;
+    try {
+      const value = JSON.parse(storage.getItem(key) || "null");
+      return isJsonValue(value) ? value : null;
+    } catch (e) {
+      return null;
+    }
+  }
+  function removeLegacyKeys(keys) {
+    const storage = browserStorage2();
+    if (!storage) return;
+    keys.forEach((key) => {
+      try {
+        storage.removeItem(key);
+      } catch (e) {
+      }
+    });
+  }
+  function legacyScopedKey(prefix, gridId, scope) {
+    return scope ? `${prefix}${gridId}__${scope}` : `${prefix}${gridId}`;
+  }
+  function mergeLegacyWidths(state, legacyWidths) {
+    if (!isJsonRecord(legacyWidths)) return state;
+    return state.map((column) => {
+      if (column.width != null) return column;
+      const width = normalizeWidth(legacyWidths[column.colId]);
+      return width == null ? column : { ...column, width };
+    });
+  }
+
+  // src/ag-grid/page-state.ts
+  function sortStateFromModel(value) {
+    if (!Array.isArray(value)) return void 0;
+    const seen = /* @__PURE__ */ new Set();
+    const sortModel = [];
+    for (const raw of value) {
+      if (!isJsonRecord(raw) || typeof raw.colId !== "string") return void 0;
+      const colId = raw.colId.trim();
+      if (!colId || seen.has(colId) || raw.sort !== "asc" && raw.sort !== "desc") {
+        return void 0;
+      }
+      seen.add(colId);
+      sortModel.push({ colId, sort: raw.sort });
+    }
+    return { sortModel };
+  }
+  function sortStateFromColumnState(value) {
+    if (!Array.isArray(value) || !normalizeColumnState(value)) return void 0;
+    const seen = /* @__PURE__ */ new Set();
+    const candidates = [];
+    value.forEach((raw, position) => {
+      if (!isJsonRecord(raw) || typeof raw.colId !== "string") return;
+      const colId = raw.colId.trim();
+      if (!colId || seen.has(colId) || raw.sort !== "asc" && raw.sort !== "desc") return;
+      seen.add(colId);
+      candidates.push({
+        colId,
+        sort: raw.sort,
+        sortIndex: typeof raw.sortIndex === "number" && Number.isInteger(raw.sortIndex) && raw.sortIndex >= 0 ? raw.sortIndex : null,
+        position
+      });
+    });
+    candidates.sort((left, right) => {
+      var _a, _b;
+      const leftIndex = (_a = left.sortIndex) != null ? _a : Number.MAX_SAFE_INTEGER;
+      const rightIndex = (_b = right.sortIndex) != null ? _b : Number.MAX_SAFE_INTEGER;
+      return leftIndex - rightIndex || left.position - right.position;
+    });
+    return {
+      sortModel: candidates.map(({ colId, sort }) => ({ colId, sort }))
+    };
+  }
+  function columnSizingStateFromModel(value) {
+    if (!Array.isArray(value)) return void 0;
+    const seen = /* @__PURE__ */ new Set();
+    const columnSizingModel = [];
+    for (const raw of value) {
+      if (!isJsonRecord(raw) || typeof raw.colId !== "string") return void 0;
+      const colId = raw.colId.trim();
+      if (!colId || seen.has(colId) || typeof raw.flex !== "number" || !Number.isFinite(raw.flex) || raw.flex <= 0) {
+        return void 0;
+      }
+      seen.add(colId);
+      columnSizingModel.push({ colId, flex: raw.flex });
+    }
+    return columnSizingModel.length ? { columnSizingModel } : void 0;
+  }
+  function columnSizingStateFromColumnState(value) {
+    if (!Array.isArray(value) || !normalizeColumnState(value)) return void 0;
+    const seen = /* @__PURE__ */ new Set();
+    const columnSizingModel = [];
+    for (const raw of value) {
+      if (!isJsonRecord(raw) || typeof raw.colId !== "string") continue;
+      const colId = raw.colId.trim();
+      if (!colId || seen.has(colId) || typeof raw.flex !== "number" || !Number.isFinite(raw.flex) || raw.flex <= 0) {
+        continue;
+      }
+      seen.add(colId);
+      columnSizingModel.push({ colId, flex: raw.flex });
+    }
+    return columnSizingModel.length ? { columnSizingModel } : void 0;
+  }
+  function stateFromRecord(value) {
+    var _a, _b, _c;
+    const filterState = isJsonRecord(value.filterState) ? value.filterState : void 0;
+    const pageState = isJsonRecord(value.pageState) ? value.pageState : void 0;
+    return {
+      colState: (_a = normalizeColumnState(value.colState)) != null ? _a : void 0,
+      filterState,
+      quickFilter: typeof value.quickFilter === "string" ? value.quickFilter : void 0,
+      pageState,
+      sort: (_b = sortStateFromModel(isJsonRecord(value.sort) ? value.sort.sortModel : void 0)) != null ? _b : sortStateFromColumnState(value.colState),
+      columnSizing: (_c = columnSizingStateFromModel(
+        isJsonRecord(value.columnSizing) ? value.columnSizing.columnSizingModel : void 0
+      )) != null ? _c : columnSizingStateFromColumnState(value.colState)
+    };
+  }
+  function agOnlyState(state) {
+    var _a, _b, _c;
+    const result = {};
+    if (state.filterState && isJsonRecord(state.filterState)) result.filterState = state.filterState;
+    if (typeof state.quickFilter === "string") result.quickFilter = state.quickFilter;
+    if (state.pageState && isJsonRecord(state.pageState)) result.pageState = state.pageState;
+    const sort = (_a = state.sort) != null ? _a : sortStateFromColumnState(state.colState);
+    if (sort) {
+      result.sort = {
+        sortModel: sort.sortModel.map(({ colId, sort: direction }) => ({
+          colId,
+          sort: direction
+        }))
+      };
+    }
+    const columnSizing = (_b = state.columnSizing) != null ? _b : columnSizingStateFromColumnState(state.colState);
+    const flexColumns = ((_c = columnSizing == null ? void 0 : columnSizing.columnSizingModel) != null ? _c : []).filter(
+      (item) => typeof item.flex === "number"
+    );
+    if (flexColumns.length) {
+      result.columnSizing = {
+        columnSizingModel: flexColumns.map(({ colId, flex }) => ({
+          colId,
+          flex
+        }))
+      };
+    }
+    return result;
+  }
+  function numericWidth(value) {
+    if (typeof value === "number") return Number.isFinite(value) && value > 0 ? value : null;
+    if (typeof value !== "string") return null;
+    const match = value.trim().match(/^(\d+(?:\.\d+)?)px$/i);
+    if (!match) return null;
+    const width = Number(match[1]);
+    return Number.isFinite(width) && width > 0 ? width : null;
+  }
+  function initialStateForColumns(columns) {
+    return {
+      columnOrder: { orderedColIds: columns.map((column) => column.colId) },
+      columnVisibility: {
+        hiddenColIds: columns.filter((column) => column.hide).map((column) => column.colId)
+      },
+      columnPinning: {
+        leftColIds: columns.filter((column) => column.pinned === "left").map((column) => column.colId),
+        rightColIds: columns.filter((column) => column.pinned === "right").map((column) => column.colId)
+      },
+      columnSizing: {
+        columnSizingModel: columns.map((column) => {
+          const width = numericWidth(column.width);
+          return width === null ? null : { colId: column.colId, width };
+        }).filter((column) => column !== null)
+      }
+    };
+  }
+  function withFlexSizing(initialState, flexSizing) {
+    var _a, _b;
+    if (!(flexSizing == null ? void 0 : flexSizing.columnSizingModel.length)) return initialState;
+    const sizingModel = ((_b = (_a = initialState.columnSizing) == null ? void 0 : _a.columnSizingModel) != null ? _b : []).map((item) => ({
+      ...item
+    }));
+    const sizingIndex = new Map(sizingModel.map((item, index) => [item.colId, index]));
+    flexSizing.columnSizingModel.forEach(({ colId, flex }) => {
+      const index = sizingIndex.get(colId);
+      if (index === void 0) {
+        sizingIndex.set(colId, sizingModel.length);
+        sizingModel.push({ colId, flex });
+        return;
+      }
+      sizingModel[index] = { ...sizingModel[index], flex };
+    });
+    return {
+      ...initialState,
+      columnSizing: { columnSizingModel: sizingModel }
+    };
+  }
+  function legacyAgGridStateKey(gridId, scope) {
+    return legacyScopedKey("agGridState_", gridId, scope);
+  }
+  function legacyColumnStateKey(gridId, scope) {
+    return legacyScopedKey("cmColState_", gridId, scope);
+  }
+  function readLegacyAgGridState(gridId, scope) {
+    const stored = readLegacyJson(legacyAgGridStateKey(gridId, scope));
+    return isJsonRecord(stored) ? stateFromRecord(stored) : {};
+  }
+  function prepareAgGridPageState(root, gridId, legacyScope, configuredInitialState) {
+    var _a, _b;
+    const store = pageColumnStoreForRoot(root, gridId);
+    if (!store) return null;
+    const agKey = legacyAgGridStateKey(gridId, legacyScope);
+    const columnKey = legacyColumnStateKey(gridId, legacyScope);
+    const widthKey = "cmColWidths_" + gridId;
+    let columns = readPageColumns(store);
+    const legacyAgRaw = readLegacyJson(agKey);
+    const hasLegacyAgState = isJsonRecord(legacyAgRaw);
+    const legacyAgState = hasLegacyAgState ? stateFromRecord(legacyAgRaw) : {};
+    const legacyColumns = normalizeColumnState(readLegacyJson(columnKey));
+    const legacyWidths = readLegacyJson(widthKey);
+    let persistedColumns = columns !== null;
+    if (!columns) {
+      const source = (_a = legacyAgState.colState) != null ? _a : legacyColumns;
+      if (source) {
+        const migrated = mergeLegacyWidths(source, legacyWidths);
+        if (putPageColumns(store, migrated)) {
+          columns = (_b = readPageColumns(store)) != null ? _b : migrated;
+          persistedColumns = true;
+          if (!legacyAgState.colState) removeLegacyKeys([columnKey, widthKey]);
+        } else {
+          columns = migrated;
+        }
+      }
+    }
+    if (persistedColumns && legacyColumns) removeLegacyKeys([columnKey, widthKey]);
+    let storedAgState = readPageAgGridState(store);
+    let persistedAgState = storedAgState !== null;
+    if (!persistedAgState) {
+      const migratedAgState = agOnlyState(legacyAgState);
+      if (!Object.keys(migratedAgState).length) {
+        persistedAgState = true;
+      } else if (putPageAgGridState(store, migratedAgState)) {
+        persistedAgState = true;
+        storedAgState = readPageAgGridState(store);
+      }
+    }
+    const legacyColumnsHandled = legacyAgState.colState === void 0 || persistedColumns;
+    if (hasLegacyAgState && legacyColumnsHandled && persistedAgState) {
+      removeLegacyKeys([agKey]);
+      if (legacyAgState.colState !== void 0) removeLegacyKeys([widthKey]);
+    }
+    const initialAgState = storedAgState ? stateFromRecord(storedAgState) : legacyAgState;
+    const hasRestoredInitialState = columns !== null || initialAgState.sort !== void 0 || initialAgState.columnSizing !== void 0;
+    const nativeInitialState = withFlexSizing(
+      {
+        ...configuredInitialState != null ? configuredInitialState : {},
+        ...columns ? initialStateForColumns(columns) : {},
+        ...initialAgState.sort ? { sort: initialAgState.sort } : {}
+      },
+      initialAgState.columnSizing
+    );
+    return {
+      store,
+      initialState: hasRestoredInitialState ? nativeInitialState : null,
+      read: () => {
+        const stored = readPageAgGridState(store);
+        return stored ? stateFromRecord(stored) : {};
+      },
+      save: (state) => {
+        if (state.colState) putPageColumns(store, state.colState);
+        const agState = agOnlyState(state);
+        if (Object.keys(agState).length) putPageAgGridState(store, agState);
+        else store.handle.remove(store.agGridNamespace);
+      },
+      clear: () => store.handle.remove(store.agGridNamespace)
+    };
+  }
+
   // src/ag-grid/types.ts
   function readSearchInputValue(el) {
     return el instanceof HTMLInputElement ? el.value : "";
@@ -58,6 +636,25 @@
     const api = value;
     return typeof api.getFilterModel === "function" && typeof api.addEventListener === "function";
   }
+  function withAgGridState(columns, sort, columnSizing) {
+    const sortIndexById = new Map(
+      sort == null ? void 0 : sort.sortModel.map(({ colId, sort: sort2 }, index) => [colId, { sort: sort2, index }])
+    );
+    const flexById = new Map(
+      columnSizing == null ? void 0 : columnSizing.columnSizingModel.map(({ colId, flex }) => [colId, flex])
+    );
+    return columns.map((column) => {
+      var _a, _b, _c;
+      const entry = sortIndexById.get(column.colId);
+      const sortable = {
+        ...column,
+        flex: (_a = flexById.get(column.colId)) != null ? _a : null,
+        sort: (_b = entry == null ? void 0 : entry.sort) != null ? _b : null,
+        sortIndex: (_c = entry == null ? void 0 : entry.index) != null ? _c : null
+      };
+      return sortable;
+    });
+  }
   var AgGridHost = class {
     constructor(gridId, containerId, optionsVar, initialPresets, initialSearches, groupsOrder) {
       var _a;
@@ -89,6 +686,7 @@
       this._colSettings = null;
       this._searchText = "";
       this._columnMeta = {};
+      this._pageStateAdapter = null;
       this._storageSyncBound = false;
       this._deferredColStateScheduled = false;
       if ((_a = window.GridView) == null ? void 0 : _a.byId) {
@@ -164,17 +762,19 @@
       }
     }
     _readUrlGridParams() {
+      var _a;
       const params = new URLSearchParams(window.location.search);
       const out = {};
-      const q = params.get("q");
-      if (q) out.q = q;
-      const filters = params.get("filters");
-      if (filters) {
+      if (params.has("q")) {
+        out.hasQ = true;
+        out.q = (_a = params.get("q")) != null ? _a : "";
+      }
+      if (params.has("filters")) {
+        out.hasFilterState = true;
+        const filters = params.get("filters");
         try {
-          const parsed = JSON.parse(filters);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            out.filterState = parsed;
-          }
+          const parsed = JSON.parse(filters || "null");
+          if (isJsonRecord(parsed)) out.filterState = parsed;
         } catch (_e) {
         }
       }
@@ -228,6 +828,7 @@
       }
     }
     _bindStorageSync() {
+      if (this._pageStateAdapter) return;
       if (this._storageSyncBound) return;
       this._storageSyncBound = true;
       window.addEventListener("storage", (event) => {
@@ -236,12 +837,31 @@
       });
     }
     _storageKey() {
-      var _a;
+      return legacyAgGridStateKey(this.gridId, this._legacyStorageScope());
+    }
+    _legacyStorageScope() {
+      var _a, _b, _c;
       const ctx = (_a = this.gridOptions.context) != null ? _a : {};
-      if (ctx.storageScope) {
-        return "agGridState_" + this.gridId + "__" + ctx.storageScope;
+      return (_c = (_b = ctx.legacyStorageScope) != null ? _b : ctx.storageScope) != null ? _c : "";
+    }
+    _readLegacyGridState() {
+      return readLegacyAgGridState(this.gridId, this._legacyStorageScope());
+    }
+    _readStoredGridState() {
+      var _a, _b;
+      return (_b = (_a = this._pageStateAdapter) == null ? void 0 : _a.read()) != null ? _b : this._readLegacyGridState();
+    }
+    _preparePageState(gridDiv) {
+      var _a;
+      this._pageStateAdapter = prepareAgGridPageState(
+        gridDiv,
+        this.gridId,
+        this._legacyStorageScope(),
+        this.gridOptions.initialState
+      );
+      if ((_a = this._pageStateAdapter) == null ? void 0 : _a.initialState) {
+        this.gridOptions.initialState = this._pageStateAdapter.initialState;
       }
-      return "agGridState_" + this.gridId;
     }
     _gridColumnsReady() {
       const api = this.gridApi;
@@ -252,14 +872,7 @@
     _scheduleDeferredColumnState() {
       const api = this.gridApi;
       if (this._deferredColStateScheduled || !api) return;
-      const stateStr = localStorage.getItem(this._storageKey());
-      if (!stateStr) return;
-      let state;
-      try {
-        state = JSON.parse(stateStr);
-      } catch (_e) {
-        return;
-      }
+      const state = this._readLegacyGridState();
       if (!state.colState) return;
       this._deferredColStateScheduled = true;
       const tryApply = () => {
@@ -297,6 +910,8 @@
       });
       observer.observe(document.documentElement, { attributes: true });
       this._extractColumnMeta();
+      this._colSettings = null;
+      this._preparePageState(gridDiv);
       const agGridLib = window.agGrid;
       if (!agGridLib) throw new Error("AG Grid is not loaded");
       const created = agGridLib.createGrid(gridDiv, this.gridOptions);
@@ -304,8 +919,8 @@
         throw new Error("AG Grid createGrid returned an invalid API");
       }
       this.gridApi = created;
-      this.loadState({ deferColumnState: true });
-      this._scheduleDeferredColumnState();
+      this.loadState({ deferColumnState: !this._pageStateAdapter });
+      if (!this._pageStateAdapter) this._scheduleDeferredColumnState();
       window.setTimeout(() => {
         gridDiv.classList.add("cm-ag-grid-root--ready");
       }, 50);
@@ -344,32 +959,26 @@
       var _a, _b, _c;
       const api = this.gridApi;
       if (!api) return;
-      const stateStr = localStorage.getItem(this._storageKey());
-      let state = {};
-      if (stateStr) {
-        try {
-          state = JSON.parse(stateStr);
-        } catch (e) {
-          console.error("Error parsing grid state:", e);
-        }
-      }
+      const state = this._readStoredGridState();
       const urlParams = this._readUrlGridParams();
       const urlPageState = this._pageStateFromUrl();
       const hasColumns = this._gridColumnsReady();
-      if (state.colState && hasColumns && !options.deferColumnState) {
-        api.applyColumnState({ state: state.colState, applyOrder: true });
+      if (state.colState && hasColumns && !options.deferColumnState && !this._pageStateAdapter) {
+        api.applyColumnState({
+          state: withAgGridState(state.colState, state.sort, state.columnSizing),
+          applyOrder: true
+        });
       }
-      const filterState = urlParams.filterState;
-      if (filterState) {
-        api.setFilterModel(filterState);
-      } else {
-        api.setFilterModel(null);
-      }
-      const urlQ = (_a = urlParams.q) != null ? _a : new URLSearchParams(window.location.search).get("q");
+      const filterState = urlParams.hasFilterState ? urlParams.filterState : state.filterState;
+      api.setFilterModel(filterState != null ? filterState : null);
       const qsInput = this._resolveSearchInput();
-      if (urlQ) {
+      if (urlParams.hasQ) {
+        const urlQ = (_a = urlParams.q) != null ? _a : "";
         writeSearchInputValue(qsInput, urlQ);
         this._searchText = urlQ;
+      } else if (typeof state.quickFilter === "string") {
+        writeSearchInputValue(qsInput, state.quickFilter);
+        this._searchText = state.quickFilter;
       }
       const pageState = Object.keys(urlPageState).length ? { ...(_b = state.pageState) != null ? _b : {}, ...urlPageState } : (_c = state.pageState) != null ? _c : {};
       this._applyPageState(pageState, {
@@ -394,14 +1003,23 @@
       const state = {
         colState: api.getColumnState(),
         filterState: api.getFilterModel(),
+        quickFilter: readSearchInputValue(qfEl),
         pageState: this._collectPageState()
       };
-      localStorage.setItem(this._storageKey(), JSON.stringify(state));
+      if (this._pageStateAdapter) {
+        this._pageStateAdapter.save(state);
+      } else {
+        try {
+          localStorage.setItem(this._storageKey(), JSON.stringify(state));
+        } catch (e) {
+        }
+      }
       this.syncBrowserUrl();
       document.dispatchEvent(new CustomEvent("cm-grid-state-change", { detail: { gridId: this.gridId } }));
     }
     _initColSettings() {
-      var _a, _b;
+      var _a, _b, _c;
+      if (this._colSettings) return;
       const api = this.gridApi;
       const gridView = window.GridView;
       if (!api || !(gridView == null ? void 0 : gridView.createColumnSettings) || !gridView.createAgGridColumnAdapter) return;
@@ -414,7 +1032,10 @@
           groupsOrder: this.groupsOrder,
           initialPresets: this.savedColPresets,
           preferencesUrl,
-          storageScope: (_b = ctx.storageScope) != null ? _b : "",
+          legacyStorageScope: (_c = (_b = ctx.legacyStorageScope) != null ? _b : ctx.storageScope) != null ? _c : "",
+          pageStateRoot: document.getElementById(this.containerId),
+          initialState: api.getColumnState(),
+          persistLocalState: false,
           onStateChange: () => {
             this.saveGridState();
           }
@@ -555,7 +1176,14 @@
       const url = new URL(window.location.href);
       ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
       window.history.replaceState({}, "", url);
-      localStorage.removeItem(this._storageKey());
+      if (this._pageStateAdapter) {
+        this._pageStateAdapter.clear();
+      } else {
+        try {
+          localStorage.removeItem(this._storageKey());
+        } catch (e) {
+        }
+      }
       this.syncSearchToolbarUi();
       document.dispatchEvent(new CustomEvent("cm-grid-state-change", { detail: { gridId: this.gridId } }));
       if (isInfiniteRowModel(api)) {

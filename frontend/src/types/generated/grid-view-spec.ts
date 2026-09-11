@@ -153,6 +153,7 @@ export type GridViewForm = GridViewBlockBase & {
   errors?: {
     [k: string]: string[];
   };
+  translations?: null | GridViewTranslationEnvelope;
   submit?: null | {};
   endpoint?: string;
   method?: "get" | "post";
@@ -195,6 +196,7 @@ export interface GridViewMeta {
 export interface GridViewConfig {
   htmx?: boolean;
   template?: string;
+  page_state_scope?: string;
   assets?: GridViewTemplateAsset[];
   lazy?: GridViewLazyDefaults;
 }
@@ -339,6 +341,8 @@ export interface GridViewField {
   name: string;
   label?: string;
   type?: "text" | "textarea" | "number" | "select" | "multiselect" | "date" | "date_range" | "boolean" | "file";
+  localized?: boolean;
+  widget?: string;
   options?: GridViewFilterOption[];
   required?: boolean;
   default?: JsonValue;
@@ -377,6 +381,25 @@ export interface GridViewFieldset {
   label?: string;
   fields?: string[];
   columns?: number;
+}
+export interface GridViewTranslationEnvelope {
+  locales: GridViewLocale[];
+  default_locale: string;
+  fallback_locale?: string | null;
+  values?: {
+    [k: string]: {
+      [k: string]: JsonValue;
+    };
+  };
+  errors?: {
+    [k: string]: {
+      [k: string]: string[];
+    };
+  };
+}
+export interface GridViewLocale {
+  code: string;
+  label: string;
 }
 export interface GridViewLayout {
   root?: GridViewArea;

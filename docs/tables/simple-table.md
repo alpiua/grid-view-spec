@@ -55,6 +55,12 @@ See [Columns and renderers](columns.md).
 
 Wide tables scroll inside the viewport. Toolbar lives in a `table-card` area — [Layout](../spec/layout.md).
 
+## Browser-local layout
+
+Simple Table shares the page-state column namespace
+`grid.<block-id>.columns`. It does not use the AG-Grid-specific
+`grid.<block-id>.ag_grid` namespace. See [Page state](../persistence/page-state.md).
+
 ## Section rows
 
 Rows with `__section__: True` render as full-width group headers inside the table body.

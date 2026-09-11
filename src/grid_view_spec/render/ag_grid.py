@@ -51,7 +51,10 @@ def ag_grid_spec_config(
             }
             for col in block.columns
         ],
-        "storageScope": extra.get("storage_scope", block_id),
+        # This preserves only the old browser-key suffix while the frontend
+        # migrates it into renderer-neutral page state. It is not a new state
+        # identity: spec id and page_state_scope own that boundary.
+        "legacyStorageScope": extra.get("storage_scope", block_id),
         "syncUrlState": extra.get("sync_url_state", True),
         "urlPageStateKeys": url_page_state_keys,
         "filtersSelector": extra.get("filters_selector", ""),

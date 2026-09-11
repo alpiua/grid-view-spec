@@ -8,6 +8,8 @@ import type {
   ColumnSettingsHandle,
   ColumnSettingsOptions,
   ColumnStateItem,
+  SavedColumnPreset,
+  StoredColumnPreset,
 } from "./types";
 
 type ColumnSettingsWrapper = HTMLElement & { _colSettings?: ColumnSettingsHost };
@@ -50,13 +52,26 @@ function isColumnStateItem(value: unknown): value is ColumnStateItem {
   );
 }
 
-function parsePresets(raw: string): Record<string, ColumnStateItem[]> {
+function isSavedColumnPreset(value: unknown): value is SavedColumnPreset {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "columns" in value &&
+    Array.isArray(value.columns) &&
+    value.columns.every(isColumnStateItem)
+  );
+}
+
+function parsePresets(raw: string): Record<string, StoredColumnPreset> {
   try {
     const parsed: unknown = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
-    const out: Record<string, ColumnStateItem[]> = {};
+    const out: Record<string, StoredColumnPreset> = {};
     for (const [name, state] of Object.entries(parsed)) {
       if (Array.isArray(state) && state.every(isColumnStateItem)) {
+        out[name] = state;
+      } else if (isSavedColumnPreset(state)) {
         out[name] = state;
       }
     }
@@ -96,7 +111,7 @@ export function initSimpleTableColumnSettings(
 
   let columnsMeta: ColumnMetaInput[] = [];
   let groupsOrder: string[] = [];
-  let presets: Record<string, ColumnStateItem[]> = {};
+  let presets: Record<string, StoredColumnPreset> = {};
   columnsMeta = parseColumnsMeta(shell.dataset.cmColumns || "[]");
   groupsOrder = parseStringArray(shell.dataset.cmGroupsOrder || "[]");
   presets = parsePresets(shell.dataset.cmPresets || "{}");
@@ -106,6 +121,7 @@ export function initSimpleTableColumnSettings(
     groupsOrder,
     initialPresets: presets,
     preferencesUrl: shell.dataset.cmPreferencesUrl || "",
+    pageStateRoot: shell,
   });
   shell.dataset.cmColSettingsBound = "1";
   shell._colSettings = host;

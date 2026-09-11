@@ -20,3 +20,4 @@ class GridViewConfig:
     template: str = ""
     assets: tuple[GridViewTemplateAsset, ...] = ()
     lazy: GridViewLazyDefaults = field(default_factory=GridViewLazyDefaults)
+    page_state_scope: str = ""

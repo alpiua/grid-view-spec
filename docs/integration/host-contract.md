@@ -126,16 +126,23 @@ provides one for rendering.
 
 ---
 
-## Persistence — prefs vs session layout
+## Persistent state
 
-| Storage | What | Backend |
-|---------|------|---------|
-| `localStorage` | Session column layout, filters, quick search | Browser (all backends) |
-| `GridPreference` ORM | Named presets + bookmarked searches | Django only (default adapter) |
-| `MemoryPrefs` | Named presets (process lifetime) | Starlette default, tests |
+GridViewSpec provides two persistence mechanisms:
 
-JS reads `window.GridView.preferencesUrl` from `{% grid_view_spec_assets part='js' %}`.
-Empty string → POST disabled; session `localStorage` still works.
+| Mechanism | What | Owner |
+|-----------|------|-------|
+| `GridView.PageState` | Browser-local persistent UI layout and renderer state | Browser; `spec.id` + optional scope + namespace |
+| `GridPreference` | Authenticated user's named presets and saved searches | Django ORM default; any `GridViewHost` persistence adapter |
+
+The URL is authoritative shareable request state, not a persistence mechanism.
+`MemoryPrefs` is a process-lifetime implementation of the named-preferences
+mechanism for Starlette defaults and tests.
+
+`GridView.PageState` needs no host protocol method or HTTP route. It is not a server
+session. `window.GridView.preferencesUrl`, emitted by `{% grid_view_spec_assets part='js' %}`,
+controls only the named-preferences POST. An empty URL disables that POST while browser
+page state continues to work.
 
 **Django save API**
 
@@ -143,7 +150,7 @@ Empty string → POST disabled; session `localStorage` still works.
 |---|---|
 | Method | `POST` |
 | URL name | `api_grid_preferences` (configurable) |
-| Auth | `@login_required` on `save_grid_prefs` |
+| Auth | Authenticated users write their own `GridPreference`; anonymous requests return `local_only: true` |
 | Body | `{ "grid_id", "colPresets", "searches" }` |
 
 See [Saved preferences](../persistence/preferences.md).

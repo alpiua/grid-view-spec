@@ -37,6 +37,9 @@ export interface AgGridHostLike {
 
 export interface AgGridContextHooks {
   gridId?: string;
+  /** Legacy key suffix read only while migrating old browser state. */
+  legacyStorageScope?: string;
+  /** @deprecated Use legacyStorageScope for migration-only legacy keys. */
   storageScope?: string;
   dictionaryUrl?: string;
   syncUrlState?: boolean;
@@ -51,6 +54,30 @@ export interface AgGridContextHooks {
   onDataReload?: (host: AgGridHostLike) => void;
 }
 
+export interface AgGridInitialState {
+  columnOrder?: { orderedColIds: string[] };
+  columnPinning?: { leftColIds: string[]; rightColIds: string[] };
+  columnSizing?: AgGridColumnSizingState;
+  columnVisibility?: { hiddenColIds: string[] };
+  /** AG Grid v31-compatible native sort initial state. */
+  sort?: AgGridSortState;
+}
+
+/** AG Grid v31-compatible native column sizing initial state. */
+export interface AgGridColumnSizingState {
+  columnSizingModel: { colId: string; width?: number; flex?: number }[];
+}
+
+export interface AgGridSortModelItem {
+  colId: string;
+  sort: "asc" | "desc";
+}
+
+/** AG Grid v31 SortState-compatible shape. Order encodes multi-sort priority. */
+export interface AgGridSortState {
+  sortModel: AgGridSortModelItem[];
+}
+
 export interface AgGridHostGridOptions {
   overlayLoadingTemplate?: string;
   overlayNoRowsTemplate?: string;
@@ -59,6 +86,7 @@ export interface AgGridHostGridOptions {
   tooltipShowDelay?: number;
   columnDefs?: AgGridColumnDef[];
   context?: AgGridContextHooks;
+  initialState?: AgGridInitialState;
   rowModelType?: string;
 }
 
@@ -80,6 +108,8 @@ export type ColSettingsMethod =
 export interface UrlGridParams {
   q?: string;
   filterState?: Record<string, unknown>;
+  hasQ?: boolean;
+  hasFilterState?: boolean;
 }
 
 export interface PersistedGridState {
@@ -87,6 +117,9 @@ export interface PersistedGridState {
   filterState?: Record<string, unknown>;
   quickFilter?: string;
   pageState?: Record<string, unknown>;
+  sort?: AgGridSortState;
+  /** AG-only flex sizing; portable columns retain width but never flex. */
+  columnSizing?: AgGridColumnSizingState;
 }
 
 export interface LoadStateOptions {
