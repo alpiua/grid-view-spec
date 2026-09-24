@@ -476,6 +476,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       const label = desc ? desc.label : item.colId;
       const pill = document.createElement("div");
       pill.className = "cm-col-order-pill" + (item.pinned ? " is-pinned" : "");
+      pill.draggable = true;
       pill.dataset.colid = item.colId;
       pill.textContent = label;
       listContainer.appendChild(pill);

@@ -50,6 +50,7 @@ export class AgGridHost implements GridHandle {
   _searchText: string;
   _columnMeta: Record<string, Partial<ColumnMetaInput>>;
   _pageStateAdapter: AgGridPageStateAdapter | null;
+  _themeObserverCleanup: ((event?: Event) => void) | null = null;
 
   constructor(
     gridId: string,
@@ -282,6 +283,7 @@ export class AgGridHost implements GridHandle {
   }
 
   initGrid(): void {
+    this._themeObserverCleanup?.();
     const gridDiv = document.getElementById(this.containerId);
     if (!gridDiv) return;
 
@@ -301,7 +303,15 @@ export class AgGridHost implements GridHandle {
         if (mutation.attributeName === "class") applyTheme();
       });
     });
-    observer.observe(document.documentElement, { attributes: true });
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+    const cleanup = (event?: Event): void => {
+      if (event && !(event.target instanceof Element && event.target.contains(gridDiv))) return;
+      observer.disconnect(); document.removeEventListener("htmx:beforeCleanupElement", cleanup); this._themeObserverCleanup = null;
+      try { this.gridApi?.destroy?.(); } catch (error) { console.error("AG Grid destroy failed:", error); } finally {
+        this.gridApi = undefined; this._colSettings = null; this._pageStateAdapter = null;
+      }
+    };
+    this._themeObserverCleanup = cleanup; document.addEventListener("htmx:beforeCleanupElement", cleanup);
 
     this._extractColumnMeta();
     this._colSettings = null;
@@ -309,9 +319,16 @@ export class AgGridHost implements GridHandle {
     this._prepareUrlInitialState();
 
     const agGridLib = window.agGrid;
-    if (!agGridLib) throw new Error("AG Grid is not loaded");
-    const created = agGridLib.createGrid(gridDiv, this.gridOptions);
+    if (!agGridLib) { this._themeObserverCleanup?.(); throw new Error("AG Grid is not loaded"); }
+    const urlParams = this._readUrlGridParams();
+    const quickFilter = urlParams.hasQ ? urlParams.q : this._readStoredGridState().quickFilter;
+    if (typeof quickFilter === "string") writeSearchInputValue(this._resolveSearchInput(), quickFilter);
+    this._searchText = quickFilter ?? "";
+    const gridOptions = quickFilter === undefined ? this.gridOptions : { ...this.gridOptions, quickFilterText: quickFilter };
+    let created: unknown;
+    try { created = agGridLib.createGrid(gridDiv, gridOptions); } catch (error) { this._themeObserverCleanup?.(); throw error; }
     if (!isAgGridHostApi(created)) {
+      this._themeObserverCleanup?.();
       throw new Error("AG Grid createGrid returned an invalid API");
     }
     this.gridApi = created;
@@ -428,6 +445,10 @@ export class AgGridHost implements GridHandle {
       writeSearchInputValue(qsInput, state.quickFilter);
       this._searchText = state.quickFilter;
     }
+    if (!isInfiniteRowModel(api) && (urlParams.hasQ || typeof state.quickFilter === "string")) {
+      api.setGridOption("quickFilterText", this._searchText);
+    }
+    this.syncSearchToolbarUi();
 
     const pageState = Object.keys(urlPageState).length
       ? { ...(state.pageState ?? {}), ...urlPageState }
@@ -453,7 +474,7 @@ export class AgGridHost implements GridHandle {
     const state: PersistedGridState = {
       colState: api.getColumnState(),
       filterState: api.getFilterModel(),
-      quickFilter: readSearchInputValue(qfEl),
+      quickFilter: qfEl ? readSearchInputValue(qfEl) : this._searchText,
       pageState: this._collectPageState(),
     };
     if (this._pageStateAdapter) {
@@ -562,7 +583,8 @@ export class AgGridHost implements GridHandle {
     const api = this.gridApi;
     if (!api) return;
     const el = this._resolveSearchInput();
-    this._searchText = readSearchInputTrimmed(el);
+    this._searchText = el ? readSearchInputTrimmed(el) : this._searchText;
+    if (!isInfiniteRowModel(api)) api.setGridOption("quickFilterText", this._searchText);
     this.syncFilterChrome();
     this.saveGridState();
     if (isInfiniteRowModel(api)) {
@@ -585,7 +607,7 @@ export class AgGridHost implements GridHandle {
 
   clearSearch(): void {
     const el = this._resolveSearchInput();
-    const wasEmpty = !el || readSearchInputTrimmed(el) === "";
+    const wasEmpty = this._searchText.trim() === "";
     writeSearchInputValue(el, "");
     this._searchText = "";
     const url = new URL(window.location.href);
@@ -618,6 +640,7 @@ export class AgGridHost implements GridHandle {
     const input = this._resolveSearchInput();
     writeSearchInputValue(input, text);
     this._searchText = text;
+    if (!isInfiniteRowModel(api)) api.setGridOption("quickFilterText", text);
     this.syncSearchToolbarUi();
     this.saveGridState();
     if (isInfiniteRowModel(api)) {
@@ -625,12 +648,13 @@ export class AgGridHost implements GridHandle {
     }
   }
 
-  clearAllFilters(): void {
+  clearAllFilters(options: { purgeInfiniteCache?: boolean } = {}): void {
     const api = this.gridApi;
     if (!api) return;
     api.setFilterModel(null);
     writeSearchInputValue(this._resolveSearchInput(), "");
     this._searchText = "";
+    if (!isInfiniteRowModel(api)) api.setGridOption("quickFilterText", "");
 
     const url = new URL(window.location.href);
     ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
@@ -640,7 +664,7 @@ export class AgGridHost implements GridHandle {
     }
     this.syncSearchToolbarUi();
     document.dispatchEvent(new CustomEvent("cm-grid-state-change", { detail: { gridId: this.gridId } }));
-    if (isInfiniteRowModel(api)) {
+    if (options.purgeInfiniteCache !== false && isInfiniteRowModel(api)) {
       api.purgeInfiniteCache();
     }
   }

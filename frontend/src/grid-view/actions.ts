@@ -145,6 +145,7 @@ export function handleToolbarSavedSearchClick(e: Event): void {
         const defaultOption = Array.from(select.options).find((option) => !option.disabled);
         select.value = defaultOption?.value || "";
       });
+      invokeGridAction(clearGridId, "clearAllFilters", { purgeInfiniteCache: false });
       navigateFilterState(selectedFilterValues(filterBar), gridBtn, filterBar);
       return;
     }

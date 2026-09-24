@@ -128,7 +128,7 @@ let filterWorkspaceLoadPromise: Promise<void> | null = null;
 
 export function ensureFilterDrawerWorkspaceAssetsLoaded(): Promise<void> {
   const cfg = manifest();
-  if (cfg.filterWorkspaceCss) loadStylesheet(cfg.filterWorkspaceCss);
+  if (cfg.filterWorkspaceCss) loadStylesheet(cfg.filterWorkspaceCss, false);
 
   const gv = getGlobal().GridView;
   if (gv?.FilterDrawerWorkspace) return Promise.resolve();

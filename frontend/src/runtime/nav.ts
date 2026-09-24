@@ -115,8 +115,13 @@ export function initNavTrees(scope?: NavScope): void {
         }
       }
 
+      if (target.closest(".cm-nav-tree-action")) {
+        e.stopPropagation();
+        return;
+      }
+
       const row = target.closest(".cm-nav-tree-row");
-      if (row && !target.closest(".cm-nav-tree-action")) {
+      if (row && !row.hasAttribute("data-disabled") && !target.closest(".cm-nav-tree-action")) {
         tree.querySelectorAll(".cm-nav-tree-row.is-active").forEach((r) => {
           r.classList.remove(
             "is-active",
@@ -358,6 +363,7 @@ export function initNavTrees(scope?: NavScope): void {
       }
 
       tree.querySelectorAll<HTMLElement>(".cm-nav-tree-row").forEach((row) => {
+        if (row.hasAttribute("data-disabled")) return;
         row.setAttribute("draggable", "true");
 
         row.addEventListener("dragstart", (e) => {

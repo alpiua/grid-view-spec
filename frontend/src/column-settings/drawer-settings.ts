@@ -171,7 +171,7 @@ export function renderDrawerColumnSettings(container: HTMLElement, actions: Draw
   const heading = document.createElement("div");
   heading.className = "cm-filter-drawer-card-heading";
   const title = document.createElement("h3");
-  title.textContent = colT("column_settings.title", "Налаштування колонок");
+  title.textContent = colT("column_settings.title", "Column Settings");
   heading.append(title);
   header.append(heading);
   const list = document.createElement("div");

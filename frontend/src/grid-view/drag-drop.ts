@@ -81,7 +81,7 @@ export function enableDragReorder<T extends HTMLElement = HTMLElement>(
     if (!overTarget || overTarget === draggedEl || !container.contains(overTarget)) return;
 
     const rect = overTarget.getBoundingClientRect();
-    const isVertical = rect.height >= rect.width;
+    const isVertical = getComputedStyle(container).flexDirection.startsWith("column");
     const offset = isVertical ? e.clientY - rect.top : e.clientX - rect.left;
     const threshold = isVertical ? rect.height / 2 : rect.width / 2;
 

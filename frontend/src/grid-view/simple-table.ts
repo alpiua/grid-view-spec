@@ -908,13 +908,15 @@ export function initAllSimpleTables(
     }
   };
   safe("initColumnFilters", () => initColumnFilters(scope));
-  scope
-    .querySelectorAll('[data-cm-column-settings="1"]')
-    .forEach(function (shell) {
-      safe("initSimpleTableColumnSettings", () =>
-        initSimpleTableColumnSettings(shell),
-      );
-    });
+  const settingsRoots =
+    scope instanceof Element && scope.matches('[data-cm-column-settings="1"]')
+      ? [scope, ...Array.from(scope.querySelectorAll('[data-cm-column-settings="1"]'))]
+      : Array.from(scope.querySelectorAll('[data-cm-column-settings="1"]'));
+  settingsRoots.forEach((shell) => {
+    safe("initSimpleTableColumnSettings", () =>
+      initSimpleTableColumnSettings(shell),
+    );
+  });
   safe("initSimpleTableColumnResize", () => initSimpleTableColumnResize(scope));
   safe("initTableCellUi", () => initTableCellUi(scope));
   safe("applyFiltersInScope", () => applyFiltersInScope(scope));

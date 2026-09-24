@@ -1,4 +1,7 @@
 import { AgGridHost } from "../src/ag-grid/host";
+import type { ColumnState } from "ag-grid-community";
+import { installConfirmationInterceptors } from "../src/grid-view/confirmation-interceptor";
+import { bootAgGridSpecFromDocument } from "../src/runtime/table-ag-grid";
 import {
   pageColumnStoreForRoot,
   putPageColumnPresets,
@@ -206,9 +209,289 @@ function verifyAgGridInitialStateAndUrlPrecedence(): void {
   );
 }
 
+/** Proves restored quick search is present before AG Grid can request rows. */
+function verifyQuickSearchBeforeGridCreation(): void {
+  const browser = new PageStateBrowserHarness();
+  const root = browser.specRoot("products", "pim.products");
+  const grid = browser.child(root, "restored-search-grid");
+  browser.input("ag-quick-filter-restored_search");
+  const state = PageState.forRoot(asDomElement(root));
+  assertState(state !== null, "Restored-search root did not receive page state");
+  state.put("grid.restored_search.ag_grid", { quickFilter: "saved search" });
+
+  const agGrid = window.agGrid;
+  assertState(agGrid !== undefined, "AG Grid test harness was not installed");
+  const createGrid = agGrid.createGrid;
+  let optionAtCreate: unknown;
+  let inputAtCreate: string | null = null;
+  agGrid.createGrid = (element, options) => {
+    optionAtCreate = Reflect.get(options, "quickFilterText");
+    inputAtCreate = browser.inputValue("ag-quick-filter-restored_search");
+    return createGrid(element, options);
+  };
+  try {
+    new AgGridHost(
+      "restored_search",
+      grid.id,
+      { context: { syncUrlState: false } },
+      null,
+      null,
+      null,
+    ).initGrid();
+  } finally {
+    agGrid.createGrid = createGrid;
+  }
+  assertState(optionAtCreate === "saved search", "Restored search was not passed to initial grid options");
+  assertState(inputAtCreate === "saved search", "Restored search input was not populated before grid creation");
+}
+
+/** Proves theme observation stays root-scoped and disconnects on HTMX cleanup. */
+function verifyThemeObserverCleanup(): void {
+  const browser = new PageStateBrowserHarness();
+  const grid = browser.child(browser.specRoot("products", "pim.products"), "theme-grid");
+  let disconnected = false;
+  let rootScoped = false;
+  const mutationObserverDescriptor = Object.getOwnPropertyDescriptor(globalThis, "MutationObserver");
+  class TrackingObserver {
+    constructor(_callback: MutationCallback) {}
+    observe(_target: Node, options?: MutationObserverInit): void {
+      rootScoped = options?.attributes === true && !options.childList && !options.subtree;
+    }
+    disconnect(): void { disconnected = true; }
+    takeRecords(): MutationRecord[] { return []; }
+  }
+  Object.defineProperty(globalThis, "MutationObserver", {
+    configurable: true,
+    value: TrackingObserver,
+  });
+  let cleanup: EventListenerOrEventListenerObject | undefined;
+  const addEventListener = document.addEventListener;
+  Object.defineProperty(document, "addEventListener", {
+    configurable: true,
+    value: (type: string, listener: EventListenerOrEventListenerObject): void => {
+      if (type === "htmx:beforeCleanupElement") cleanup = listener;
+      else addEventListener.call(document, type, listener);
+    },
+  });
+  try {
+    new AgGridHost("theme", grid.id, { context: { syncUrlState: false } }, null, null, null).initGrid();
+    assertState(rootScoped, "Theme observer watched descendant mutations");
+    assertState(cleanup !== undefined, "HTMX cleanup hook was not installed");
+    const event = new Event("htmx:beforeCleanupElement");
+    Object.defineProperty(event, "target", { value: grid });
+    if (typeof cleanup === "function") cleanup.call(document, event);
+    else cleanup.handleEvent(event);
+    assertState(disconnected, "HTMX grid cleanup left the theme observer connected");
+  } finally {
+    Object.defineProperty(document, "addEventListener", { configurable: true, value: addEventListener });
+    if (mutationObserverDescriptor) {
+      Object.defineProperty(globalThis, "MutationObserver", mutationObserverDescriptor);
+    } else {
+      Reflect.deleteProperty(globalThis, "MutationObserver");
+    }
+  }
+}
+
+/** Proves non-confirm HTMX requests pass through and native confirm stays synchronous. */
+function verifyConfirmationPassThrough(): void {
+  const nativeConfirm = (): boolean => true;
+  Object.defineProperty(window, "confirm", { configurable: true, writable: true, value: nativeConfirm });
+  let handler: EventListenerOrEventListenerObject | undefined;
+  const addEventListener = document.addEventListener;
+  Object.defineProperty(document, "addEventListener", {
+    configurable: true,
+    value: (type: string, listener: EventListenerOrEventListenerObject): void => {
+      if (type === "htmx:confirm") handler = listener;
+      else addEventListener.call(document, type, listener);
+    },
+  });
+  try {
+    installConfirmationInterceptors();
+    assertState(window.confirm === nativeConfirm && window.confirm() === true, "Native confirm was intercepted");
+    assertState(handler !== undefined, "HTMX confirmation listener was not installed");
+    const event = new CustomEvent("htmx:confirm", {
+      detail: { issueRequest: (): void => { throw new Error("Non-confirm request was intercepted"); } },
+    });
+    if (typeof handler === "function") handler.call(document, event);
+    else handler.handleEvent(event);
+  } finally {
+    Object.defineProperty(document, "addEventListener", { configurable: true, value: addEventListener });
+  }
+}
+
+/** Exercises filter-driven column refresh through the spec boot event path. */
+async function verifyDynamicColumnRefreshPreservesState(): Promise<void> {
+  const browser = new PageStateBrowserHarness();
+  const root = browser.specRoot("products", "pim.products");
+  const script = browser.child(root, "dynamic-column-config");
+  const gridId = "dynamic_column_state";
+  Reflect.set(
+    script,
+    "textContent",
+    JSON.stringify({
+      gridId,
+      columns: [
+        { id: "sku", label: "SKU" },
+        { id: "name", label: "Name" },
+      ],
+      columnSource: { endpoint: "/columns/", anchor: "sku" },
+    }),
+  );
+  const bar = browser.child(root);
+  bar.setAttribute("data-cm-filter-bar", "");
+
+  const gridView = Reflect.get(window, "GridView");
+  assertState(isRecord(gridView) && isRecord(gridView.byId), "GridView registry was unavailable");
+  const registry = gridView.byId;
+  Reflect.set(registry, "registerBoot", (): void => {});
+  let stateSnapshot: unknown = [
+    { colId: "name", hide: true, width: 240, flex: 1, pinned: "left", sort: "desc", sortIndex: 0 },
+    { colId: "sku", hide: false, width: 155, pinned: null },
+    { colId: "dynamic_1", hide: false, width: 120 },
+    { colId: "removed", hide: true, width: 80 },
+  ] satisfies ColumnState[];
+  const calls: string[] = [];
+  let appliedState: ColumnState[] | undefined;
+  let appliedOrder: boolean | undefined;
+  let updatedColumnDefs: unknown;
+  let columnStateUnavailable = false;
+  const gridApi = {
+    getColumnState(): unknown {
+      if (columnStateUnavailable) throw new Error("Column state unavailable");
+      return stateSnapshot;
+    },
+    setGridOption(key: string, value: unknown): void {
+      assertState(key === "columnDefs", "Refresh updated an unexpected grid option");
+      calls.push("set");
+      updatedColumnDefs = value;
+    },
+    applyColumnState(params: { state: ColumnState[]; applyOrder?: boolean }): boolean {
+      calls.push("apply");
+      appliedState = params.state;
+      appliedOrder = params.applyOrder;
+      stateSnapshot = [...params.state];
+      return true;
+    },
+  };
+  let host: { gridApi: typeof gridApi; reloadData: () => void } | null = null;
+  class DynamicGridHost {
+    readonly gridApi = gridApi;
+    reloadData(): void {}
+    constructor() {
+      host = this;
+    }
+  }
+  Reflect.set(registry, "get", () => host);
+  Reflect.set(gridView, "AgGrid", { Host: DynamicGridHost });
+
+  let fetchCount = 0;
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => {
+    fetchCount += 1;
+    return new Response(
+      JSON.stringify({ columns: [{ id: `dynamic_${fetchCount}`, label: `Dynamic ${fetchCount}` }] }),
+      { headers: { "Content-Type": "application/json" } },
+    );
+  };
+  let filterListener: EventListenerOrEventListenerObject | undefined;
+  const querySelectorAllDescriptor = Object.getOwnPropertyDescriptor(document, "querySelectorAll");
+  const addEventListenerDescriptor = Object.getOwnPropertyDescriptor(document, "addEventListener");
+  Object.defineProperty(document, "querySelectorAll", {
+    configurable: true,
+    value: () => [script],
+  });
+  Object.defineProperty(document, "addEventListener", {
+    configurable: true,
+    value: (type: string, listener: EventListenerOrEventListenerObject): void => {
+      if (type === "cm-filter-change") filterListener = listener;
+      else addEventListenerDescriptor?.value.call(document, type, listener);
+    },
+  });
+
+  const fireFilterChange = async (): Promise<void> => {
+    assertState(filterListener !== undefined, "Spec boot did not install the filter listener");
+    const listener = filterListener;
+    const event = new Event("cm-filter-change");
+    Object.defineProperty(event, "detail", { value: { bar } });
+    if (typeof listener === "function") listener.call(document, event);
+    else listener.handleEvent(event);
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+  };
+
+  try {
+    bootAgGridSpecFromDocument();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    assertState(fetchCount === 1 && host !== null, "Spec boot did not create the dynamic grid");
+
+    await fireFilterChange();
+    assertState(
+      JSON.stringify(calls.slice(-2)) === JSON.stringify(["set", "apply"]),
+      "Column state was not restored after replacing definitions",
+    );
+    assertState(appliedOrder === true, "Refresh did not restore column order");
+    assertState(
+      JSON.stringify(appliedState?.filter(({ colId }) => colId === "name" || colId === "sku")) ===
+        JSON.stringify([
+          { colId: "name", hide: true, width: 240, flex: 1, pinned: "left", sort: "desc", sortIndex: 0 },
+          { colId: "sku", hide: false, width: 155, pinned: null },
+        ]),
+      "Refresh did not retain live state for surviving columns",
+    );
+    assertState(
+      JSON.stringify(appliedState?.map(({ colId }) => colId)) ===
+        JSON.stringify(["dynamic_2", "name", "sku"]),
+      "Refresh did not insert new columns while dropping removed columns",
+    );
+    assertState(
+      JSON.stringify(
+        Array.isArray(updatedColumnDefs)
+          ? updatedColumnDefs.filter(isRecord).map((column) => column.colId)
+          : [],
+      ) === JSON.stringify(["sku", "dynamic_2", "name"]),
+      "New dynamic columns were not installed with refreshed definitions",
+    );
+
+    await fireFilterChange();
+    assertState(
+      JSON.stringify(appliedState?.map(({ colId }) => colId)) ===
+        JSON.stringify(["dynamic_3", "name", "sku"]),
+      "A repeated refresh retained stale dynamic columns",
+    );
+
+    columnStateUnavailable = true;
+    await fireFilterChange();
+    assertState(fetchCount === 4, "Refresh stopped when column state could not be read");
+    assertState(
+      JSON.stringify(calls.slice(-2)) === JSON.stringify(["set", "apply"]),
+      "Column definitions were not refreshed after a column-state read failure",
+    );
+    assertState(
+      JSON.stringify(appliedState?.map(({ colId }) => colId)) ===
+        JSON.stringify(["sku", "dynamic_4", "name"]),
+      "Refresh reused stale column state after a read failure",
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+    if (querySelectorAllDescriptor) {
+      Object.defineProperty(document, "querySelectorAll", querySelectorAllDescriptor);
+    } else {
+      Reflect.deleteProperty(document, "querySelectorAll");
+    }
+    if (addEventListenerDescriptor) {
+      Object.defineProperty(document, "addEventListener", addEventListenerDescriptor);
+    } else {
+      Reflect.deleteProperty(document, "addEventListener");
+    }
+  }
+}
+
 /** Public conformance entry for renderer-neutral PageState persistence. */
-export function verifyPageStateContract(): void {
+export async function verifyPageStateContract(): Promise<void> {
   verifyPageStateIdentityAndRecovery();
   verifyPortableColumnState();
   verifyAgGridInitialStateAndUrlPrecedence();
+  verifyQuickSearchBeforeGridCreation();
+  verifyThemeObserverCleanup();
+  verifyConfirmationPassThrough();
+  await verifyDynamicColumnRefreshPreservesState();
 }

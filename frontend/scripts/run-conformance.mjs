@@ -6,6 +6,7 @@ import {
   matchSetFilter,
   matchSmartHaystack,
   resolveKpis,
+  verifyAgGridColumnStateFallback,
   verifyPageStateContract,
 } from "./dist/conformance-search.mjs";
 
@@ -108,6 +109,7 @@ for (const case_ of load("kpi_conformance.json")) {
 
 try {
   verifyPageStateContract();
+  verifyAgGridColumnStateFallback();
 } catch (error) {
   console.error("PageState contract:", error);
   failures += 1;

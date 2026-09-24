@@ -1,11 +1,14 @@
 /** AG-Grid boot from JSON config nodes in the page. */
+import type { ColumnState, GridApi } from "ag-grid-community";
 import { getGlobal } from "../grid-view/dom-utils";
 import { getRegisteredRenderer } from "../grid-view/registry-api";
 import { ensureAgGridAssetsLoaded } from "./asset-loader";
 import type { ColumnStateItem, StoredColumnPreset } from "../column-settings/types";
 
+type DynamicColumnGridApi = Partial<Pick<GridApi, "destroy" | "getColumnState" | "applyColumnState">> & { setGridOption?: (key: string, value: unknown) => void };
+
 interface AgGridHostHandle {
-  gridApi?: { destroy?: () => void; setGridOption?: (key: string, value: unknown) => void } | null;
+  gridApi?: DynamicColumnGridApi | null;
   gridOptions?: Record<string, unknown>;
   savedColPresets?: Record<string, StoredColumnPreset>;
   savedQuickSearches?: unknown[];
@@ -15,6 +18,7 @@ interface AgGridHostHandle {
 
 interface SpecGridState {
   generation: number;
+  filterGeneration: number;
   config: AgGridSpecConfig;
 }
 
@@ -24,6 +28,38 @@ const specFilterListeners = new Set<string>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function collectColumnIds(columns: Record<string, unknown>[], ids = new Set<string>()): Set<string> {
+  for (const column of columns) {
+    const id = column.colId || column.field;
+    if (Array.isArray(column.children)) collectColumnIds(column.children.filter(isRecord), ids);
+    else if (typeof id === "string" && id) ids.add(id);
+  }
+  return ids;
+}
+
+function setColumnDefsPreservingState(
+  gridApi: NonNullable<AgGridHostHandle["gridApi"]>,
+  columnDefs: Record<string, unknown>[],
+): void {
+  if (!gridApi.setGridOption) return;
+  let columnState: ColumnState[] = [];
+  try {
+    columnState = gridApi.getColumnState?.() ?? [];
+  } catch (error) { console.warn("[GridView.AgGrid] Column state unavailable; refreshing definitions anyway:", error); }
+  gridApi.setGridOption("columnDefs", columnDefs);
+  if (!gridApi.applyColumnState) return;
+  const columnIds = [...collectColumnIds(columnDefs)];
+  const retainedState = columnState.filter(({ colId }) => columnIds.includes(colId));
+  const retainedIds = new Set(retainedState.map(({ colId }) => colId));
+  const newColumnIds = columnIds.filter((colId) => !retainedIds.has(colId));
+  for (const colId of newColumnIds) {
+    const nextId = columnIds.slice(columnIds.indexOf(colId) + 1).find((id) => retainedIds.has(id));
+    const index = nextId ? retainedState.findIndex(({ colId }) => colId === nextId) : -1;
+    retainedState.splice(index < 0 ? retainedState.length : index, 0, { colId });
+  }
+  if (retainedState.length) gridApi.applyColumnState({ state: retainedState, applyOrder: true });
 }
 
 function isColumnStateItem(value: unknown): value is ColumnStateItem {
@@ -302,7 +338,7 @@ function bootFromSpecConfig(config: AgGridSpecConfig): void {
 
   const gridId = config.gridId;
   const generation = (specGridStates.get(gridId)?.generation || 0) + 1;
-  specGridStates.set(gridId, { generation, config });
+  specGridStates.set(gridId, { generation, filterGeneration: 0, config });
   const isCurrent = (): boolean => specGridStates.get(gridId)?.generation === generation;
   const containerId = config.containerId || `cm-ag-grid-container-${gridId}`;
   const groupsOrder = config.groupsOrder || [];
@@ -503,16 +539,17 @@ function bootFromSpecConfig(config: AgGridSpecConfig): void {
           if (filterBar?.dataset?.autoApply === "1" && navigates) return;
           const current = registry.get(gridId) as AgGridHostHandle | null;
           if (!current) return;
+          const filterGeneration = ++state.filterGeneration;
           if (currentConfig.columnSource && current.gridApi) {
             try {
               const nextDefs = await resolveColumnDefs(currentConfig, getPageState);
-              if (specGridStates.get(gridId)?.generation !== state.generation) return;
-              current.gridApi.setGridOption?.("columnDefs", nextDefs);
+              if (specGridStates.get(gridId)?.generation !== state.generation || state.filterGeneration !== filterGeneration) return;
+              setColumnDefsPreservingState(current.gridApi, nextDefs);
             } catch (error) {
               console.error("[GridView.AgGrid] column_source refresh failed:", error);
             }
           }
-          if (specGridStates.get(gridId)?.generation !== state.generation) return;
+          if (specGridStates.get(gridId)?.generation !== state.generation || state.filterGeneration !== filterGeneration) return;
           current.reloadData?.();
           const syncExportLinks = agModule?.syncExportLinks as
             | ((id: string, options: Record<string, unknown>) => void)

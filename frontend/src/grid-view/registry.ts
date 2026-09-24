@@ -35,12 +35,13 @@ export const byId: ByIdRegistry = {
 
 export function invokeGridAction(
   gridId: string | null | undefined,
-  method: string
+  method: string,
+  options?: { purgeInfiniteCache?: boolean }
 ): void {
   const handle = byId.get(gridId ?? "");
   if (!handle || typeof handle !== "object") return;
   const fn = Reflect.get(handle, method);
   if (typeof fn === "function") {
-    fn.call(handle);
+    fn.call(handle, options);
   }
 }

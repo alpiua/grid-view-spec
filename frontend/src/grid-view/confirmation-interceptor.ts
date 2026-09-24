@@ -2,7 +2,6 @@ import { isRecord } from "./dom-guards";
 import { confirmDialog } from "../runtime/dialog";
 import { notify } from "../runtime/notifications";
 
-type ConfirmInterceptor = (message?: string) => Promise<boolean>;
 type AlertInterceptor = (message?: string) => void;
 type DialogName = "confirm" | "alert";
 type HtmxConfirmDetail = {
@@ -10,7 +9,6 @@ type HtmxConfirmDetail = {
   issueRequest: (confirmed?: boolean) => void;
 };
 
-let nativeConfirm: ((message?: string) => boolean) | null = null;
 let nativeAlert: ((message?: string) => void) | null = null;
 let interceptorsBound = false;
 
@@ -30,7 +28,7 @@ function findDialogDescriptor(name: DialogName): PropertyDescriptor | undefined 
 
 function defineDialogMethod(
   name: DialogName,
-  implementation: ConfirmInterceptor | AlertInterceptor,
+  implementation: AlertInterceptor,
 ): boolean {
   const ownDescriptor = Object.getOwnPropertyDescriptor(window, name);
   const descriptor = ownDescriptor ?? findDialogDescriptor(name);
@@ -59,19 +57,6 @@ function defineDialogMethod(
     return true;
   } catch {
     return false;
-  }
-}
-
-function fallbackConfirm(message?: string): boolean {
-  return nativeConfirm ? nativeConfirm(defaultConfirmMessage(message)) : false;
-}
-
-function interceptedConfirm(message?: string): Promise<boolean> {
-  const normalizedMessage = defaultConfirmMessage(message);
-  try {
-    return confirmDialog({ message: normalizedMessage, tone: "danger" }).catch(() => fallbackConfirm(normalizedMessage));
-  } catch {
-    return Promise.resolve(fallbackConfirm(normalizedMessage));
   }
 }
 
@@ -115,6 +100,7 @@ function bindHtmxConfirmationBridge(): void {
     "htmx:confirm",
     (event) => {
       if (!(event instanceof CustomEvent) || !isHtmxConfirmDetail(event.detail)) return;
+      if (!event.detail.question?.trim()) return;
       event.preventDefault();
       let settled = false;
       const issueRequestOnce = (): void => {
@@ -138,13 +124,6 @@ function bindHtmxConfirmationBridge(): void {
 }
 
 function installGlobalDialogInterceptors(): void {
-  if (!nativeConfirm) {
-    const currentConfirm = window.confirm;
-    if (typeof currentConfirm === "function") {
-      const originalConfirm = currentConfirm.bind(window);
-      if (defineDialogMethod("confirm", interceptedConfirm)) nativeConfirm = originalConfirm;
-    }
-  }
   if (!nativeAlert) {
     const currentAlert = window.alert;
     if (typeof currentAlert === "function") {

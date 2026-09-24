@@ -108,6 +108,7 @@ function hasWidgetMarkers(root: Document | Element): boolean {
     hasMarker("[data-cm-content-dismissible]") ||
     hasMarker("[data-cm-grid-view-spec]") ||
     hasMarker("script.cm-ag-grid-spec-config") ||
+    hasMarker('[data-cm-column-settings="1"]') ||
     hasMarker(LAZY_SEL)
   );
 }
@@ -233,9 +234,8 @@ export function installRuntimeBoot(gv: GridViewPublic): void {
   document.addEventListener("htmx:afterSwap", (event) => {
     const detail = (event as CustomEvent<{ target?: Element }>).detail;
     const target = detail?.target;
-    if (!target) return;
-
-    bootScope(target, gv);
+    const scope = target?.isConnected ? target : document;
+    bootScope(scope, gv);
   });
 
   // Out-of-band swaps (e.g. a toolbar's faceted filter bar) fire their own event

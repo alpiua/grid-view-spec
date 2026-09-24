@@ -9,7 +9,22 @@ export { resolveKpis } from "../src/grid-view/kpi";
 export { verifyPageStateContract } from "./page-state-conformance";
 
 import { initBuiltinRenderers } from "../src/runtime/renderers/builtins";
+import { createAgGridColumnAdapter } from "../src/column-settings/ag-grid-adapter";
 import { getRegisteredRenderer } from "../src/grid-view/registry-api";
+
+export function verifyAgGridColumnStateFallback(): void {
+  const adapter = createAgGridColumnAdapter({
+    getColumns: () => [],
+    getColumn: () => undefined,
+    setColumnsVisible: () => {},
+    applyColumnState: () => {},
+    getColumnState: () => undefined,
+    resetColumnState: () => {},
+  }, null);
+  if (adapter.getColumnState().length !== 0) {
+    throw new Error("AG Grid column adapter did not normalize unavailable column state");
+  }
+}
 
 function hasMessage(value: unknown): value is { message: unknown } {
   return typeof value === "object" && value !== null && "message" in value;

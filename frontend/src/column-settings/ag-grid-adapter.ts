@@ -66,7 +66,8 @@ export function createAgGridColumnAdapter(
       gridApi.applyColumnState({ state: [{ colId, pinned, hide }] });
     },
     getColumnState(): ColumnStateItem[] {
-      return gridApi.getColumnState();
+      const state = gridApi.getColumnState();
+      return Array.isArray(state) ? state : [];
     },
     applyColumnState(state: ColumnStateItem[], applyOrder?: boolean): void {
       gridApi.applyColumnState({ state, applyOrder: !!applyOrder });
