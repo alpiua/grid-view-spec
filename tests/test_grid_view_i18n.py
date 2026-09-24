@@ -64,6 +64,7 @@ class GridViewI18nTests(SimpleTestCase):
 
     @override_settings(LANGUAGE_CODE="uk")
     def test_modal_msgids_exist_in_catalog(self) -> None:
+        catalog = get_js_i18n_catalog()
         expected = (
             "column_settings.title",
             "column_settings.hint",
@@ -71,10 +72,16 @@ class GridViewI18nTests(SimpleTestCase):
             "column_settings.presets",
             "column_settings.preset_placeholder",
             "column_settings.save_preset",
+            "dialog.title",
+            "dialog.confirm",
+            "dialog.cancel",
         )
         for key in expected:
             self.assertIn(key, JS_I18N_KEYS)
             self.assertNotEqual(gettext(key), key)
+        self.assertEqual(catalog["dialog.title"], "Підтвердження")
+        self.assertEqual(catalog["dialog.confirm"], "Підтвердити")
+        self.assertEqual(catalog["dialog.cancel"], "Скасувати")
 
     def test_every_catalog_key_translated_in_all_locales(self) -> None:
         """Every JS catalog msgid must resolve (≠ raw key) in en and uk."""

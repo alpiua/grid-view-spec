@@ -57,6 +57,7 @@ JS_I18N_KEYS: tuple[str, ...] = (
     "filter.no_matches",
     "filter.loading_values",
     "filter.list_search",
+    "filter.workspace_search",
     "filter.empty_mode_hint",
     "filter.value_count",
     "column_filter.placeholder",
@@ -117,6 +118,20 @@ JS_I18N_KEYS: tuple[str, ...] = (
     "gallery.prev",
     "gallery.next",
     "gallery.of",
+    "actions.create",
+    "actions.save",
+    "search.no_saved_searches",
+    "common.delete",
+    "common.close",
+    "common.collapse",
+    "dialog.title",
+    "dialog.confirm",
+    "dialog.cancel",
+    "table.select_all",
+    "table.select_row",
+    "table.save_error",
+    "table.network_error",
+    "filter.settings_tab",
 )
 
 

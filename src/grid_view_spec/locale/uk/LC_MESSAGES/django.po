@@ -135,9 +135,11 @@ msgstr "Нічого не знайдено"
 
 msgid "filter.loading_values"
 msgstr "Завантаження словника…"
-
 msgid "filter.list_search"
 msgstr "Пошук…"
+
+msgid "filter.workspace_search"
+msgstr "Пошук фільтрів"
 
 msgid "filter.empty_mode_hint"
 msgstr "Показано рядки з порожніми клітинками"
@@ -363,3 +365,45 @@ msgstr "Наступне"
 
 msgid "gallery.of"
 msgstr "%(current)s з %(total)s"
+
+msgid "actions.create"
+msgstr "Створити"
+
+msgid "actions.save"
+msgstr "Зберегти"
+
+msgid "search.no_saved_searches"
+msgstr "Немає збережених пошуків"
+
+msgid "common.delete"
+msgstr "Видалити"
+
+msgid "common.close"
+msgstr "Закрити"
+
+msgid "common.collapse"
+msgstr "Згорнути"
+
+msgid "dialog.title"
+msgstr "Підтвердження"
+
+msgid "dialog.confirm"
+msgstr "Підтвердити"
+
+msgid "dialog.cancel"
+msgstr "Скасувати"
+
+msgid "table.select_all"
+msgstr "Обрати всі"
+
+msgid "table.select_row"
+msgstr "Обрати рядок"
+
+msgid "table.save_error"
+msgstr "Не вдалося зберегти зміни"
+
+msgid "table.network_error"
+msgstr "Помилка мережі"
+
+msgid "filter.settings_tab"
+msgstr "Налаштування"

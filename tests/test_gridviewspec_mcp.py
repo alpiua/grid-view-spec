@@ -90,6 +90,27 @@ def test_gridview_catalog_payload() -> None:
     assert registries_obj.get("renderers") == list(RENDERERS)
     assert "area_types" in data
     assert "rules" in data
+    table_settings = _obj(data["table_settings"])
+    assert table_settings["surfaces"] == ["drawer", "modal"]
+    meaning = as_str(table_settings["meaning"])
+    assert "membership controls" in meaning
+    assert "order has no semantic effect" in meaning
+    wire = table_settings["wire"]
+    assert isinstance(wire, str)
+    assert "GridViewTable.settings" in wire
+
+
+def test_gridview_table_schema_exposes_settings_and_toolbar_contract() -> None:
+    table = _obj(run_schema(target="GridViewTable")["data"]["schema"])
+    all_of = _list(table["allOf"])
+    properties = next(_obj(item)["properties"] for item in all_of if "properties" in _obj(item))
+    assert "settings" in _obj(properties)
+    toolbar = _obj(run_schema(target="GridViewToolbar")["data"]["schema"])
+    toolbar_all_of = _list(toolbar["allOf"])
+    toolbar_properties = next(
+        _obj(item)["properties"] for item in toolbar_all_of if "properties" in _obj(item)
+    )
+    assert "target" in _obj(toolbar_properties)
 
 
 def test_catalog_advertises_every_builtin_renderer() -> None:
@@ -173,7 +194,12 @@ def test_gridview_catalog_exposes_host_integration() -> None:
     http_routes = _obj(data["http_routes"])
     django_defaults = _obj(http_routes["django_defaults"])
     included = _list(django_defaults["included_routes"])
-    assert any(_obj(route)["name"] == "api_grid_preferences" for route in included)
+    prefs_route = next(
+        _obj(route) for route in included if _obj(route)["name"] == "api_grid_preferences"
+    )
+    assert prefs_route["auth"] == (
+        "optional; authenticated subjects persist server-side, anonymous requests return local_only"
+    )
     assert any(_obj(route)["name"] == "api_export_xlsx" for route in included)
     assert any(_obj(route)["name"] == "lazy" for route in included)
     backend_ids = [_obj(item)["id"] for item in _list(data["host_backends"])]

@@ -1,4 +1,58 @@
-<div class="cm-filters cm-filters-{{ block.presentation | e }}" data-target="{{ block.target or '' | e }}">
-  {% set fb = block %}
-  {% include '_filter_bar.html' %}
+<div class="cm-filters cm-filters-{{ block.presentation | e }}{% if block.presentation == 'drawer' %} cm-filters-drawer{% endif %}" data-target="{{ block.target or '' | e }}"{% if block.presentation == 'drawer' %} data-cm-filter-drawer data-cm-filter-drawer-id="{{ block.id | e }}"{% endif %}>
+  {% if block.presentation == 'drawer' %}
+  {% set target_resolved = ctx.blocks.get(block.target) if block.target else none %}
+  {% set target_block = target_resolved.block if target_resolved else none %}
+  {% set has_drawer_settings = target_block is not none and target_block.type == 'table' and target_block.settings is not none and 'drawer' in target_block.settings %}
+  <button type="button" class="cm-filter-drawer-rail" data-cm-filter-drawer-open aria-label="{{ block.title or host.translate('toolbar.filters') | e }}" aria-expanded="true">
+    <span class="cm-filter-drawer-rail-icon" aria-hidden="true">&#9776;</span>
+    <span class="cm-filter-drawer-rail-label">{{ block.title or host.translate('toolbar.filters') | e }}</span>
+  </button>
+  <aside class="cm-filter-drawer-panel" aria-label="{{ block.title or host.translate('toolbar.filters') | e }}">
+    <header class="cm-filter-drawer-header">
+      <div class="cm-filter-drawer-tabs" role="tablist" aria-label="{{ block.title or host.translate('toolbar.filters') | e }}">
+        <button type="button" class="cm-filter-drawer-tab is-active" role="tab" aria-selected="true" aria-controls="cm-filter-drawer-panel-{{ block.id | e }}-filters" data-cm-filter-drawer-tab="filters">
+          {{ block.title or host.translate('toolbar.filters') | e }}<span class="cm-filter-drawer-tab-count" data-cm-filter-drawer-active-count hidden></span>
+        </button>
+        {% if has_drawer_settings %}
+        <button type="button" class="cm-filter-drawer-tab" role="tab" aria-selected="false" aria-controls="cm-filter-drawer-panel-{{ block.id | e }}-settings" data-cm-filter-drawer-tab="settings">{{ host.translate('filter.settings_tab') | e }}</button>
+        {% endif %}
+      </div>
+      <span class="cm-filter-drawer-actions">
+        <button type="button" class="cm-filter-drawer-action" data-cm-filter-drawer-close aria-label="{{ host.translate('common.collapse') | e }}" title="{{ host.translate('common.collapse') | e }}">
+          <span class="cm-filter-drawer-action-icon" aria-hidden="true">&#171;</span>
+          <span class="cm-filter-drawer-action-label" data-cm-filter-drawer-close-label hidden>{{ host.translate('common.collapse') | e }}</span>
+        </button>
+      </span>
+    </header>
+    <div id="cm-filter-drawer-panel-{{ block.id | e }}-filters" class="cm-filter-drawer-body" role="tabpanel" data-cm-filter-drawer-panel="filters">
+      {% if block.drawer_layout == 'workspace' %}
+      {% set fb = block %}
+      {% set workspace_panel = 'filters' %}
+      {% include '_filter_drawer_workspace.html' %}
+      {% else %}
+      <label class="cm-filter-drawer-search">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+        <input type="search" data-cm-filter-drawer-search aria-label="{{ host.translate('filter.list_search') | e }}" placeholder="{{ host.translate('filter.list_search') | e }}" autocomplete="off">
+      </label>
+      {% set fb = block %}
+      {% include '_filter_bar.html' %}
+      {% endif %}
+    </div>
+    {% if has_drawer_settings %}
+    <div id="cm-filter-drawer-panel-{{ block.id | e }}-settings" class="cm-filter-drawer-body" role="tabpanel" data-cm-filter-drawer-panel="settings" hidden>
+      <div class="cm-filter-drawer-presets-mount" data-cm-filter-drawer-presets data-cm-grid-id="{{ block.target | e }}"></div>
+      <div class="cm-filter-drawer-settings" data-cm-filter-drawer-settings data-cm-grid-id="{{ block.target | e }}"></div>
+      {% if block.drawer_layout == 'workspace' %}
+      {% set fb = block %}
+      {% set workspace_panel = 'settings' %}
+      {% include '_filter_drawer_workspace.html' %}
+      {% endif %}
+    </div>
+    {% endif %}
+    <div class="cm-filter-drawer-resize" data-cm-filter-drawer-resize role="separator" aria-orientation="vertical" aria-label="{{ block.title or host.translate('toolbar.filters') | e }}" aria-valuemin="240" aria-valuemax="520" tabindex="0"></div>
+  </aside>
+  {% else %}
+    {% set fb = block %}
+    {% include '_filter_bar.html' %}
+  {% endif %}
 </div>

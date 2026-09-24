@@ -269,8 +269,6 @@ manager.gridApi.setGridOption(
 | Key | Default | Contract |
 |-----|---------|----------|
 | `gridId` | — | Equals `grid_id` in `scripts.html` and `GridPreference.grid_id` |
-| `legacyStorageScope` | — | Migration-only suffix for an existing legacy browser key |
-| `storageScope` | — | Deprecated alias for `legacyStorageScope` |
 | `syncUrlState` | `true` | `history.replaceState` for `q`, `filters`, `urlPageStateKeys` |
 | `urlPageStateKeys` | keys from `getPageState()` | Domain params mirrored to URL |
 | `getPageState()` | — | Returns `{ period: ["2024-01"], … }` for filter bar |
@@ -279,10 +277,8 @@ manager.gridApi.setGridOption(
 | `onDataReload(manager)` | — | Hook after manual search reload; otherwise export links are synced automatically |
 | `dictionaryUrl` | — | Base URL for set-filter dictionary fetch |
 
-New pages do not configure a grid storage scope. The rendered spec identity and
-optional `GridViewConfig.page_state_scope` select browser page state.
-`legacyStorageScope` only identifies an existing browser key during its one-time
-migration.
+The rendered spec identity and optional `GridViewConfig.page_state_scope` select
+browser page state. GridViewSpec does not read renderer-specific browser keys.
 
 ### Export href sync
 
@@ -449,7 +445,7 @@ See [KPI and charts](../visualization/kpi-charts.md).
 | Columns | your frontend `columnDefs` |
 | Templates | `_grid_options.html`, `_grid_scripts.html`, `_toolbar.html` |
 
-Typical config: `grid_id="items"`, `storageScope="items-grid"`, data endpoint `GET /api/items/data/`.
+Typical config: `grid_id="items"`, data endpoint `GET /api/items/data/`.
 
 ## API reference
 

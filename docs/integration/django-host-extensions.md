@@ -71,6 +71,44 @@ Built-in registry ids: `money`, `link`, `badge`, `date`, `button`, `image` (see 
 `column.extra` maps to AG Grid `cellRendererParams` (e.g. `action`, `record_key`, `badges`,
 `ag_filter`).
 
+### Built-in button and link cell actions
+
+The built-in `button` and `link` renderers support these package-owned `column.extra` keys:
+
+| Key | Shape | Runtime behavior |
+|-----|-------|------------------|
+| `action` | `string` | Emits the delegated `[data-cm-cell-action]` metadata for the registered action. |
+| `record_key` | optional `string` | Selects the row field used for the action's row id where that renderer supports it. Its behavior is backend-dependent; simple-table link cells use the row's `id`, so do not rely on this key for cross-backend parity. |
+| `confirm` | `string` or object | Emits confirmation metadata. The object uses canonical snake_case keys: `title`, `message`, `tone` (`default`, `primary`, `warning`, or `danger`), `confirm_text`, `cancel_text`, and `close_on_backdrop`. |
+
+For example:
+
+```python
+GridViewColumn(
+    id="remove",
+    field="name",
+    renderer="button",  # or "link"
+    extra={
+        "action": "remove_item",
+        "record_key": "id",
+        "confirm": {
+            "title": "Remove item?",
+            "message": "This action cannot be undone.",
+            "tone": "danger",
+            "confirm_text": "Remove",
+            "cancel_text": "Cancel",
+            "close_on_backdrop": True,
+        },
+    },
+)
+```
+
+For AG Grid, `column.extra` reaches `cellRendererParams`; the built-in renderer narrows the
+recognized action, row-id, and confirmation values before emitting cell metadata. The simple
+table reads the same supported keys while rendering its button/link cells, subject to the
+`record_key` caveat above. Unknown `extra` keys remain host-owned and are available for a
+registered custom renderer; they are not part of this built-in contract.
+
 ---
 
 ## Custom actions (clicks)

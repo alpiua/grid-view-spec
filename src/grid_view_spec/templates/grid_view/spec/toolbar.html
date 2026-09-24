@@ -5,6 +5,7 @@
 {% set table_resolved = ctx.blocks.get(block.target) if block.target else none %}
 {% set table_block = table_resolved.block if table_resolved else none %}
 {% set has_settings = table_block is not none and table_block.settings is not none %}
+{% set has_modal_settings = has_settings and 'modal' in table_block.settings %}
 {% set search_value = resolved.extra.get('search_value', block.search.value if block.search else '') %}
 {% set pref_grid_id = resolved.extra.get('pref_grid_id', block.search.bind or block.target or block.id if block.search else block.id) %}
 <div class="cm-toolbar-unified cm-toolbar-outside" data-target="{{ block.target or '' | e }}">
@@ -69,25 +70,39 @@
         </button>
       </div>
       {% if block.search.saved %}
-      <div class="cm-toolbar-search-saved-actions" role="group" aria-label="{{ host.translate('search.saved_searches') | e }}">
-        <button type="button" class="cm-toolbar-search-action cm-toolbar-search-action--save" data-cm-grid-action="saveSearch" data-cm-grid-id="{{ block.id | e }}" title="{{ host.translate('search.save') | e }}" aria-label="{{ host.translate('search.save') | e }}">
+      <div class="cm-toolbar-search-saved-actions" data-cm-tree-saved-container="1">
+        <button type="button"
+                class="cm-toolbar-search-action cm-toolbar-search-action--load"
+                data-cm-grid-action="toggleSavedSearches"
+                data-cm-grid-id="{{ block.id | e }}"
+                id="cm-saved-searches-btn-{{ block.id | e }}"
+                title="{{ host.translate('search.saved_searches') | e }}"
+                aria-label="{{ host.translate('search.saved_searches') | e }}">
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/></svg>
         </button>
-        <button type="button" class="cm-toolbar-search-action cm-toolbar-search-action--load" data-cm-grid-action="toggleSavedSearches" data-cm-grid-id="{{ block.id | e }}" id="cm-saved-searches-btn-{{ block.id | e }}" title="{{ host.translate('search.load_saved') | e }}" aria-label="{{ host.translate('search.load_saved') | e }}">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
-        </button>
       </div>
-      <div id="cm-saved-searches-dropdown-{{ block.id | e }}" class="cm-toolbar-search-saved-panel cm-toolbar-search-saved-panel--detached is-hidden" data-cm-saved-dropdown-for="{{ block.id | e }}">
-        <div class="cm-toolbar-search-saved-title">{{ host.translate('search.saved_searches') | e }}</div>
-        <div id="cm-saved-searches-container-{{ block.id | e }}" class="cm-toolbar-search-saved-list"></div>
-      </div>
+        <div id="cm-saved-searches-dropdown-{{ block.id | e }}"
+             class="cm-toolbar-search-saved-panel cm-toolbar-search-saved-panel--detached is-hidden"
+             data-cm-saved-dropdown-for="{{ block.id | e }}">
+          <div class="cm-toolbar-search-saved-title flex items-center justify-between">
+            <span>{{ host.translate('search.saved_searches') | e }}</span>
+            <button type="button"
+                    class="cm-toolbar-search-save-current text-indigo-600 dark:text-indigo-400 hover:underline font-normal text-[11px] cursor-pointer"
+                    data-cm-grid-action="saveSearch"
+                    data-cm-grid-id="{{ block.id | e }}"
+                    title="{{ host.translate('search.save') | e }}">
+              + {{ host.translate('actions.save') | e }}
+            </button>
+          </div>
+          <div id="cm-saved-searches-container-{{ block.id | e }}" class="cm-toolbar-search-saved-list"></div>
+        </div>
       {% endif %}
     </div>
     {% endif %}
   </div>
   <div class="cm-toolbar-center" id="cm-toolbar-center-{{ block.id | e }}">
     <div class="cm-toolbar-filters-mobile-header">
-      <span class="cm-toolbar-filters-mobile-title">{{ host.translate('toolbar.filters') | default('Фільтри') | e }}</span>
+      <span class="cm-toolbar-filters-mobile-title">{{ host.translate('toolbar.filters') | e }}</span>
       <div class="cm-toolbar-filters-mobile-actions">
         {% if block.clear_all and block.target %}
         <button
@@ -95,9 +110,9 @@
           class="cm-toolbar-filters-mobile-reset"
           data-cm-grid-action="clearAllFilters"
           data-cm-grid-id="{{ block.target | e }}"
-        >{{ host.translate('toolbar.reset') | default('Скинути') | e }}</button>
+        >{{ host.translate('toolbar.reset') | e }}</button>
         {% endif %}
-        <button type="button" class="cm-toolbar-filters-mobile-close" data-cm-filters-close aria-label="{{ host.translate('common.close') | default('Закрити') | e }}">&times;</button>
+        <button type="button" class="cm-toolbar-filters-mobile-close" data-cm-filters-close aria-label="{{ host.translate('common.close') | e }}">&times;</button>
       </div>
     </div>
     {% if filters_block %}
@@ -114,8 +129,8 @@
         {% if has_server_filter_state %}data-cm-server-filter-state="1"{% endif %}
         data-cm-grid-action="clearAllFilters"
         data-cm-grid-id="{{ block.target | e }}"
-        title="{{ host.translate('toolbar.clear_all_filters') | default('Очистити всі фільтри і пошук') | e }}"
-        aria-label="{{ host.translate('toolbar.clear_all_filters') | default('Очистити всі фільтри і пошук') | e }}"
+        title="{{ host.translate('toolbar.clear_all_filters') | e }}"
+        aria-label="{{ host.translate('toolbar.clear_all_filters') | e }}"
       >
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/><path d="m19 5-4 4"/><path d="m15 5 4 4"/></svg>
       </button>
@@ -127,8 +142,8 @@
       class="cm-toolbar-btn cm-toolbar-clear-all is-hidden"
       data-cm-grid-action="clearAllFilters"
       data-cm-grid-id="{{ block.target | e }}"
-      title="{{ host.translate('toolbar.clear_all_filters') | default('Очистити всі фільтри і пошук') | e }}"
-      aria-label="{{ host.translate('toolbar.clear_all_filters') | default('Очистити всі фільтри і пошук') | e }}"
+      title="{{ host.translate('toolbar.clear_all_filters') | e }}"
+      aria-label="{{ host.translate('toolbar.clear_all_filters') | e }}"
     >
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M7 12h10"/><path d="M10 18h4"/><path d="m19 5-4 4"/><path d="m15 5 4 4"/></svg>
     </button>
@@ -145,7 +160,7 @@
       {% endfor %}
     </div>
     {% endif %}
-    {% if actions_block or has_settings or (block.reload and block.target) or filters_block %}
+    {% if actions_block or has_modal_settings or (block.reload and block.target) or filters_block %}
     <div class="cm-toolbar-actions">
       {% if filters_block %}
       {% set has_active_filters = filters_block and filters_block.state and filters_block.state.values %}
@@ -154,16 +169,20 @@
         class="cm-toolbar-btn cm-toolbar-filters-toggle{% if has_active_filters %} has-active-filters{% endif %}"
         data-cm-filters-toggle
         data-cm-target="cm-toolbar-center-{{ block.id | e }}"
-        title="{{ host.translate('toolbar.filters') | default('Фільтри') | e }}"
-        aria-label="{{ host.translate('toolbar.filters') | default('Фільтри') | e }}"
+        title="{{ host.translate('toolbar.filters') | e }}"
+        aria-label="{{ host.translate('toolbar.filters') | e }}"
       >
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"></polygon></svg>
       </button>
       {% endif %}
       <div class="cm-toolbar-desktop-actions">
         {% if actions_block %}
+        {% set select_items = actions_block.items | selectattr('type', 'equalto', 'select') | list %}
         {% set export_items = actions_block.items | selectattr('type', 'equalto', 'export') | list %}
         {% set link_items = actions_block.items | selectattr('type', 'equalto', 'link') | list %}
+        {% for action in select_items %}
+        {% include '_action_select.html' %}
+        {% endfor %}
         {% if export_items %}
         <div class="cm-export-group cm-export-group--paired">
           {% for action in export_items %}
@@ -175,6 +194,7 @@
             title="{{ host.translate('export.' ~ action.format) | e }}"
             data-cm-export-sync="1"
             data-cm-grid-id="{{ block.target or '' | e }}"
+            {% if action.confirm is not none %}data-cm-confirm="{{ confirm_config_json(action.confirm) | e }}"{% endif %}
           >
             {% if action.format == 'xlsx' %}
             <svg class="cm-export-btn-icon" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -190,7 +210,7 @@
         {% include '_action_link.html' %}
         {% endfor %}
         {% endif %}
-        {% if has_settings %}
+        {% if has_modal_settings %}
         <div class="cm-col-btn-wrap">
           <button
             id="col-selector-btn-{{ block.target | e }}"
@@ -220,10 +240,10 @@
 
       {% set export_items = actions_block.items | selectattr('type', 'equalto', 'export') | list if actions_block else [] %}
       {% set link_items = actions_block.items | selectattr('type', 'equalto', 'link') | list if actions_block else [] %}
-      {% set has_more_items = export_items or link_items or has_settings or (block.reload and block.target) %}
+      {% set has_more_items = export_items or link_items or has_modal_settings or (block.reload and block.target) %}
       {% if has_more_items %}
       <details class="cm-toolbar-more-menu" data-cm-toolbar-more>
-        <summary class="cm-toolbar-btn cm-toolbar-more-trigger" title="{{ host.translate('toolbar.more_actions') | default('Дії') | e }}" aria-label="{{ host.translate('toolbar.more_actions') | default('Дії') | e }}">
+        <summary class="cm-toolbar-btn cm-toolbar-more-trigger" title="{{ host.translate('toolbar.more_actions') | e }}" aria-label="{{ host.translate('toolbar.more_actions') | e }}">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="12" cy="5" r="2.2"/><circle cx="12" cy="12" r="2.2"/><circle cx="12" cy="19" r="2.2"/></svg>
         </summary>
         <div class="cm-toolbar-more-panel" role="menu">
@@ -237,6 +257,7 @@
             {% if action.format == 'pdf' %}target="_blank"{% endif %}
             data-cm-export-sync="1"
             data-cm-grid-id="{{ block.target or '' | e }}"
+            {% if action.confirm is not none %}data-cm-confirm="{{ confirm_config_json(action.confirm) | e }}"{% endif %}
           >
             {% if action.format == 'xlsx' %}
             <svg class="cm-toolbar-more-icon cm-toolbar-more-icon--xlsx" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden="true"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
@@ -248,7 +269,7 @@
           {% endfor %}
           {% for action in link_items %}
           {% set href = action.url or '' %}
-          <a href="{{ href | e }}" class="cm-toolbar-more-item" role="menuitem" {% if action.target %}target="{{ action.target | e }}"{% endif %}>
+          <a href="{{ href | e }}" class="cm-toolbar-more-item" role="menuitem" {% if action.target %}target="{{ action.target | e }}"{% endif %}{% if action.confirm is not none %} data-cm-confirm="{{ confirm_config_json(action.confirm) | e }}"{% endif %}>
             {% if action.icon %}
             <span class="cm-toolbar-more-icon">{{ action.icon }}</span>
             {% endif %}
@@ -257,7 +278,7 @@
           {% endfor %}
           {% endif %}
           <div class="cm-toolbar-more-presets" data-cm-more-presets="{{ block.target or '' | e }}"></div>
-          {% if has_settings %}
+          {% if has_modal_settings %}
           <button
             type="button"
             data-cm-col-action="toggle-modal"
@@ -278,7 +299,7 @@
             data-cm-grid-id="{{ block.target | e }}"
           >
             <svg class="cm-toolbar-more-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/></svg>
-            <span>{{ host.translate('toolbar.reload') | default('Оновити') | e }}</span>
+            <span>{{ host.translate('toolbar.reload') | e }}</span>
           </button>
           {% endif %}
         </div>

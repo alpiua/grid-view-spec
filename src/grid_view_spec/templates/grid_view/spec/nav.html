@@ -1,5 +1,170 @@
+{% if block.presentation == 'tree' %}
+{% macro render_tree_item(item, depth=0) -%}
+  <div class="cm-nav-tree-node"
+       data-node-id="{{ item.id | e }}"
+       {% if item.type %}data-node-type="{{ item.type | e }}"{% endif %}
+       {% if item.parent_id %}data-parent-id="{{ item.parent_id | e }}"{% endif %}>
+    <div class="cm-nav-tree-row flex items-center justify-between gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors cursor-pointer {% if item.active %}is-active font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50/70 dark:bg-indigo-950/40{% else %}text-slate-700 dark:text-gray-200 hover:bg-slate-100 dark:hover:bg-[#181f33]{% endif %}"
+         {% if item.href %}data-href="{{ item.href | e }}"{% endif %}
+         {% if item.extra and item.extra.get('hx_get') %}
+           hx-get="{{ item.extra.get('hx_get') | e }}"
+           hx-target="{{ item.extra.get('hx_target', '#cm-resource-detail') | e }}"
+           hx-swap="{{ item.extra.get('hx_swap', 'innerHTML') | e }}"
+           {% if item.extra.get('hx_push_url') %}hx-push-url="{{ item.extra.get('hx_push_url') | e }}"{% endif %}
+         {% endif %}>
+      <div class="flex items-center gap-1.5 min-w-0 flex-1 truncate">
+        {% if item.children %}
+        <button type="button" class="cm-nav-tree-toggle w-4 h-4 flex items-center justify-center shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200" data-tree-toggle="1">
+          <svg class="w-3 h-3 transition-transform duration-150" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
+        </button>
+        {% else %}
+        <span class="w-4 shrink-0"></span>
+        {% endif %}
+        {% if item.icon %}
+        <span class="cm-nav-tree-icon shrink-0">{{ item.icon | e }}</span>
+        {% endif %}
+        <span class="cm-nav-tree-label truncate">{{ item.label | e }}</span>
+      </div>
+      <div class="flex items-center gap-1 shrink-0">
+        {% if item.count is not none and item.count > 0 %}
+        <span class="cm-nav-tree-count text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#1e253d] text-slate-600 dark:text-gray-400">{{ item.count }}</span>
+        {% endif %}
+        {% if item.extra and item.extra.get('action_url') %}
+        <button type="button"
+                class="cm-nav-tree-action w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-indigo-600 hover:bg-slate-200 dark:hover:bg-[#202840] transition-colors"
+                title="{{ item.extra.get('action_title', '') | e }}"
+                hx-get="{{ item.extra.get('action_url') | e }}"
+                hx-target="{{ item.extra.get('hx_target', '#cm-resource-detail') | e }}"
+                hx-swap="{{ item.extra.get('hx_swap', 'innerHTML') | e }}"
+                {% if item.extra.get('action_push_url') %}hx-push-url="{{ item.extra.get('action_push_url') | e }}"{% endif %}
+                onclick="event.stopPropagation()">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+        </button>
+        {% endif %}
+      </div>
+    </div>
+    {% if item.children %}
+    <div class="cm-nav-tree-children pl-3 space-y-0.5 border-l border-slate-100 dark:border-[#1e263d] ml-3 mt-0.5">
+      {% for child in item.children %}
+        {{ render_tree_item(child, depth + 1) }}
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+{%- endmacro %}
+
+<div class="cm-resource-nav" {% if block.extra and block.extra.get('pane_base') %}data-pane-base="{{ block.extra.get('pane_base') | e }}"{% endif %} style="display:contents">
+<nav class="cm-nav cm-nav-tree flex flex-col h-full min-h-0 overflow-hidden select-none"
+     data-cm-nav-tree="{{ block.id | e }}"
+     {% if block.saved_searches or (block.extra and block.extra.get('saved_searches')) %}data-cm-nav-saved-searches="1"{% endif %}
+     {% if block.extra and (block.extra.get('allow_drag') or block.extra.get('draggable')) %}data-cm-nav-draggable="1"{% endif %}
+     {% if block.extra and block.extra.get('root_drop_label') %}data-cm-root-drop-label="{{ block.extra.get('root_drop_label') | e }}"{% endif %}>
+  {% if block.search_placeholder %}
+  <div class="cm-nav-tree-search p-2 border-b border-slate-200 dark:border-[#222a44] bg-white dark:bg-[#121626] shrink-0">
+    <div class="relative w-full flex items-center gap-1.5">
+      <div class="relative flex-1 min-w-0">
+        <input type="search"
+               class="w-full pl-7 pr-7 py-1.5 text-xs rounded-lg bg-slate-100 dark:bg-[#181f33] border border-slate-200 dark:border-[#263150] text-slate-800 dark:text-gray-200 placeholder-slate-400 dark:placeholder-gray-500 focus:outline-none focus:border-indigo-500"
+               placeholder="{{ block.search_placeholder | e }}"
+               data-cm-tree-search="1">
+        <svg class="absolute left-2 top-2 text-slate-400 dark:text-gray-500 pointer-events-none" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+          <circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line>
+        </svg>
+        <button type="button"
+                class="cm-nav-tree-search-clear absolute right-2 top-2 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200 transition-colors hidden"
+                title="{{ host.translate('search.clear') | e }}"
+                aria-label="{{ host.translate('search.clear') | e }}"
+                data-cm-tree-search-clear="1">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="m15 9-6 6"/><path d="m9 9 6 6"/></svg>
+        </button>
+      </div>
+      {% if block.saved_searches or (block.extra and block.extra.get('saved_searches')) %}
+      <div class="relative shrink-0" data-cm-tree-saved-container="1">
+        <button type="button"
+                class="cm-nav-tree-saved-btn w-7 h-7 flex items-center justify-center rounded-lg border border-slate-200 dark:border-[#263150] bg-slate-100 dark:bg-[#181f33] text-slate-500 dark:text-gray-400 hover:text-indigo-600 dark:hover:text-indigo-400 hover:bg-slate-200 dark:hover:bg-[#202b48] transition-colors cursor-pointer"
+                title="{{ host.translate('search.saved_searches') | e }}"
+                data-cm-tree-saved-trigger="1">
+          <svg class="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z"/></svg>
+        </button>
+        <div class="cm-nav-tree-saved-menu hidden absolute right-0 top-full mt-1.5 w-56 p-2 rounded-xl bg-white dark:bg-[#182035] border border-slate-200 dark:border-[#263152] shadow-xl z-50 space-y-1.5 text-xs"
+             data-cm-tree-saved-menu="1">
+          <div class="flex items-center justify-between pb-1 border-b border-slate-100 dark:border-[#20273e] text-[11px] font-semibold text-slate-500 dark:text-gray-400">
+            <span>{{ host.translate('search.saved_searches') | e }}</span>
+            <button type="button"
+                    class="cm-nav-tree-save-current text-indigo-600 dark:text-indigo-400 hover:underline font-normal text-[10px] cursor-pointer"
+                    data-cm-tree-save-current="1"
+                    title="{{ host.translate('search.save') | e }}">
+              + {{ host.translate('actions.save') | e }}
+            </button>
+          </div>
+          <div class="cm-nav-tree-saved-list max-h-48 overflow-y-auto space-y-0.5"
+               data-cm-tree-saved-list="1"
+               data-empty-label="{{ host.translate('search.no_saved_searches') | e }}"
+               data-delete-title="{{ host.translate('common.delete') | e }}">
+          </div>
+        </div>
+      </div>
+      {% endif %}
+    </div>
+  </div>
+  {% endif %}
+  <div class="cm-nav-tree-items flex-1 min-h-0 overflow-y-auto p-2 space-y-1">
+    {% for item in block.items %}
+      {{ render_tree_item(item, 0) }}
+    {% endfor %}
+  </div>
+  {% if block.allow_create %}
+  <div class="cm-nav-tree-footer p-2 border-t border-slate-200 dark:border-[#222a44] bg-white dark:bg-[#121626] shrink-0 relative"
+       data-cm-tree-create-container="1">
+    {% if block.extra and block.extra.get('create_options') %}
+    <div class="cm-nav-tree-create-menu hidden absolute bottom-full left-2 right-2 mb-2 p-1.5 rounded-xl bg-white dark:bg-[#182035] border border-slate-200 dark:border-[#263152] shadow-xl z-50 space-y-1"
+         data-cm-tree-create-menu="1">
+      {% for opt in block.extra.get('create_options') %}
+      <button type="button"
+              class="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-xs text-slate-700 dark:text-gray-200 hover:bg-slate-100 dark:hover:bg-[#202b48] transition-colors text-left"
+              {% if opt.get('hx_get') %}
+                hx-get="{{ opt.get('hx_get') | e }}"
+                hx-target="{{ opt.get('hx_target', '#cm-resource-detail') | e }}"
+                hx-swap="{{ opt.get('hx_swap', 'innerHTML') | e }}"
+                {% if opt.get('hx_push_url') %}hx-push-url="{{ opt.get('hx_push_url') | e }}"{% endif %}
+              {% endif %}
+              {% if opt.get('click') %}onclick="{{ opt.get('click') | e }}"{% endif %}>
+        {% if opt.get('icon') %}<span class="text-sm shrink-0">{{ opt.get('icon') | e }}</span>{% endif %}
+        <div class="min-w-0 flex-1">
+          <div class="font-semibold">{{ opt.get('label') | e }}</div>
+          {% if opt.get('description') %}<div class="text-[10px] text-slate-400">{{ opt.get('description') | e }}</div>{% endif %}
+        </div>
+      </button>
+      {% endfor %}
+    </div>
+    <button type="button"
+            class="cm-nav-tree-create-btn cm-resource-new-btn w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors shadow-xs"
+            data-cm-tree-create-trigger="1">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      <span>{{ (block.extra.get('create_button_label') or host.translate('actions.create')) | e }}</span>
+      <svg class="cm-nav-tree-create-arrow w-3.5 h-3.5 ml-1 transition-transform" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="6 9 12 15 18 9"></polyline></svg>
+    </button>
+    {% else %}
+    <button type="button"
+            class="cm-nav-tree-create-btn cm-resource-new-btn w-full flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-semibold bg-indigo-600 hover:bg-indigo-500 text-white transition-colors shadow-xs"
+            {% if block.extra and block.extra.get('create_url') %}
+              hx-get="{{ block.extra.get('create_url') | e }}"
+              hx-target="{{ block.extra.get('hx_target', '#cm-resource-detail') | e }}"
+              hx-swap="{{ block.extra.get('hx_swap', 'innerHTML') | e }}"
+              {% if block.extra.get('create_push_url') %}hx-push-url="{{ block.extra.get('create_push_url') | e }}"{% endif %}
+            {% endif %}>
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+      <span>{{ (block.extra.get('create_button_label') or host.translate('actions.create')) | e }}</span>
+    </button>
+    {% endif %}
+  </div>
+  {% endif %}
+</nav>
+</div>
+{% else %}
 <nav class="cm-nav cm-nav-{{ block.presentation | e }}">
   {% for item in block.items %}
   <a class="cm-nav-item{% if item.active %} is-active{% endif %}" href="{{ item.href | e }}">{{ item.label | e }}</a>
   {% endfor %}
 </nav>
+{% endif %}

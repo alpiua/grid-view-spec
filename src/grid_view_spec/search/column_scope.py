@@ -1,4 +1,4 @@
-"""Column label scoping for toolbar ``q`` (``лікарів:10..20``)."""
+"""Column label scoping for toolbar ``q`` (``qty:10..20``)."""
 
 from __future__ import annotations
 

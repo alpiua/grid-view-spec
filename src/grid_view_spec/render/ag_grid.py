@@ -8,8 +8,9 @@ template). Documented ``GridViewTable.extra`` keys map to camelCase JS config ke
 from __future__ import annotations
 
 import json
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 
+from grid_view_spec.types.json import JsonValue
 from grid_view_spec.types.table_v2 import GridViewTable
 
 
@@ -17,6 +18,7 @@ def ag_grid_spec_config(
     block: GridViewTable,
     block_id: str,
     *,
+    presets: Mapping[str, JsonValue] | None = None,
     searches: Sequence[str] = (),
 ) -> dict[str, object]:
     """Return the AG-Grid boot config dict for one table block."""
@@ -51,10 +53,7 @@ def ag_grid_spec_config(
             }
             for col in block.columns
         ],
-        # This preserves only the old browser-key suffix while the frontend
-        # migrates it into renderer-neutral page state. It is not a new state
-        # identity: spec id and page_state_scope own that boundary.
-        "legacyStorageScope": extra.get("storage_scope", block_id),
+        "presets": dict(presets) if presets is not None else {},
         "syncUrlState": extra.get("sync_url_state", True),
         "urlPageStateKeys": url_page_state_keys,
         "filtersSelector": extra.get("filters_selector", ""),
@@ -76,10 +75,15 @@ def ag_grid_spec_config(
             "dependsOn": list(src.depends_on),
             "params": dict(src.params),
             "anchor": src.anchor,
-            "merge": src.merge,
         }
     if extra.get("row_selection"):
         config["rowSelection"] = extra["row_selection"]
+    if extra.get("row_click_selection") == "toggle":
+        config["rowClickSelection"] = "toggle"
+    if extra.get("row_drag_entire_row"):
+        config["rowDragEntireRow"] = True
+    if extra.get("row_drag_multi_row"):
+        config["rowDragMultiRow"] = True
     if extra.get("fit_columns"):
         config["fitColumns"] = True
     if extra.get("row_height"):
@@ -93,7 +97,8 @@ def ag_grid_spec_config_json(
     block: GridViewTable,
     block_id: str,
     *,
+    presets: Mapping[str, JsonValue] | None = None,
     searches: Sequence[str] = (),
 ) -> str:
     """Serialize :func:`ag_grid_spec_config` to a JSON string for the template."""
-    return json.dumps(ag_grid_spec_config(block, block_id, searches=searches))
+    return json.dumps(ag_grid_spec_config(block, block_id, presets=presets, searches=searches))

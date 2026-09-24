@@ -4,6 +4,10 @@ from pathlib import Path
 from django.template import Context, Engine
 from django.test import RequestFactory
 
+from grid_view_spec.backends.django.assets import (
+    FILTER_WORKSPACE_REQUEST_FLAG,
+    grid_view_asset_version,
+)
 from grid_view_spec.backends.django.i18n import get_js_i18n_catalog
 
 _PKG_TEMPLATES = Path(__file__).resolve().parents[1] / "src/grid_view_spec/templates"
@@ -35,10 +39,12 @@ def test_grid_view_spec_public_assets_exist():
         "gridviewspec-ag-grid-cdn.js",
         "gridviewspec-ag-grid.js",
         "gridviewspec-charts.js",
+        "gridviewspec-filter-workspace.js",
         "gridviewspec.min.js",
     )
     for name in public_bundles:
         assert (static_root / name).is_file(), name
+    assert (static_root / "gridviewspec-filter-workspace.css").is_file()
 
     bundle = static_root / "gridviewspec.js"
     assert bundle.is_file()
@@ -67,4 +73,28 @@ def test_grid_view_spec_assets_emits_unified_scripts():
         .render(Context({"request": request}))
     )
     assert "gridviewspec.min.js" in html
+    assert f"?v={grid_view_asset_version()}" in html
     assert "GridViewI18n" in html
+
+
+def test_workspace_assets_are_emitted_only_for_workspace_specs() -> None:
+    """The optional workspace bundle is absent unless a view declares it."""
+    template = _test_engine().from_string(
+        "{% load grid_view_spec %}{% grid_view_spec_assets part='css' %}"
+        "{% grid_view_spec_assets part='js' force_core=True %}"
+    )
+    plain_request = RequestFactory().get("/")
+    plain_html = template.render(Context({"request": plain_request}))
+    assert "data-cm-filter-workspace-asset" not in plain_html
+    assert (
+        '<script src="/static/grid_view_spec/gridviewspec-filter-workspace.min.js' not in plain_html
+    )
+
+    workspace_request = RequestFactory().get("/")
+    setattr(workspace_request, FILTER_WORKSPACE_REQUEST_FLAG, True)
+    workspace_html = template.render(Context({"request": workspace_request}))
+    assert "data-cm-filter-workspace-asset" in workspace_html
+    assert (
+        '<script src="/static/grid_view_spec/gridviewspec-filter-workspace.min.js' in workspace_html
+    )
+    assert f"?v={grid_view_asset_version()}" in workspace_html

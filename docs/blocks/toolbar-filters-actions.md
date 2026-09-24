@@ -46,6 +46,42 @@ Charts may reference the same filters block id for documentation/validation; the
 | `fragment_endpoint` | HTMX URL that re-renders the spec (bar + table) with counted options when `facets=True` |
 | `fragment_target` | CSS selector for the fragment swap target |
 | `fragment_swap` | HTMX swap strategy (default `outerHTML`) |
+| `drawer_layout` | `compact` (default) or `workspace` |
+| `drawer_sections` | Ordered visual groups for a `workspace` drawer |
+
+`presentation="drawer"` renders the filter block as a persistent, resizable
+sidebar with a bounded scroll area and in-drawer filter search. The drawer's
+collapsed state, width, and active `Filters`/`Column settings` tab are stored
+through the owning spec's `GridView.PageState` namespace; filter values remain
+URL state. When the filter has a table `target`, the `Column settings` tab
+mounts that table's shared settings controls in the drawer. The package owns
+presentation and browser preferences, while the host owns the filter schema and
+query semantics.
+
+`drawer_layout="workspace"` groups the same canonical schema into persistent
+cards. Each `GridViewFilterDrawerSection` names its `filter_ids`, `panel`
+(`"filters"` by default or `"settings"`), optional search support, and bounded
+list size. A workspace must assign every schema filter exactly once across both
+panels; it does not introduce a second filter state or a host-side JavaScript
+adapter. `panel="settings"` is for display choices that still use the same URL
+state. Its tree state, drawer size, active tab, column order, visibility, pins,
+and named column presets use the normal `GridView.PageState` namespace; values
+continue to use the URL.
+
+The workspace runtime and stylesheet are optional assets. Django marks them from
+the rendered Spec before the document head is emitted; pages without a workspace
+drawer receive neither bundle. Asset URLs carry the installed bundle-set version,
+so a rebuilt package cannot reuse a stale browser script or stylesheet. If a
+workspace arrives later in an HTMX fragment, the core runtime loads the same
+bundle on demand.
+
+Use `type="grouped_select"` when one query parameter represents one selected
+option in each named group — for example, a price tier per supplier. Each
+top-level `GridViewFilterOption` is the group label and its `children` are the
+selectable options. The browser serializes those child values as CSV under the
+single `param`; groups with no children are not rendered. It is a server-side
+query control, not a table-column preference: table visibility remains owned by
+the target table's existing settings.
 
 `GridViewFilterOption` carries `count` (`int | None`) and `disabled` (`bool`) for facet
 counts — set by the host facet computation, not by authors. See

@@ -90,7 +90,10 @@ HOST_BACKENDS: tuple[dict[str, str], ...] = (
             "pip install grid-view-spec[django]; "
             "INSTALLED_APPS += grid_view_spec.backends.django; migrate"
         ),
-        "prefs": "DjangoOrmPrefs → GridPreference ORM; default POST /grid/preferences/",
+        "prefs": (
+            "DjangoOrmPrefs → GridPreference ORM for authenticated subjects; "
+            "default POST /grid/preferences/ is local_only for anonymous requests"
+        ),
         "export_http": (
             "include grid_view_spec.backends.django.urls or mount same names; "
             "register_pdf_export / register_xlsx_export in AppConfig.ready()"
@@ -160,7 +163,9 @@ HOST_PROTOCOL: dict[str, object] = {
         },
         {
             "name": "save_grid_prefs",
-            "purpose": "Persist prefs; optional when host has no storage",
+            "purpose": (
+                "Persist prefs for an authenticated subject; optional when host has no storage"
+            ),
         },
         {
             "name": "filter_state_from_request",
@@ -168,13 +173,16 @@ HOST_PROTOCOL: dict[str, object] = {
         },
         {
             "name": "current_subject_id",
-            "purpose": "Opaque authenticated subject (user pk, token subject, …)",
+            "purpose": (
+                "Opaque authenticated subject (user pk, token subject, …); None for "
+                "anonymous requests"
+            ),
         },
     ],
     "host_responsibilities": [
         "Rows and KPI/chart values from host page_data only — not from spec layout",
         "Permissions resolved before spec build — package does not call tenant/Brain APIs",
-        "subject_id must match authenticated user when saving prefs",
+        "Authenticated subject_id must match the authenticated user when saving prefs",
         "GridViewTemplate is trusted host content",
     ],
 }
@@ -190,6 +198,15 @@ TABLE_BACKENDS: tuple[dict[str, str], ...] = (
     },
 )
 
+TABLE_SETTINGS: dict[str, object] = {
+    "surfaces": ["drawer", "modal"],
+    "meaning": (
+        "Optional column-settings surfaces; membership controls the rendered preference "
+        "entry points, and order has no semantic effect."
+    ),
+    "wire": "GridViewTable.settings is null or a non-empty unique array of surfaces.",
+}
+
 HTTP_ROUTES: dict[str, object] = {
     "logical_routes": {
         "grid_prefs": "POST save named presets and searches",
@@ -204,7 +221,10 @@ HTTP_ROUTES: dict[str, object] = {
                 "path": "grid/preferences/",
                 "name": "api_grid_preferences",
                 "view": "save_grid_prefs",
-                "auth": "login_required",
+                "auth": (
+                    "optional; authenticated subjects persist server-side, "
+                    "anonymous requests return local_only"
+                ),
             },
             {
                 "path": "grid/export/pdf/",
@@ -382,6 +402,7 @@ def run_catalog() -> McpEnvelope:
             "host_backends": list(HOST_BACKENDS),
             "host_protocol": HOST_PROTOCOL,
             "table_backends": list(TABLE_BACKENDS),
+            "table_settings": TABLE_SETTINGS,
             "http_routes": HTTP_ROUTES,
             # Discovery pointers for the other tools, so an agent needs one call.
             "schema_targets": list(available_targets()),

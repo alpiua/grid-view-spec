@@ -5,6 +5,7 @@
   class="{{ btn_classes(action.variant, action.tone, action.params.get('btn_class', '')) }}"
   data-cm-action="{{ action.action | e }}"
   data-cm-action-target="{{ action.target | e }}"
+  {% if action.confirm is not none %}data-cm-confirm="{{ confirm_config_json(action.confirm) | e }}"{% endif %}
   {% if action.params.get('bulk') %}data-cm-bulk-action="1" hidden disabled{% endif %}
   title="{{ action.label | e }}"
 >

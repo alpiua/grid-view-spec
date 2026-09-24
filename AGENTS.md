@@ -29,12 +29,19 @@ uv run pytest -q
 
 - Boundaries: no `Any`, `cast`, pyright ignore; use narrowing/`TypeGuard`/
   `Protocol`/`TypedDict`/`JsonValue`.
+- Use English-only gettext msgids and JavaScript i18n keys; keep translated text
+  exclusively in locale catalogs.
 - Tests: observable HTTP/output/wire behavior; no source-text assertions. Bad
   page/block input: explicit rejection.
 - Core: no runtime `django.db` import. Export/import seam:
   `tests/test_gridviewspec_export.py::test_pipeline_module_has_no_runtime_django_bindings`.
 - No discarded host/protocol parameter, circular-import workaround, generic
   `helpers.py`, or command module over 400 lines.
+- For a local UI repair, change the smallest existing path. Do not introduce a
+  lifecycle or adapter subsystem, or mix it into a grid dispatcher, unless two
+  current consumers require the same owner boundary.
+- For non-trivial changes, load global `code-quality` and apply its bug-fix
+  admission and delegation gate.
 
 ## Skill routing
 

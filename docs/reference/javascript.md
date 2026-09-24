@@ -12,6 +12,8 @@ After `{% grid_view_spec_assets part='js' force_core=True %}`, one script initia
 | `GridView.bootScope(scope?)` | Scan a DOM subtree (default `document`) and boot tables, filters, KPI, charts, column settings, and GridViewSpec roots |
 | `GridView.boot(root?)` | Boot one element, or re-run scope boot when omitted |
 
+| `GridView.confirm(options)` | Show unified modal confirmation dialog (returns `Promise<boolean>`) |
+| `GridView.notify(options)` | Show toast notification in unified notification stack |
 `DOMContentLoaded` and HTMX `afterSwap` call `GridView.bootScope()`. Do not load separate chart, KPI,
 or artifact boot scripts.
 
@@ -32,6 +34,13 @@ Load order:
 Inclusion tags (`render_grid_view_spec`, …) only **mark** which optional bundles a page
 needs; the actual ``<script>``/``<link>`` tags are emitted by ``{% grid_view_spec_assets %}``.
 Always call it once per page (CSS in ``<head>`` + JS before ``</body>``).
+
+### Declarative confirmation
+
+Managed GridView action, cell-action, and link dispatch paths read `data-cm-confirm` as a
+JSON string or object. Cancellation prevents the managed action, while acceptance invokes it
+once. Plain DOM buttons, links, and forms are not intercepted by this attribute. Boot also
+adapts global `window.confirm` and `window.alert`, and bridges `htmx:confirm`.
 
 **Globals the host must provide** (before the bundle):
 

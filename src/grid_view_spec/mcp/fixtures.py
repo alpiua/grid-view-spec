@@ -72,7 +72,6 @@ from grid_view_spec.types.table_v2 import (
     GridViewTableEdit,
     GridViewTableFooter,
     GridViewTableHeader,
-    GridViewTableSettings,
 )
 from grid_view_spec.types.toolbar import GridViewCounter, GridViewSearch, GridViewToolbar
 
@@ -279,7 +278,6 @@ def rich_spec() -> GridViewSpec:
                     depends_on=("a",),
                     params={"x": 1},
                     anchor="z",
-                    merge="replace",
                 ),
                 rows=({"name": "Bob"},),
                 datasource=GridViewDataSource(
@@ -291,7 +289,7 @@ def rich_spec() -> GridViewSpec:
                 ),
                 search_mode="per_column",
                 sort=GridViewSortState(by=(GridViewSort(column="name", direction="desc"),)),
-                settings=GridViewTableSettings(columns=False, order=False),
+                settings=("drawer", "modal"),
                 edit=GridViewTableEdit(mode="row", commit_endpoint="/c", confirm=True),
                 assets=(GridViewTemplateAsset(id="ta", kind="style", src="/x.css"),),
                 row_action=GridViewLinkAction(id="ra", label="Row", href="/r"),

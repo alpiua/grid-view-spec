@@ -1,4 +1,5 @@
 {% set has_settings = block.settings is not none %}
+{% set has_modal_settings = has_settings and 'modal' in block.settings %}
 {% if block.backend == "ag_grid" %}
 {% set ag_spec_json = resolved.extra.get('ag_grid_spec_config_json', '{}') %}
 <div
@@ -59,7 +60,7 @@
             <div class="cm-th-inner">
               {% if col.renderer == 'select' %}
               <label class="cm-row-select cm-row-select--header">
-                <input type="checkbox" data-cm-select-all="{{ block.id | e }}" aria-label="{{ host.translate('table.select_all') | default('Обрати всі') | e }}" />
+                <input type="checkbox" data-cm-select-all="{{ block.id | e }}" aria-label="{{ host.translate('table.select_all') | e }}" />
               </label>
               {% else %}
               <span class="cm-th-label">{{ col.label | e }}</span>
@@ -110,6 +111,9 @@
           data-cm-row-url="{{ row_link_url(block.row_action.href, row) | e }}"
             {% elif block.row_action.type == 'button' and block.row_action.action %}
           data-cm-row-action="{{ block.row_action.action | e }}"
+            {% endif %}
+            {% if block.row_action and block.row_action.confirm is not none %}
+          data-cm-confirm="{{ confirm_config_json(block.row_action.confirm) | e }}"
             {% endif %}
           {% elif row.get('__row_url__') %}
           data-cm-row-url="{{ row.get('__row_url__') | e }}"
@@ -185,7 +189,7 @@
                   type="checkbox"
                   class="cm-row-select-cb"
                   data-cm-row-select="{{ row_pk | e }}"
-                  aria-label="Обрати"
+                  aria-label="{{ host.translate('table.select_row') | e }}"
                 />
               </label>
               {% else %}
@@ -208,6 +212,7 @@
                 class="{{ btn_class | e }}"
                 data-cm-cell-action="{{ action_id | e }}"
                 data-cm-row-id="{{ record_id | e }}"
+                {% if col.extra.get('confirm') is not none %}data-cm-confirm="{{ confirm_config_json(col.extra.get('confirm')) | e }}"{% endif %}
               >{{ btn_label | e }}</button>
               {% endif %}
             {% elif col.renderer == 'chip' %}
@@ -245,11 +250,14 @@
               </div>
             {% elif col.renderer == 'link' or col.type == 'link' %}
               {% set link_target = col.extra.get('link_target', '') if col.extra else '' %}
+              {% set cell_action = col.extra.get('action', '') if col.extra else '' %}
+              {% set cell_confirm = col.extra.get('confirm') if col.extra else none %}
               <a
                 href="{{ row.get(field ~ '__url', '#') | e }}"
                 class="cm-link"
                 {% if link_target %}target="{{ link_target | e }}"{% endif %}
-                {% if link_target == '_blank' %}onclick="event.stopPropagation();"{% endif %}
+                {% if cell_action %}data-cm-cell-action="{{ cell_action | e }}" data-cm-row-id="{{ row.get('id', '') | e }}"{% endif %}
+                {% if cell_confirm is not none %}data-cm-confirm="{{ confirm_config_json(cell_confirm) | e }}"{% endif %}
               >{{ val | e }}</a>
             {% elif col.type == 'currency' %}
               <span class="cm-currency{% if css %} {{ css | e }}{% endif %}{% if val_css %} {{ val_css }}{% endif %}">{{ "{:,.0f}".format(val | float) }} ₴</span>
@@ -331,7 +339,7 @@
   {% include 'table_pagination.html' %}
 </div>
 {% endif %}{# /backend != "ag_grid" #}
-{% if has_settings %}
+{% if has_modal_settings %}
 {% set block_id = block.id %}
 {% include '_column_settings_panel.html' %}
 {% endif %}

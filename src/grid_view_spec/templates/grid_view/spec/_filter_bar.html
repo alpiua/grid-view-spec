@@ -13,10 +13,38 @@
   {% if fb_search %}
   <input type="hidden" data-cm-search name="{{ fb_search.param | e }}" value="{{ fb_search.value | e }}">
   {% endif %}
+  {% macro render_option(option, selected, depth=0) -%}
+  <label class="cm-multiselect-option{% if option.disabled %} cm-multiselect-option--disabled{% endif %}"{% if depth %} style="--cm-filter-option-depth: {{ depth }}"{% endif %}>
+    <input type="checkbox" value="{{ option.value | e }}" data-label="{{ option.label | e }}"
+      {% if option.exclusive %}data-exclusive-solo="1"{% endif %}
+      {% if option.count is not none %}data-cm-facet-count="{{ option.count }}"{% endif %}
+      {% if option.disabled %}disabled{% endif %}
+      {% if option.value in selected %}checked{% endif %}>
+    <span class="cm-multiselect-option__label">{{ option.label | e }}</span>
+    {% if option.count is not none %}<span class="cm-multiselect-option__count">{{ option.count }}</span>{% endif %}
+  </label>
+  {% for child in option.children %}{{ render_option(child, selected, depth + 1) }}{% endfor %}
+  {%- endmacro %}
   {% for filter in fb.schema %}
   {% set selected = fb.state.values.get(filter.param, ()) if fb.state else () %}
+  {% if filter.type == 'grouped_select' %}
+  <section class="cm-filter-grouped-select" data-cm-filter-search-item data-filter-id="{{ filter.id | e }}" data-filter-param="{{ filter.param | e }}" data-filter-type="{{ filter.type | e }}" data-filter-scope="{{ filter.scope | e }}">
+    <span class="cm-filter-grouped-select__label">{{ filter.label | e }}</span>
+    {% for group in filter.options if group.children %}
+    <label class="cm-filter-grouped-select__group">
+      <span class="cm-filter-grouped-select__group-label">{{ group.label | e }}</span>
+      <select name="{{ filter.param | e }}" data-filter-id="{{ filter.id | e }}" data-cm-grouped-select>
+        {% for option in group.children %}
+        <option value="{{ option.value | e }}"{% if option.disabled %} disabled{% endif %}{% if option.value in selected %} selected{% endif %}>{{ option.label | e }}</option>
+        {% endfor %}
+      </select>
+    </label>
+    {% endfor %}
+  </section>
+  {% elif filter.type in ('select', 'multiselect', 'set', 'number_range', 'date_range') %}
   <div
     class="cm-multiselect cm-period-multiselect{% if filter.type == 'select' %} cm-multiselect--single{% endif %}"
+    data-cm-filter-search-item
     data-cm-multiselect
     data-filter-id="{{ filter.id | e }}"
     data-filter-param="{{ filter.param | e }}"
@@ -30,7 +58,7 @@
     <button type="button" class="cm-multiselect-trigger" aria-haspopup="listbox">
       <span class="cm-multiselect-trigger__label"></span>
     </button>
-    <div class="cm-multiselect-panel" role="listbox">
+    <div class="cm-multiselect-panel{% if not filter.options and not filter.select_all %} cm-multiselect-panel--empty{% endif %}" role="listbox">
       {% if filter.select_all %}
       <label class="cm-multiselect-option">
         <input type="checkbox" value="{{ filter.select_all_value | e }}" data-label="{{ filter.select_all_label or host.translate('filter_bar.all') | e }}" data-select-all="1"
@@ -38,18 +66,26 @@
         {{ filter.select_all_label or host.translate('filter_bar.all') | e }}
       </label>
       {% endif %}
-      {% for opt in filter.options %}
-      <label class="cm-multiselect-option{% if opt.disabled %} cm-multiselect-option--disabled{% endif %}">
-        <input type="checkbox" value="{{ opt.value | e }}" data-label="{{ opt.label | e }}"
-          {% if opt.exclusive %}data-exclusive-solo="1"{% endif %}
-          {% if opt.count is not none %}data-cm-facet-count="{{ opt.count }}"{% endif %}
-          {% if opt.disabled %}disabled{% endif %}
-          {% if opt.value in selected %}checked{% endif %}>
-        <span class="cm-multiselect-option__label">{{ opt.label | e }}</span>
-        {% if opt.count is not none %}<span class="cm-multiselect-option__count">{{ opt.count }}</span>{% endif %}
-      </label>
-      {% endfor %}
+      {% for opt in filter.options %}{{ render_option(opt, selected) }}{% endfor %}
     </div>
   </div>
+  {% elif filter.type == 'boolean' %}
+  <label class="cm-filter-field cm-filter-field--boolean" data-cm-filter-search-item data-filter-id="{{ filter.id | e }}" data-filter-param="{{ filter.param | e }}" data-filter-type="{{ filter.type | e }}" data-filter-scope="{{ filter.scope | e }}">
+    <input type="checkbox" value="1" data-cm-filter-input{% if selected in (true, 1, '1') %} checked{% endif %}>
+    <span>{{ filter.label | e }}</span>
+  </label>
+  {% else %}
+  {% set selected_value = selected if selected is string or selected is number else '' %}
+  <label class="cm-filter-field" data-cm-filter-search-item data-filter-id="{{ filter.id | e }}" data-filter-param="{{ filter.param | e }}" data-filter-type="{{ filter.type | e }}" data-filter-scope="{{ filter.scope | e }}">
+    <span class="cm-filter-field__label">{{ filter.label | e }}</span>
+    <input
+      type="{% if filter.type == 'number' %}number{% elif filter.type in ('date', 'date_range') %}date{% else %}search{% endif %}"
+      name="{{ filter.param | e }}"
+      value="{{ selected_value | e }}"
+      placeholder="{{ filter.placeholder or filter.label | e }}"
+      data-cm-filter-input
+    >
+  </label>
+  {% endif %}
   {% endfor %}
 </div>

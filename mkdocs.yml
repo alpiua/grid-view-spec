@@ -70,6 +70,7 @@ markdown_extensions:
 nav:
   - Home: index.md
   - Getting started: getting-started.md
+  - Demo showcase: demo.md
   - Concepts:
       - Architecture overview: concepts/overview.md
       - Data vs spec: concepts/data-vs-spec.md

@@ -1,0 +1,128 @@
+{#
+  Workspace drawer for grouped, persistent filter controls. The data remains
+  the standard GridViewFilters schema; sections only choose a visual grouping.
+#}
+{% macro render_option(filter, option, selected, depth=0, parent='') -%}
+<label
+  class="cm-filter-drawer-option{% if option.disabled %} cm-filter-drawer-option--disabled{% endif %}"
+  data-cm-filter-option
+  {% if filter.drawer_control == 'tree' %}
+  data-cm-filter-tree-node
+  data-cm-filter-tree-value="{{ option.value | e }}"
+  data-cm-filter-tree-parent="{{ parent | e }}"
+  style="--cm-filter-tree-depth: {{ depth }}"
+  {% endif %}
+>
+  {% if filter.drawer_control == 'tree' %}
+  {% if option.children %}
+  <button type="button" class="cm-filter-drawer-tree-toggle" data-cm-filter-tree-toggle aria-label="{{ option.label | e }}" aria-expanded="true">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>
+  </button>
+  {% else %}
+  <span class="cm-filter-drawer-tree-spacer" aria-hidden="true"></span>
+  {% endif %}
+  {% endif %}
+  <input type="checkbox" value="{{ option.value | e }}" data-label="{{ option.label | e }}"
+    {% if option.exclusive %}data-exclusive-solo="1"{% endif %}
+    {% if option.count is not none %}data-cm-facet-count="{{ option.count }}"{% endif %}
+    {% if option.disabled %}disabled{% endif %}
+    {% if option.value in selected %}checked{% endif %}>
+  <span class="cm-filter-drawer-option-label">{{ option.label | e }}</span>
+  {% if option.count is not none %}<span class="cm-filter-drawer-option-count">{{ option.count }}</span>{% endif %}
+</label>
+{% for child in option.children %}{{ render_option(filter, child, selected, depth + 1, option.value) }}{% endfor %}
+{%- endmacro %}
+
+{% macro render_filter(filter, section) -%}
+{% set selected = fb.state.values.get(filter.param, ()) if fb.state else () %}
+{% if filter.drawer_control in ('checklist', 'tree') or filter.type in ('multiselect', 'set') %}
+<div class="cm-filter-drawer-choice-list cm-filter-drawer-choice-list--{{ section.list_size | e }}" data-cm-multiselect data-cm-drawer-list-control data-filter-id="{{ filter.id | e }}" data-filter-param="{{ filter.param | e }}" data-filter-type="{{ filter.type | e }}" data-filter-scope="{{ filter.scope | e }}" data-placeholder="{{ filter.placeholder or filter.label | e }}">
+  {% if filter.select_all %}
+  <label class="cm-filter-drawer-option" data-cm-filter-option>
+    <input type="checkbox" value="{{ filter.select_all_value | e }}" data-label="{{ filter.select_all_label or host.translate('filter_bar.all') | e }}" data-select-all="1"{% if filter.select_all_value in selected %} checked{% endif %}>
+    <span class="cm-filter-drawer-option-label">{{ filter.select_all_label or host.translate('filter_bar.all') | e }}</span>
+  </label>
+  {% endif %}
+  {% for option in filter.options %}{{ render_option(filter, option, selected) }}{% endfor %}
+</div>
+{% elif filter.type == 'grouped_select' %}
+<div class="cm-filter-drawer-grouped-selects" data-filter-id="{{ filter.id | e }}" data-filter-param="{{ filter.param | e }}" data-filter-scope="{{ filter.scope | e }}" data-cm-filter-display-setting="1">
+  {% for option in filter.options %}
+  <label class="cm-filter-drawer-field">
+    <span>{{ option.label | e }}</span>
+    <select name="{{ filter.param | e }}" data-filter-id="{{ filter.id | e }}" data-filter-scope="{{ filter.scope | e }}" data-cm-grouped-select>
+      {% for child in option.children %}<option value="{{ child.value | e }}"{% if child.disabled %} disabled{% endif %}{% if child.value in selected %} selected{% endif %}>{{ child.label | e }}</option>{% endfor %}
+    </select>
+  </label>
+  {% endfor %}
+</div>
+{% elif filter.type == 'select' %}
+<label class="cm-filter-drawer-field" data-filter-id="{{ filter.id | e }}" data-filter-param="{{ filter.param | e }}" data-filter-scope="{{ filter.scope | e }}"{% if filter.type == 'grouped_select' %} data-cm-filter-display-setting="1"{% endif %}>
+  <span>{{ filter.label | e }}</span>
+  <select name="{{ filter.param | e }}" data-filter-id="{{ filter.id | e }}" data-filter-scope="{{ filter.scope | e }}">
+    {% for option in filter.options %}
+      <option value="{{ option.value | e }}"{% if option.disabled %} disabled{% endif %}{% if option.value in selected %} selected{% endif %}>{{ option.label | e }}</option>
+    {% endfor %}
+  </select>
+</label>
+{% elif filter.type == 'boolean' or filter.drawer_control == 'toggle' %}
+<label class="cm-filter-drawer-toggle" data-filter-id="{{ filter.id | e }}" data-filter-param="{{ filter.param | e }}" data-filter-scope="{{ filter.scope | e }}">
+  <input type="checkbox" value="1" data-cm-filter-input{% if selected in (true, 1, '1') %} checked{% endif %}>
+  <span>{{ filter.label | e }}</span>
+</label>
+{% else %}
+{% set selected_value = selected if selected is string or selected is number else '' %}
+<label class="cm-filter-drawer-field cm-filter-drawer-field--{{ filter.drawer_control | e }}" data-filter-id="{{ filter.id | e }}" data-filter-param="{{ filter.param | e }}" data-filter-scope="{{ filter.scope | e }}">
+  <span>{{ filter.label | e }}</span>
+  <input type="{% if filter.type == 'number' %}number{% elif filter.type in ('date', 'date_range') %}date{% else %}search{% endif %}" name="{{ filter.param | e }}" value="{{ selected_value | e }}" placeholder="{{ filter.placeholder or filter.label | e }}" data-cm-filter-input>
+</label>
+{% endif %}
+{%- endmacro %}
+
+{% set active_workspace_panel = workspace_panel | default('filters') %}
+{% set workspace_sections = fb.drawer_sections | selectattr('panel', 'equalto', active_workspace_panel) | list %}
+{% if workspace_sections %}
+<div
+  class="cm-filter-drawer-workspace"
+  id="cm-fbar-{{ fb.id | e }}-{{ active_workspace_panel | e }}"
+  data-cm-filter-bar
+  data-cm-filter-drawer-workspace
+  data-cm-filter-workspace-panel="{{ active_workspace_panel | e }}"
+  {% if fb.auto_apply %}data-auto-apply="1"{% endif %}
+  {% if not fb.navigate_on_change %}data-navigate-on-change="0"{% endif %}
+  {% if fb.facets %}data-cm-facets="1"{% endif %}
+  {% if fb.fragment_endpoint %}data-cm-fragment-endpoint="{{ fb.fragment_endpoint | e }}" data-cm-fragment-target="{{ fb.fragment_target | e }}" data-cm-fragment-swap="{{ fb.fragment_swap | e }}"{% endif %}
+>
+  {% if active_workspace_panel == 'filters' and fb.drawer_search %}
+  <label class="cm-filter-drawer-workspace-search">
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+    <input type="search" data-cm-filter-workspace-search aria-label="{{ host.translate('filter.workspace_search') | e }}" placeholder="{{ host.translate('filter.workspace_search') | e }}" autocomplete="off">
+  </label>
+  {% endif %}
+  <div class="cm-filter-drawer-workspace-cards">
+    {% for section in workspace_sections %}
+    <section class="cm-filter-drawer-card" data-cm-filter-card data-cm-filter-card-id="{{ section.id | e }}" data-cm-filter-card-filter-ids="{{ section.filter_ids | join(',') | e }}" data-cm-filter-card-searchable="{% if section.searchable %}1{% else %}0{% endif %}">
+      <header class="cm-filter-drawer-card-header">
+        <div class="cm-filter-drawer-card-heading">
+          <h3>{{ section.label | e }}</h3>
+          <span class="cm-filter-drawer-card-count" data-cm-filter-card-count hidden></span>
+        </div>
+        <button type="button" class="cm-filter-drawer-card-reset" data-cm-filter-card-reset hidden>{{ host.translate('toolbar.reset') | e }}</button>
+      </header>
+      <div class="cm-filter-drawer-card-controls">
+        {% if section.searchable %}
+        <label class="cm-filter-drawer-card-search">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+          <input type="search" data-cm-filter-card-search aria-label="{{ section.label | e }}" placeholder="{{ host.translate('filter.list_search') | e }}" autocomplete="off">
+        </label>
+        {% endif %}
+        {% for filter in fb.schema if filter.id in section.filter_ids %}{{ render_filter(filter, section) }}{% endfor %}
+      </div>
+    </section>
+    {% endfor %}
+  </div>
+  {% if active_workspace_panel == 'filters' %}
+  <button type="button" class="cm-filter-drawer-reset-all" data-cm-filter-drawer-reset-all hidden>{{ host.translate('toolbar.reset') | e }}</button>
+  {% endif %}
+</div>
+{% endif %}

@@ -13,7 +13,7 @@ GridViewTable(
     backend="simple",  # or "ag_grid"
     columns=(GridViewColumn(id="name", label="Name", field="name"),),
     datasource=GridViewDataSource(endpoint="/api/records/"),  # ag_grid / remote
-    settings=GridViewTableSettings(columns=True, presets=True),
+    settings=("drawer", "modal"),
 )
 ```
 

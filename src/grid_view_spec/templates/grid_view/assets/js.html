@@ -6,18 +6,20 @@
   window.GridViewI18n = {{ grid_view_i18n_catalog|safe }};
   window.__GridViewAssets = {
     agGridCdn: '{% if ag_grid_bundled %}{% static "grid_view_spec/vendor/ag-grid-community.min.js" %}{% else %}{{ ag_grid_cdn_url|escapejs }}{% endif %}',
-    agGridPlugin: '{% static "grid_view_spec/gridviewspec-ag-grid.min.js" %}',
+    agGridPlugin: '{% static "grid_view_spec/gridviewspec-ag-grid.min.js" %}?v={{ grid_view_asset_version|urlencode }}',
     chartsCdn: '{{ echarts_cdn_url|escapejs }}',
-    chartsPlugin: '{% static "grid_view_spec/gridviewspec-charts.min.js" %}',
+    chartsPlugin: '{% static "grid_view_spec/gridviewspec-charts.min.js" %}?v={{ grid_view_asset_version|urlencode }}',
+    filterWorkspacePlugin: '{% static "grid_view_spec/gridviewspec-filter-workspace.min.js" %}?v={{ grid_view_asset_version|urlencode }}',
+    filterWorkspaceCss: '{% static "grid_view_spec/gridviewspec-filter-workspace.min.css" %}?v={{ grid_view_asset_version|urlencode }}',
     agGridCss: [
       {% if ag_grid_bundled %}
       '{% static "grid_view_spec/vendor/ag-grid.css" %}',
       '{% static "grid_view_spec/vendor/ag-theme-quartz.css" %}',
-      '{% static "grid_view_spec/gridviewspec-ag-grid-theme.min.css" %}'
+      '{% static "grid_view_spec/gridviewspec-ag-grid-theme.min.css" %}?v={{ grid_view_asset_version|urlencode }}'
       {% else %}
       '{{ ag_grid_css_url|escapejs }}',
       '{{ ag_grid_theme_css_url|escapejs }}',
-      '{% static "grid_view_spec/gridviewspec-ag-grid-theme.min.css" %}'
+      '{% static "grid_view_spec/gridviewspec-ag-grid-theme.min.css" %}?v={{ grid_view_asset_version|urlencode }}'
       {% endif %}
     ]
   };
@@ -29,13 +31,16 @@
 <script src="{{ ag_grid_cdn_url|escape }}"></script>
 {% endif %}
 {% endif %}
-<script src="{% static 'grid_view_spec/gridviewspec.min.js' %}?v=2"></script>
+<script src="{% static 'grid_view_spec/gridviewspec.min.js' %}?v={{ grid_view_asset_version|urlencode }}"></script>
+{% if load_filter_workspace %}
+<script src="{% static 'grid_view_spec/gridviewspec-filter-workspace.min.js' %}?v={{ grid_view_asset_version|urlencode }}"></script>
+{% endif %}
 {% if load_ag_grid %}
-<script src="{% static 'grid_view_spec/gridviewspec-ag-grid.min.js' %}?v=2"></script>
+<script src="{% static 'grid_view_spec/gridviewspec-ag-grid.min.js' %}?v={{ grid_view_asset_version|urlencode }}"></script>
 {% endif %}
 {% if load_charts %}
 <script src="{{ echarts_cdn_url|escape }}"></script>
-<script src="{% static 'grid_view_spec/gridviewspec-charts.min.js' %}"></script>
+<script src="{% static 'grid_view_spec/gridviewspec-charts.min.js' %}?v={{ grid_view_asset_version|urlencode }}"></script>
 {% endif %}
 <script>
   (function () {

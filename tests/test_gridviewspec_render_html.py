@@ -21,7 +21,13 @@ from grid_view_spec.types.content import (
     GridViewTabs,
     GridViewTemplate,
 )
-from grid_view_spec.types.filters_v2 import GridViewFilters
+from grid_view_spec.types.filters_v2 import (
+    GridViewFilter,
+    GridViewFilterDrawerSection,
+    GridViewFilterOption,
+    GridViewFilters,
+    GridViewFilterState,
+)
 from grid_view_spec.types.form import GridViewForm
 from grid_view_spec.types.header import GridViewHeader
 from grid_view_spec.types.layout import GridViewArea, GridViewLayout
@@ -30,7 +36,11 @@ from grid_view_spec.types.nav import GridViewNav, GridViewNavItem
 from grid_view_spec.types.overlay import GridViewOverlay
 from grid_view_spec.types.spec import GridViewSpec
 from grid_view_spec.types.spec_meta import GridViewConfig
-from grid_view_spec.types.table_v2 import GridViewColumn, GridViewDataSource, GridViewTable
+from grid_view_spec.types.table_v2 import (
+    GridViewColumn,
+    GridViewDataSource,
+    GridViewTable,
+)
 from grid_view_spec.types.toolbar import GridViewToolbar
 from tests.gridviewspec_fixtures import minimal_valid_spec
 
@@ -116,6 +126,153 @@ def test_root_renders_page_state_scope_attribute() -> None:
     root = re.search(r'<div\b[^>]*\bid="cm-spec-page_state_scope_render"[^>]*>', html)
     assert root is not None
     assert 'data-cm-page-state-scope="orders:active"' in root.group()
+
+
+def test_filter_drawer_renders_filter_search_and_target_settings_tab() -> None:
+    """A target table exposes its column controls in the drawer's settings tab."""
+    table = GridViewTable(
+        id="records",
+        columns=(GridViewColumn(id="name", label="Name", field="name"),),
+        settings=("drawer", "modal"),
+    )
+    filters = GridViewFilters(
+        id="record_filters",
+        title="Record filters",
+        presentation="drawer",
+        target=table.id,
+        schema=(
+            GridViewFilter(id="minimum", label="Minimum", param="minimum", type="number"),
+            GridViewFilter(id="active", label="Active", param="active", type="boolean"),
+        ),
+        state=GridViewFilterState(values={"active": True}),
+    )
+    spec = GridViewSpec(
+        id="filter_drawer",
+        blocks=(filters, table),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(filters.id, table.id))),
+    )
+
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+
+    assert 'data-cm-filter-drawer-id="record_filters"' in html
+    assert "data-cm-filter-drawer-search" in html
+    assert "data-cm-filter-drawer-close-label" in html
+    assert 'data-cm-filter-drawer-tab="settings"' in html
+    assert 'data-cm-filter-drawer-settings data-cm-grid-id="records"' in html
+    assert "data-cm-filter-input" in html
+    assert 'value=""' in html
+    assert 'value="1" data-cm-filter-input checked' in html
+
+
+def test_workspace_filter_drawer_renders_grouped_cards_and_canonical_filter_bar() -> None:
+    """The workspace layout keeps the normal filter transport contract."""
+    table = GridViewTable(
+        id="records",
+        columns=(GridViewColumn(id="name", label="Name", field="name"),),
+        settings=("drawer", "modal"),
+    )
+    filters = GridViewFilters(
+        id="catalog_filters",
+        presentation="drawer",
+        drawer_layout="workspace",
+        target=table.id,
+        schema=(
+            GridViewFilter(
+                id="category",
+                label="Category",
+                param="category_id",
+                type="multiselect",
+                drawer_control="tree",
+                options=(
+                    GridViewFilterOption(
+                        value="outdoor",
+                        label="Outdoor",
+                        children=(GridViewFilterOption(value="tents", label="Tents"),),
+                    ),
+                ),
+            ),
+            GridViewFilter(
+                id="view",
+                label="View",
+                param="view",
+                type="select",
+                options=(GridViewFilterOption(value="list", label="List"),),
+            ),
+        ),
+        drawer_sections=(
+            GridViewFilterDrawerSection(
+                id="category",
+                label="Category",
+                filter_ids=("category",),
+                searchable=True,
+                list_size="lg",
+            ),
+            GridViewFilterDrawerSection(
+                id="display",
+                label="Display",
+                filter_ids=("view",),
+                panel="settings",
+            ),
+        ),
+        state=GridViewFilterState(values={"category_id": ("tents",)}),
+    )
+    spec = GridViewSpec(
+        id="workspace_filter_drawer",
+        blocks=(filters, table),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(filters.id, table.id))),
+    )
+
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+
+    assert "data-cm-filter-drawer-workspace" in html
+    assert "data-cm-filter-bar" in html
+    assert 'data-cm-filter-workspace-panel="filters"' in html
+    assert 'data-cm-filter-workspace-panel="settings"' in html
+    assert "data-cm-filter-workspace-search" in html
+    assert "data-cm-filter-tree-node" in html
+    assert 'data-filter-param="view"' in html
+    assert re.search(r'<input[^>]*value="tents"[^>]*checked', html)
+
+
+def test_grouped_select_filter_renders_one_native_select_per_named_group() -> None:
+    """Grouped choices retain one CSV-backed query control per option group."""
+    filters = GridViewFilters(
+        id="price_tiers",
+        schema=(
+            GridViewFilter(
+                id="wholesale",
+                label="Wholesale tiers",
+                param="wholesale_price_columns",
+                type="grouped_select",
+                options=(
+                    GridViewFilterOption(
+                        value="supplier-a",
+                        label="Supplier A",
+                        children=(
+                            GridViewFilterOption(
+                                value="a:standard",
+                                label="Standard",
+                                disabled=True,
+                            ),
+                            GridViewFilterOption(value="a:partner", label="Partner"),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        state=GridViewFilterState(values={"wholesale_price_columns": ("a:partner",)}),
+    )
+    spec = GridViewSpec(
+        id="grouped_select_filter",
+        blocks=(filters,),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(filters.id,))),
+    )
+
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+
+    assert "data-cm-grouped-select" in html
+    assert 'value="a:standard" disabled' in html
+    assert 'value="a:partner" selected' in html
 
 
 def _toolbar_spec_with_table(toolbar: GridViewToolbar) -> GridViewSpec:
@@ -237,3 +394,50 @@ def test_gallery_lazy_datasource_attr() -> None:
     )
     html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
     assert 'data-cm-gallery-src="/gallery.json"' in html
+
+
+def test_nav_tree_presentation_renders_html() -> None:
+    from grid_view_spec.types.nav import GridViewNavLevel
+
+    spec = GridViewSpec(
+        id="tree_nav_page",
+        blocks=(
+            GridViewNav(
+                id="tree_nav",
+                presentation="tree",
+                search_placeholder="Search tree...",
+                levels=(
+                    GridViewNavLevel(level=0, type="category", label="Categories"),
+                    GridViewNavLevel(level=1, type="item", label="Items"),
+                ),
+                items=(
+                    GridViewNavItem(
+                        id="cat1",
+                        label="Category 1",
+                        type="category",
+                        count=5,
+                        children=(
+                            GridViewNavItem(
+                                id="item1",
+                                label="Item 1",
+                                type="item",
+                                active=True,
+                                extra={"hx_get": "/items/1/pane/"},
+                            ),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=("tree_nav",))),
+    )
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+    assert 'data-cm-nav-tree="tree_nav"' in html
+    assert 'data-cm-tree-search="1"' in html
+    assert 'placeholder="Search tree..."' in html
+    assert 'data-node-id="cat1"' in html
+    assert 'data-node-type="category"' in html
+    assert "Category 1" in html
+    assert "Item 1" in html
+    assert 'hx-get="/items/1/pane/"' in html
+    assert "is-active" in html

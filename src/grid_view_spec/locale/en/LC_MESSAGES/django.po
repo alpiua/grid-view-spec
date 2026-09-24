@@ -130,9 +130,11 @@ msgstr "No matches found"
 
 msgid "filter.loading_values"
 msgstr "Loading values…"
-
 msgid "filter.list_search"
 msgstr "Search…"
+
+msgid "filter.workspace_search"
+msgstr "Search filters"
 
 msgid "filter.empty_mode_hint"
 msgstr "Showing rows with empty cells"
@@ -357,3 +359,45 @@ msgstr "Next"
 
 msgid "gallery.of"
 msgstr "%(current)s of %(total)s"
+
+msgid "actions.create"
+msgstr "Create"
+
+msgid "actions.save"
+msgstr "Save"
+
+msgid "search.no_saved_searches"
+msgstr "No saved searches"
+
+msgid "common.delete"
+msgstr "Delete"
+
+msgid "common.close"
+msgstr "Close"
+
+msgid "common.collapse"
+msgstr "Collapse"
+
+msgid "dialog.title"
+msgstr "Confirmation"
+
+msgid "dialog.confirm"
+msgstr "Confirm"
+
+msgid "dialog.cancel"
+msgstr "Cancel"
+
+msgid "table.select_all"
+msgstr "Select all"
+
+msgid "table.select_row"
+msgstr "Select row"
+
+msgid "table.save_error"
+msgstr "Failed to save changes"
+
+msgid "table.network_error"
+msgstr "Network error"
+
+msgid "filter.settings_tab"
+msgstr "Settings"

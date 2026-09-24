@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from collections.abc import Mapping
 from urllib.parse import parse_qsl, urlencode, urlparse, urlunparse
 
 from grid_view_spec.render.request_state import query_from_filter_state
 from grid_view_spec.types.actions import (
     GridViewAction,
+    GridViewConfirmConfig,
     GridViewExportAction,
     GridViewExportFormat,
     GridViewLinkAction,
@@ -21,6 +23,24 @@ _EXPORT_ROUTES: dict[GridViewExportFormat, str] = {
     "pdf": "export_pdf",
     "xlsx": "export_xlsx",
 }
+
+
+def confirm_config_json(value: JsonValue | GridViewConfirmConfig | None) -> str:
+    """Encode the canonical snake_case confirmation payload for an HTML attribute."""
+    if value is None:
+        return ""
+    if isinstance(value, GridViewConfirmConfig):
+        payload: object = {
+            "title": value.title,
+            "message": value.message,
+            "tone": value.tone,
+            "confirm_text": value.confirm_text,
+            "cancel_text": value.cancel_text,
+            "close_on_backdrop": value.close_on_backdrop,
+        }
+    else:
+        payload = value
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
 
 
 def _coerce_param(value: JsonValue) -> str:

@@ -2,23 +2,47 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from django.utils.safestring import SafeString, mark_safe
 from grid_view_spec.render.block_registry import (
     AG_GRID_BUNDLE_IDS,
     CHARTS_BUNDLE_ID,
     CORE_BUNDLE_ID,
+    FILTER_WORKSPACE_BUNDLE_ID,
     blocks_require_ag_grid,
     blocks_require_charts,
+    blocks_require_filter_workspace,
 )
 from grid_view_spec.types.spec import GridViewSpec
 
 # Request flags set by ``render_grid_view_spec``; read by ``grid_view_spec_assets``.
 AG_GRID_REQUEST_FLAG = "_grid_view_spec_needs_ag_grid"
 CHARTS_REQUEST_FLAG = "_grid_view_spec_needs_charts"
+FILTER_WORKSPACE_REQUEST_FLAG = "_grid_view_spec_needs_filter_workspace"
 
 _ASSETS_CSS_FLAG = "_grid_view_spec_assets_css_emitted"
 _ASSETS_JS_FLAG = "_grid_view_spec_assets_js_emitted"
 _AG_GRID_JS_SUPPLEMENT_FLAG = "_grid_view_spec_ag_grid_js_emitted"
+
+_STATIC_ROOT = Path(__file__).resolve().parents[2] / "static" / "grid_view_spec"
+_OWNED_ASSET_FILES = (
+    "gridviewspec.min.js",
+    "gridviewspec.min.css",
+    "gridviewspec-filter-workspace.min.js",
+    "gridviewspec-filter-workspace.min.css",
+    "gridviewspec-ag-grid.min.js",
+    "gridviewspec-ag-grid-theme.min.css",
+    "gridviewspec-charts.min.js",
+)
+
+
+def grid_view_asset_version() -> str:
+    """Return a stable cache key for the installed GridViewSpec asset set."""
+    try:
+        return str(max((_STATIC_ROOT / name).stat().st_mtime_ns for name in _OWNED_ASSET_FILES))
+    except (OSError, ValueError):
+        return "1"
 
 
 def mark_ag_grid_needed(request: object) -> None:
@@ -29,12 +53,18 @@ def mark_charts_needed(request: object) -> None:
     setattr(request, CHARTS_REQUEST_FLAG, True)
 
 
+def mark_filter_workspace_needed(request: object) -> None:
+    setattr(request, FILTER_WORKSPACE_REQUEST_FLAG, True)
+
+
 def mark_assets_from_spec(request: object, spec: GridViewSpec) -> None:
     """Mark optional bundle requirements on ``request`` before template ``<head>`` renders."""
     if blocks_require_ag_grid(spec.blocks):
         mark_ag_grid_needed(request)
     if blocks_require_charts(spec.blocks):
         mark_charts_needed(request)
+    if blocks_require_filter_workspace(spec.blocks):
+        mark_filter_workspace_needed(request)
 
 
 def _request_flag(request: object | None, name: str) -> bool:
@@ -66,8 +96,10 @@ def build_assets_context(
             return {
                 "include": False,
                 "load_ag_grid": False,
+                "load_filter_workspace": False,
                 "ag_grid_css_url": "",
                 "ag_grid_theme_css_url": "",
+                "grid_view_asset_version": grid_view_asset_version(),
             }
         if request is not None:
             setattr(request, _ASSETS_CSS_FLAG, True)
@@ -80,9 +112,11 @@ def build_assets_context(
         return {
             "include": True,
             "load_ag_grid": load_ag_grid_css,
+            "load_filter_workspace": _request_flag(request, FILTER_WORKSPACE_REQUEST_FLAG),
             "ag_grid_bundled": ag_grid_stylesheets_bundled(),
             "ag_grid_css_url": ag_grid_css,
             "ag_grid_theme_css_url": ag_grid_theme_css,
+            "grid_view_asset_version": grid_view_asset_version(),
         }
 
     if part == "ag_grid":
@@ -92,6 +126,7 @@ def build_assets_context(
             "load_ag_grid": False,
             "ag_grid_bundled": False,
             "ag_grid_cdn_url": "",
+            "grid_view_asset_version": grid_view_asset_version(),
         }
         if not load_ag_grid:
             return empty_ag_grid
@@ -111,6 +146,7 @@ def build_assets_context(
             "include_scripts": False,
             "load_charts": False,
             "load_ag_grid": False,
+            "load_filter_workspace": False,
             "grid_view_i18n_catalog": mark_safe("{}"),
             "preferences_url": grid_preferences_url(),
             "ag_grid_cdn_url": "",
@@ -122,7 +158,10 @@ def build_assets_context(
 
     load_ag_grid = force_ag_grid or _request_flag(request, AG_GRID_REQUEST_FLAG)
     load_charts = force_charts or _request_flag(request, CHARTS_REQUEST_FLAG)
-    include_scripts = force_core or request is not None or load_ag_grid or load_charts
+    load_filter_workspace = _request_flag(request, FILTER_WORKSPACE_REQUEST_FLAG)
+    include_scripts = (
+        force_core or request is not None or load_ag_grid or load_charts or load_filter_workspace
+    )
     from grid_view_spec.backends.django.conf import ag_grid_stylesheet_urls
 
     ag_grid_css, ag_grid_theme_css = ag_grid_stylesheet_urls()
@@ -134,6 +173,7 @@ def build_assets_context(
         "include_scripts": include_scripts,
         "load_charts": load_charts,
         "load_ag_grid": load_ag_grid,
+        "load_filter_workspace": load_filter_workspace,
         # Selects static-vs-CDN URLs in the __GridViewAssets manifest. Must reflect
         # whether vendor assets are bundled regardless of load_ag_grid: the manifest
         # is consumed by the client lazy-loader after HTMX swaps, when AG-Grid was
@@ -148,5 +188,7 @@ def build_assets_context(
         "ag_grid_theme_css_url": ag_grid_theme_css,
         "core_bundle": CORE_BUNDLE_ID,
         "charts_bundle": CHARTS_BUNDLE_ID,
+        "filter_workspace_bundle": FILTER_WORKSPACE_BUNDLE_ID,
+        "grid_view_asset_version": grid_view_asset_version(),
         "ag_grid_bundles": AG_GRID_BUNDLE_IDS if load_ag_grid else (),
     }

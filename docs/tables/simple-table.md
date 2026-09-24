@@ -12,7 +12,7 @@ GridViewTable(
         GridViewColumn(id="price", label="Price", field="price", type="currency", hidden=True),
     ),
     search_mode="global",  # global | per_column | disabled
-    settings=GridViewTableSettings(columns=True, presets=True),
+    settings=("drawer", "modal"),
     striped=True,
     footer=GridViewTableFooter(row=True, label="Total", label_span=2),
     empty_message="No orders found",

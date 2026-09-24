@@ -34,6 +34,7 @@ CORE_BUNDLE_ID = "gridviewspec"
 
 # Optional bundles — loaded by ``grid_view_spec_assets`` when the spec needs them.
 CHARTS_BUNDLE_ID = "gridviewspec-charts"
+FILTER_WORKSPACE_BUNDLE_ID = "gridviewspec-filter-workspace"
 AG_GRID_CDN_BUNDLE_ID = "gridviewspec-ag-grid-cdn"
 AG_GRID_PLUGINS_BUNDLE_ID = "gridviewspec-ag-grid"
 
@@ -101,3 +102,15 @@ def blocks_require_charts(blocks: Iterable[object]) -> bool:
         if isinstance(block, GridViewTemplate) and _template_context_needs_charts(block.context):
             return True
     return False
+
+
+def blocks_require_filter_workspace(blocks: Iterable[object]) -> bool:
+    """Return whether a page declares the optional workspace filter drawer."""
+    from grid_view_spec.types.filters_v2 import GridViewFilters
+
+    return any(
+        isinstance(block, GridViewFilters)
+        and block.presentation == "drawer"
+        and block.drawer_layout == "workspace"
+        for block in blocks
+    )

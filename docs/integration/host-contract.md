@@ -43,7 +43,9 @@ in wire payloads.
 - Domain **rows** come from host `page_data` — the renderer does not query ORM for table bodies.
 - **Permissions** are resolved by the host before building the spec; the package does not call Brain
   or tenant APIs.
-- `subject_id` must match the authenticated subject when saving prefs.
+- Authenticated `subject_id` values must match the authenticated subject when saving prefs; the
+  bundled Django save endpoint accepts anonymous requests as `local_only` and does not persist
+  server-side preferences.
 
 ### Logical route names (`url_for`)
 

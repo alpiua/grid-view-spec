@@ -1,0 +1,25 @@
+{# Toolbar / actions block select with submit button — batch actions with options #}
+{% from '_semantic.html' import btn_classes %}
+<div class="cm-action-select-group" data-cm-action-group="{{ action.id | e }}">
+  <select
+    id="cm-action-select-{{ action.id | e }}"
+    class="cm-action-select"
+    data-cm-action-select="{{ action.id | e }}"
+    aria-label="{{ action.label | e }}"
+  >
+    {% for opt in action.options %}
+    <option value="{{ opt.value | e }}"{% if action.default is not none and action.default == opt.value %} selected{% endif %}>{{ opt.label | e }}</option>
+    {% endfor %}
+  </select>
+  <button
+    type="button"
+    class="{{ btn_classes(action.variant, action.tone, action.params.get('btn_class', '')) }}"
+    data-cm-action="{{ action.action | e }}"
+    data-cm-action-target="{{ action.target | e }}"
+    data-cm-action-select-ref="{{ action.id | e }}"
+    {% if action.confirm is not none %}data-cm-confirm="{{ confirm_config_json(action.confirm) | e }}"{% endif %}
+    title="{{ action.button_label or action.label | e }}"
+  >
+    <span class="cm-btn-label">{{ action.button_label or action.label | e }}</span>
+  </button>
+</div>

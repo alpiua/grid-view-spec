@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import json
 from collections.abc import Callable, Mapping, Sequence
+from dataclasses import replace
 from typing import Literal, overload
 
 from grid_view_spec.export.context import ExportRequestContext
 from grid_view_spec.render.action_urls import (
     action_href,
+    confirm_config_json,
     export_action_href,
     pagination_fragment_href,
     pagination_page_href,
@@ -60,18 +62,23 @@ from grid_view_spec.types.table_v2 import (
     gridview_table_num_pages,
     gridview_table_page_range,
     gridview_table_page_window,
+    is_valid_gridview_table_settings,
 )
 from grid_view_spec.types.toolbar import GridViewToolbar
 from grid_view_spec.types.wire import WireObject
 from grid_view_spec.validate.refs import search_bind_target
 
 
-def _saved_searches_for_grid(host: GridViewHost, grid_id: str) -> tuple[str, ...]:
+def _saved_preferences_for_grid(
+    host: GridViewHost,
+    grid_id: str,
+) -> tuple[JsonObject, tuple[str, ...]]:
     subject_id = host.current_subject_id()
     if not subject_id or not grid_id:
-        return ()
+        return empty_json_map(), ()
     prefs = host.get_grid_prefs(subject_id, grid_id)
-    return tuple(item for item in prefs.searches if isinstance(item, str) and item.strip())
+    searches = tuple(item for item in prefs.searches if isinstance(item, str) and item.strip())
+    return prefs.col_presets, searches
 
 
 def build_render_context(
@@ -91,6 +98,7 @@ def build_render_context(
 
     resolved: dict[str, GridViewResolvedBlock] = {}
     for block_id, block in index.items():
+        render_block = block
         extra: JsonObject = empty_json_map()
         bound_rows: tuple[RowDict, ...] = ()
         if isinstance(block, GridViewTable):
@@ -101,20 +109,23 @@ def build_render_context(
                 export_ctx,
                 search_backend=backend,
             )
-            if block.settings is not None:
+            if block.settings is not None and is_valid_gridview_table_settings(block.settings):
                 extra = table_column_settings_render_extra(block)
+            elif block.settings is not None:
+                render_block = replace(block, settings=None)
             edit_json = table_edit_config_json(block)
             if edit_json:
                 extra = {**extra, "edit_config_json": edit_json}
             if block.extra:
                 extra = {**extra, **block.extra}
             if block.backend == "ag_grid":
-                searches = _saved_searches_for_grid(host, block_id)
+                presets, searches = _saved_preferences_for_grid(host, block_id)
                 extra = {
                     **extra,
                     "ag_grid_spec_config_json": ag_grid_spec_config_json(
                         block,
                         block_id,
+                        presets=presets,
                         searches=searches,
                     ),
                 }
@@ -153,9 +164,9 @@ def build_render_context(
                 "pref_grid_id": pref_grid_id,
             }
             if block.search.saved:
-                saved = _saved_searches_for_grid(host, pref_grid_id)
+                _, saved = _saved_preferences_for_grid(host, pref_grid_id)
                 extra["saved_searches_json"] = json.dumps(saved, ensure_ascii=False)
-        resolved[block_id] = GridViewResolvedBlock(block=block, rows=bound_rows, extra=extra)
+        resolved[block_id] = GridViewResolvedBlock(block=render_block, rows=bound_rows, extra=extra)
 
     block_types = frozenset(block.type for block in index.values())
     block_assets_list: list[GridViewTemplateAsset] = []
@@ -327,6 +338,7 @@ def render_grid_view_spec(
             tab_panes=ctx.tab_panes,
             filter_state=filter_state,
             action_href=render_action_href_fn,
+            confirm_config_json=confirm_config_json,
             export_action_href=render_export_action_href_fn,
             pagination_href=render_pagination_href_fn,
             pagination_page_href=render_pagination_page_href_fn,

@@ -23,6 +23,7 @@ All visible nodes live in `spec.blocks`. Layout places them by id.
 |-------|-----|
 | `GridViewForm` | [Forms](forms.md) |
 | `GridViewOverlay`, `GridViewTabs` | [Overlays and tabs](overlays-tabs.md) |
+| `Dialogs & Notifications` | [Dialogs & Notifications](dialogs-notifications.md) |
 | `GridViewTemplate`, `GridViewContent` | [Template and content](template-content.md) |
 
 ## Shared block base

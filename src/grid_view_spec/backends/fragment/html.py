@@ -6,6 +6,7 @@ import html
 
 from grid_view_spec.export.columns import resolve_export_column_ids
 from grid_view_spec.export.context import ExportContextLike
+from grid_view_spec.render.action_urls import confirm_config_json
 from grid_view_spec.render.column_settings import column_filter_wire
 from grid_view_spec.render.context import GridViewRenderContext
 from grid_view_spec.render.jinja import grid_view_jinja_env, template_dir_exists
@@ -62,6 +63,7 @@ def render_block_fragment(
         tab_panes=ctx.tab_panes,
         filter_state=filter_state,
         action_href=action_href_fn,
+        confirm_config_json=confirm_config_json,
         export_action_href=export_action_href_fn,
         pagination_href=pagination_href_fn,
         pagination_page_href=pagination_page_href_fn,

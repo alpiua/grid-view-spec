@@ -4,8 +4,9 @@
 <a
   href="{{ action_href(action) | e }}"
   class="{{ btn_classes(action.variant, action.tone, action.params.get('btn_class', '')) }}"
-  {% if action.params.get('target') == '_blank' %}target="_blank" rel="noopener noreferrer"{% endif %}
+  {% if action.target %}target="{{ action.target | e }}"{% if action.target == '_blank' %} rel="noopener noreferrer"{% endif %}{% endif %}
   title="{{ action.label | e }}"
+  {% if action.confirm is not none %}data-cm-confirm="{{ confirm_config_json(action.confirm) | e }}"{% endif %}
 >
   {% if action.icon %}{{ render_icon(action.icon) }}{% endif %}
   <span class="cm-btn-label">{{ action.label | e }}</span>

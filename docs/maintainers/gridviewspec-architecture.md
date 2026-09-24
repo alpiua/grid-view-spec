@@ -735,14 +735,8 @@ class GridViewDataSource:
     params: Mapping[str, JsonValue] = field(default_factory=dict)
     row_id: str = "id"
 
-@dataclass(frozen=True, slots=True)
-class GridViewTableSettings:
-    columns: bool = True
-    order: bool = True
-    visibility: bool = True
-    pinning: bool = True
-    sizing: bool = True
-    presets: bool = True
+GridViewTableSettingsSurface = Literal["drawer", "modal"]
+GridViewTableSettings = tuple[GridViewTableSettingsSurface, ...]
 ```
 
 Backends:
@@ -756,10 +750,11 @@ Table data rules:
 - `datasource` describes a table row API for AG-Grid or remote table data;
 - `column_source` returns dynamic columns at runtime (e.g. per-tier price columns): renderer
   refetches when a `depends_on` filter changes and merges them at `anchor`. Dynamic columns must use
-  **stable ids** so `GridViewTableSettings`/presets survive filter changes — unknown/absent ids are
+  **stable ids** so column layouts and presets survive filter changes — unknown/absent ids are
   ignored, never fatal;
 - `datasource`/`column_source` are not lazy loading: lazy controls block rendering timing;
-- `GridViewTableSettings` is table-specific capability metadata, not global settings;
+- `GridViewTable.settings` selects its explicit column-settings surfaces: `("drawer",)`,
+  `("modal",)`, or both. `None` renders no settings surface;
 - `header` describes `<thead>` grouping only (`GridViewColumnGroup`); not a toolbar;
 - **there is no table-owned toolbar field**; in-card chrome is a `table-card` area with a toolbar
   whose `target=this_table_id` (see Toolbar section);

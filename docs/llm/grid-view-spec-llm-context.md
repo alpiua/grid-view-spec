@@ -623,6 +623,7 @@ All visible nodes live in `spec.blocks`. Layout places them by id.
 |-------|-----|
 | `GridViewForm` | Forms (see section: blocks/forms.md) |
 | `GridViewOverlay`, `GridViewTabs` | Overlays and tabs (see section: blocks/overlays-tabs.md) |
+| `Dialogs & Notifications` | Dialogs & Notifications (see section: blocks/dialogs-notifications.md) |
 | `GridViewTemplate`, `GridViewContent` | Template and content (see section: blocks/template-content.md) |
 
 ## Shared block base
@@ -714,7 +715,7 @@ GridViewTable(
     backend="simple",  # or "ag_grid"
     columns=(GridViewColumn(id="name", label="Name", field="name"),),
     datasource=GridViewDataSource(endpoint="/api/records/"),  # ag_grid / remote
-    settings=GridViewTableSettings(columns=True, presets=True),
+    settings=("drawer", "modal"),
 )
 ```
 
@@ -767,7 +768,7 @@ GridViewTable(
         GridViewColumn(id="price", label="Price", field="price", type="currency", hidden=True),
     ),
     search_mode="global",  # global | per_column | disabled
-    settings=GridViewTableSettings(columns=True, presets=True),
+    settings=("drawer", "modal"),
     striped=True,
     footer=GridViewTableFooter(row=True, label="Total", label_span=2),
     empty_message="No orders found",
@@ -1128,8 +1129,6 @@ manager.gridApi.setGridOption(
 | Key | Default | Contract |
 |-----|---------|----------|
 | `gridId` | — | Equals `grid_id` in `scripts.html` and `GridPreference.grid_id` |
-| `legacyStorageScope` | — | Migration-only suffix for an existing legacy browser key |
-| `storageScope` | — | Deprecated alias for `legacyStorageScope` |
 | `syncUrlState` | `true` | `history.replaceState` for `q`, `filters`, `urlPageStateKeys` |
 | `urlPageStateKeys` | keys from `getPageState()` | Domain params mirrored to URL |
 | `getPageState()` | — | Returns `{ period: ["2024-01"], … }` for filter bar |
@@ -1138,10 +1137,8 @@ manager.gridApi.setGridOption(
 | `onDataReload(manager)` | — | Hook after manual search reload; otherwise export links are synced automatically |
 | `dictionaryUrl` | — | Base URL for set-filter dictionary fetch |
 
-New pages do not configure a grid storage scope. The rendered spec identity and
-optional `GridViewConfig.page_state_scope` select browser page state.
-`legacyStorageScope` only identifies an existing browser key during its one-time
-migration.
+The rendered spec identity and optional `GridViewConfig.page_state_scope` select
+browser page state. GridViewSpec does not read renderer-specific browser keys.
 
 ### Export href sync
 
@@ -1308,7 +1305,7 @@ See KPI and charts (see section: visualization/kpi-charts.md).
 | Columns | your frontend `columnDefs` |
 | Templates | `_grid_options.html`, `_grid_scripts.html`, `_toolbar.html` |
 
-Typical config: `grid_id="items"`, `storageScope="items-grid"`, data endpoint `GET /api/items/data/`.
+Typical config: `grid_id="items"`, data endpoint `GET /api/items/data/`.
 
 ## API reference
 
@@ -1785,6 +1782,8 @@ After `{% grid_view_spec_assets part='js' force_core=True %}`, one script initia
 | `GridView.bootScope(scope?)` | Scan a DOM subtree (default `document`) and boot tables, filters, KPI, charts, column settings, and GridViewSpec roots |
 | `GridView.boot(root?)` | Boot one element, or re-run scope boot when omitted |
 
+| `GridView.confirm(options)` | Show unified modal confirmation dialog (returns `Promise<boolean>`) |
+| `GridView.notify(options)` | Show toast notification in unified notification stack |
 `DOMContentLoaded` and HTMX `afterSwap` call `GridView.bootScope()`. Do not load separate chart, KPI,
 or artifact boot scripts.
 
@@ -1805,6 +1804,13 @@ Load order:
 Inclusion tags (`render_grid_view_spec`, …) only **mark** which optional bundles a page
 needs; the actual ``<script>``/``<link>`` tags are emitted by ``{% grid_view_spec_assets %}``.
 Always call it once per page (CSS in ``<head>`` + JS before ``</body>``).
+
+### Declarative confirmation
+
+Managed GridView action, cell-action, and link dispatch paths read `data-cm-confirm` as a
+JSON string or object. Cancellation prevents the managed action, while acceptance invokes it
+once. Plain DOM buttons, links, and forms are not intercepted by this attribute. Boot also
+adapts global `window.confirm` and `window.alert`, and bridges `htmx:confirm`.
 
 **Globals the host must provide** (before the bundle):
 

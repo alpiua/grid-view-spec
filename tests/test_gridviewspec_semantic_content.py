@@ -180,6 +180,7 @@ def test_toolbar_soft_link_renders_outside_export_group() -> None:
                         label="Past errors",
                         href="?history=1",
                         variant="soft",
+                        target="_blank",
                     ),
                 ),
             ),
@@ -197,6 +198,7 @@ def test_toolbar_soft_link_renders_outside_export_group() -> None:
     html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
     assert "cm-btn-soft" in html
     assert "Past errors" in html
+    assert 'target="_blank" rel="noopener noreferrer"' in html
     assert "cm-export-group--paired" not in html
 
 
