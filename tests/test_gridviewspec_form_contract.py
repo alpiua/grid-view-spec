@@ -13,6 +13,7 @@ import pytest
 
 from grid_view_spec.hosts.memory import InMemoryHost
 from grid_view_spec.render import render_grid_view_spec
+from grid_view_spec.types.actions import GridViewActions, GridViewSelectAction, GridViewSelectOption
 from grid_view_spec.types.filters_v2 import GridViewFilterOption
 from grid_view_spec.types.form import (
     GridViewField,
@@ -201,6 +202,7 @@ def test_native_controls_keep_values_and_accessible_date_range_identity() -> Non
     """Every declared native type renders its public control and supplied state."""
     html, probe = _render(_contract_form())
 
+    assert probe.with_id("cm-form-product_form").attrs["enctype"] == "multipart/form-data"
     assert probe.with_id("cm-field-product_form-title").attrs["value"] == "Supplied title"
     notes = probe.with_id("cm-field-product_form-notes")
     assert notes.tag == "textarea"
@@ -246,6 +248,62 @@ def test_native_controls_keep_values_and_accessible_date_range_identity() -> Non
         "published",
         "draft",
     ]
+
+
+def test_file_field_in_fieldset_renders_multipart_form() -> None:
+    form = GridViewForm(
+        id="upload_form",
+        fields=(GridViewField(name="attachment", label="Attachment", type="file"),),
+        fieldsets=(GridViewFieldset(id="files", fields=("attachment",)),),
+    )
+
+    _, probe = _render(form)
+
+    assert probe.with_id("cm-form-upload_form").attrs["enctype"] == "multipart/form-data"
+    assert probe.with_id("cm-field-upload_form-attachment").attrs["type"] == "file"
+
+
+def test_non_file_form_uses_browser_default_encoding() -> None:
+    form = GridViewForm(
+        id="details_form",
+        fields=(GridViewField(name="title", label="Title"),),
+    )
+
+    _, probe = _render(form)
+
+    assert "enctype" not in probe.with_id("cm-form-details_form").attrs
+
+
+def test_disabled_select_action_disables_its_controls() -> None:
+    actions = GridViewActions(
+        id="batch_actions",
+        items=(
+            GridViewSelectAction(
+                id="batch_operation",
+                label="Bulk operation",
+                action="apply_operation",
+                options=(GridViewSelectOption(value="archive", label="Archive"),),
+                disabled=True,
+            ),
+        ),
+    )
+    spec = GridViewSpec(
+        id="actions_page",
+        blocks=(actions,),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(actions.id,))),
+    )
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+    probe = _HtmlProbe()
+    probe.feed(html)
+
+    select = probe.with_id("cm-action-select-batch_operation")
+    button = next(
+        element
+        for element in probe.elements
+        if element.tag == "button" and "data-cm-action-select-ref" in element.attrs
+    )
+    assert "disabled" in select.attrs
+    assert "disabled" in button.attrs
 
 
 def test_fieldsets_locales_and_widget_slots_are_observable_and_ordered() -> None:

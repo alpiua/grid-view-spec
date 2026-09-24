@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from typing import Literal
+from urllib.parse import urlsplit
 
 from grid_view_spec.types.block_base import GridViewBlockBase
 from grid_view_spec.types.json import JsonObject, empty_json_map
@@ -43,6 +44,10 @@ class GridViewNavItem:
     parent_id: str | None = None
     children: tuple[GridViewNavItem, ...] = ()
     extra: JsonObject = field(default_factory=empty_json_map)
+
+    def __post_init__(self) -> None:
+        if (scheme := urlsplit(self.href).scheme) and scheme not in {"http", "https"}:
+            raise ValueError("Navigation href scheme must be http or https")
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)

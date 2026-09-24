@@ -196,9 +196,14 @@ from grid_view_spec.validate.wire import (
 
 def _objects(value: object) -> list[Mapping[str, object]]:
     """Return wire list items that are string-keyed mappings."""
-    if not is_object_list(value):
+    if value is None:
         return []
-    return [item for item in value if is_wire_mapping(item)]
+    if not is_object_list(value):
+        raise TypeError("Expected a list of objects")
+    objects = [item for item in value if is_wire_mapping(item)]
+    if len(objects) != len(value):
+        raise TypeError("Expected list items to be objects")
+    return objects
 
 
 def wire_str_or_int(value: object) -> str | int:

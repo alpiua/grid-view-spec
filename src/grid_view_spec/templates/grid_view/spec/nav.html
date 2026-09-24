@@ -4,44 +4,30 @@
        data-node-id="{{ item.id | e }}"
        {% if item.type %}data-node-type="{{ item.type | e }}"{% endif %}
        {% if item.parent_id %}data-parent-id="{{ item.parent_id | e }}"{% endif %}>
-    <div class="cm-nav-tree-row flex items-center justify-between gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors cursor-pointer {% if item.active %}is-active font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50/70 dark:bg-indigo-950/40{% else %}text-slate-700 dark:text-gray-200 hover:bg-slate-100 dark:hover:bg-[#181f33]{% endif %}"
+    <div class="cm-nav-tree-row flex items-center justify-between gap-1 px-2 py-1.5 rounded-lg text-xs transition-colors cursor-pointer {% if item.active %}is-active font-semibold text-indigo-600 dark:text-indigo-400 bg-indigo-50/70 dark:bg-indigo-950/40{% else %}text-slate-700 dark:text-gray-200 hover:bg-slate-100 dark:hover:bg-[#181f33]{% endif %}{% if item.disabled %} opacity-50 cursor-not-allowed{% endif %}"
          {% if item.href %}data-href="{{ item.href | e }}"{% endif %}
-         {% if item.extra and item.extra.get('hx_get') %}
-           hx-get="{{ item.extra.get('hx_get') | e }}"
-           hx-target="{{ item.extra.get('hx_target', '#cm-resource-detail') | e }}"
-           hx-swap="{{ item.extra.get('hx_swap', 'innerHTML') | e }}"
-           {% if item.extra.get('hx_push_url') %}hx-push-url="{{ item.extra.get('hx_push_url') | e }}"{% endif %}
-         {% endif %}>
-      <div class="flex items-center gap-1.5 min-w-0 flex-1 truncate">
-        {% if item.children %}
-        <button type="button" class="cm-nav-tree-toggle w-4 h-4 flex items-center justify-center shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200" data-tree-toggle="1">
-          <svg class="w-3 h-3 transition-transform duration-150" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg>
-        </button>
-        {% else %}
-        <span class="w-4 shrink-0"></span>
-        {% endif %}
+         {% if item.disabled %}data-disabled="1" aria-disabled="true"{% endif %}>
+      {% if item.children and not item.disabled %}<button type="button" class="cm-nav-tree-toggle w-4 h-4 flex items-center justify-center shrink-0 text-slate-400 hover:text-slate-600 dark:hover:text-gray-200" data-tree-toggle="1"><svg class="w-3 h-3 transition-transform duration-150" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"></polyline></svg></button>{% else %}<span class="w-4 shrink-0"></span>{% endif %}
+      {% if item.extra and item.extra.get('hx_get') and not item.disabled %}<button type="button" class="flex items-center gap-1.5 min-w-0 flex-1 truncate text-inherit" hx-get="{{ item.extra.get('hx_get') | e }}" hx-target="{{ item.extra.get('hx_target', '#cm-resource-detail') | e }}" hx-swap="{{ item.extra.get('hx_swap', 'innerHTML') | e }}" {% if item.extra.get('hx_push_url') %}hx-push-url="{{ item.extra.get('hx_push_url') | e }}"{% endif %}>{% elif item.href and not item.disabled %}<a href="{{ item.href | e }}" class="flex items-center gap-1.5 min-w-0 flex-1 truncate text-inherit">{% else %}<div class="flex items-center gap-1.5 min-w-0 flex-1 truncate">{% endif %}
         {% if item.icon %}
         <span class="cm-nav-tree-icon shrink-0">{{ item.icon | e }}</span>
         {% endif %}
         <span class="cm-nav-tree-label truncate">{{ item.label | e }}</span>
-      </div>
-      <div class="flex items-center gap-1 shrink-0">
+      {% if item.extra and item.extra.get('hx_get') and not item.disabled %}</button>{% elif item.href and not item.disabled %}</a>{% else %}</div>{% endif %}
         {% if item.count is not none and item.count > 0 %}
         <span class="cm-nav-tree-count text-[10px] font-mono px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-[#1e253d] text-slate-600 dark:text-gray-400">{{ item.count }}</span>
         {% endif %}
-        {% if item.extra and item.extra.get('action_url') %}
+        {% if item.extra and item.extra.get('action_url') and not item.disabled %}
         <button type="button"
                 class="cm-nav-tree-action w-5 h-5 flex items-center justify-center rounded text-slate-400 hover:text-indigo-600 hover:bg-slate-200 dark:hover:bg-[#202840] transition-colors"
                 title="{{ item.extra.get('action_title', '') | e }}"
                 hx-get="{{ item.extra.get('action_url') | e }}"
                 hx-target="{{ item.extra.get('hx_target', '#cm-resource-detail') | e }}"
                 hx-swap="{{ item.extra.get('hx_swap', 'innerHTML') | e }}"
-                {% if item.extra.get('action_push_url') %}hx-push-url="{{ item.extra.get('action_push_url') | e }}"{% endif %}
-                onclick="event.stopPropagation()">
+                {% if item.extra.get('action_push_url') %}hx-push-url="{{ item.extra.get('action_push_url') | e }}"{% endif %}>
           <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
         </button>
         {% endif %}
-      </div>
     </div>
     {% if item.children %}
     <div class="cm-nav-tree-children pl-3 space-y-0.5 border-l border-slate-100 dark:border-[#1e263d] ml-3 mt-0.5">
@@ -128,7 +114,7 @@
                 hx-swap="{{ opt.get('hx_swap', 'innerHTML') | e }}"
                 {% if opt.get('hx_push_url') %}hx-push-url="{{ opt.get('hx_push_url') | e }}"{% endif %}
               {% endif %}
-              {% if opt.get('click') %}onclick="{{ opt.get('click') | e }}"{% endif %}>
+              {% if opt.get('action') %}data-cm-action="{{ opt.get('action') | e }}"{% endif %}>
         {% if opt.get('icon') %}<span class="text-sm shrink-0">{{ opt.get('icon') | e }}</span>{% endif %}
         <div class="min-w-0 flex-1">
           <div class="font-semibold">{{ opt.get('label') | e }}</div>
@@ -164,7 +150,9 @@
 {% else %}
 <nav class="cm-nav cm-nav-{{ block.presentation | e }}">
   {% for item in block.items %}
+  {% if item.disabled %}<span class="cm-nav-item{% if item.active %} is-active{% endif %}" aria-disabled="true">{{ item.label | e }}</span>{% else %}
   <a class="cm-nav-item{% if item.active %} is-active{% endif %}" href="{{ item.href | e }}">{{ item.label | e }}</a>
+  {% endif %}
   {% endfor %}
 </nav>
 {% endif %}

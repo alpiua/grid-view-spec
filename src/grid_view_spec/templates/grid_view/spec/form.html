@@ -64,7 +64,7 @@
 {%- endmacro %}
 
 {% set grouped = namespace(fields=[]) %}
-<form id="cm-form-{{ block.id | e }}" class="cm-form cm-form-{{ block.presentation | e }}" data-cm-form data-form-id="{{ block.id | e }}" method="{{ block.method | e }}" action="{{ block.endpoint | e }}">
+<form id="cm-form-{{ block.id | e }}" class="cm-form cm-form-{{ block.presentation | e }}" data-cm-form data-form-id="{{ block.id | e }}" method="{{ block.method | e }}" action="{{ block.endpoint | e }}"{% if block.fields | selectattr('type', 'equalto', 'file') | list %} enctype="multipart/form-data"{% endif %}>
   {% for fieldset in block.fieldsets %}
     {% set grouped.fields = grouped.fields + fieldset.fields | list %}
     <fieldset class="cm-fieldset" data-cm-fieldset="{{ fieldset.id | e }}"{% if fieldset.columns > 1 %} style="--cm-form-columns: {{ fieldset.columns }}"{% endif %}><legend>{{ fieldset.label or fieldset.id | e }}</legend>{{ render_fields_for_set(fieldset) }}</fieldset>

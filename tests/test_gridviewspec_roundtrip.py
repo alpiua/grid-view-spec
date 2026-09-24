@@ -27,7 +27,7 @@ from grid_view_spec.types.spec import GridViewSpec
 from grid_view_spec.types.spec_meta import GridViewConfig
 from grid_view_spec.types.table_v2 import GridViewColumn, GridViewTable, GridViewTableSettings
 from grid_view_spec.types.wire import is_wire_mapping
-from grid_view_spec.validate import spec_to_wire
+from grid_view_spec.validate import spec_from_wire, spec_to_wire
 from grid_view_spec.wire_decode import decode_confirm_config, decode_spec
 from tests.gridviewspec_fixtures import minimal_valid_spec, rich_spec
 
@@ -45,6 +45,33 @@ def test_minimal_spec_roundtrips() -> None:
     """Minimal fixture survives encode → JSON → decode unchanged."""
     spec = minimal_valid_spec()
     assert _roundtrip(spec) == spec
+
+
+@pytest.mark.parametrize(
+    "wire",
+    (
+        {"id": "bad_blocks", "blocks": [None]},
+        {"id": "bad_nav_items", "blocks": [{"id": "nav", "type": "nav", "items": [1]}]},
+        {
+            "id": "bad_columns",
+            "blocks": [{"id": "table", "type": "table", "columns": ["name"]}],
+        },
+        {"id": "bad_blocks_type", "blocks": "not a list"},
+    ),
+)
+def test_spec_from_wire_rejects_malformed_object_lists(wire: dict[str, object]) -> None:
+    result = spec_from_wire(wire)
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "INVALID_WIRE"
+
+
+def test_spec_from_wire_preserves_none_object_lists() -> None:
+    result = spec_from_wire({"id": "none_blocks", "blocks": None})
+
+    assert result.ok
+    assert result.spec is not None
+    assert result.spec.blocks == ()
 
 
 def test_rich_spec_roundtrips_all_fields() -> None:

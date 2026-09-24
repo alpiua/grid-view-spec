@@ -7,7 +7,7 @@
     <span class="cm-kpi-icon" aria-hidden="true">{{ item.icon or '📊' }}</span>
     <div class="cm-kpi-body">
       <span class="cm-kpi-label">{{ item.label | e }}</span>
-      <span class="cm-kpi-value">{{ item.value if item.value is defined and item.value is not none else (kpi_values[loop.index0] if loop.index0 < kpi_values | length else '') }}</span>
+      <span class="cm-kpi-value">{{ kpi_values[loop.index0] if loop.index0 < kpi_values | length else (item.value if item.value is defined and item.value is not none else '') }}</span>
     </div>
   </div>
   {% endfor %}

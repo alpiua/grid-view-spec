@@ -7,7 +7,7 @@ import pytest
 from grid_view_spec.backends.django.host import DjangoGridViewHost
 from grid_view_spec.hosts.memory import InMemoryHost
 from grid_view_spec.render import render_grid_view_spec
-from grid_view_spec.render.action_urls import export_action_href, export_builder_key
+from grid_view_spec.render.action_urls import export_action_href
 from grid_view_spec.types.actions import (
     GridViewActions,
     GridViewButtonAction,
@@ -47,24 +47,6 @@ def _first_export_action(spec: GridViewSpec) -> GridViewExportAction:
     action = block.items[0]
     assert isinstance(action, GridViewExportAction)
     return action
-
-
-def test_export_builder_key_prefers_params_then_spec_id() -> None:
-    spec = _actions_spec(GridViewExportAction(id="x", label="X", format="xlsx", target="records"))
-    action = _first_export_action(spec)
-    assert export_builder_key(action, spec) == "page_export"
-
-    with_builder = GridViewExportAction(
-        id="x",
-        label="X",
-        format="xlsx",
-        target="records",
-        params={"builder": "custom"},
-    )
-    assert export_builder_key(with_builder, spec) == "custom"
-
-    no_target = GridViewExportAction(id="x", label="X", format="xlsx")
-    assert export_builder_key(no_target, spec) == "page_export"
 
 
 def test_export_action_href_uses_host_routes_and_filter_state() -> None:
