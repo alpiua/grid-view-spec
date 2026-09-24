@@ -6,7 +6,7 @@ export class AgGridTooltip {
   init(params: AgGridTooltipInitParams): void {
     const eGui = document.createElement("div");
     eGui.className = "cm-ellipsis-tip cm-ellipsis-tip--floating";
-    eGui.innerHTML = params.value ? params.value : "No data";
+    eGui.textContent = params.value ? params.value : "No data";
     this.eGui = eGui;
   }
 

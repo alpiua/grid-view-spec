@@ -351,10 +351,10 @@ export class SetFilterPanel {
         '"' +
         (isChecked ? " checked" : "") +
         ">" +
-        '<span class="cm-set-filter-item-label">' +
-        val +
-        "</span>" +
+        '<span class="cm-set-filter-item-label"></span>' +
         countHtml;
+      const label = requiredElement(item, ".cm-set-filter-item-label", HTMLElement);
+      label.textContent = val;
       const checkbox = requiredElement(item, "input", HTMLInputElement);
       checkbox.addEventListener("mousedown", (e) => e.stopPropagation());
       checkbox.addEventListener("click", (e) => e.stopPropagation());
