@@ -4,7 +4,9 @@ export type GridActionContext = {
   rowId?: string;
   gridId?: string;
   params?: Record<string, unknown>;
+  selectedValue?: string;
   event?: Event;
+  source?: "row" | "cell" | "batch" | "keyboard";
 };
 
 export type GridCommitContext = {

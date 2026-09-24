@@ -5,10 +5,14 @@ from grid_view_spec.types.actions import (
     GridViewAction,
     GridViewActions,
     GridViewButtonAction,
+    GridViewConfirmConfig,
+    GridViewConfirmTone,
     GridViewExportAction,
     GridViewLinkAction,
     GridViewMenuAction,
     GridViewOverlayAction,
+    GridViewSelectAction,
+    GridViewSelectOption,
 )
 from grid_view_spec.types.assets import GridViewTemplateAsset
 from grid_view_spec.types.block_base import BlockType, GridViewBlockBase, GridViewBlockType
@@ -34,6 +38,8 @@ from grid_view_spec.types.content import (
 )
 from grid_view_spec.types.filters_v2 import (
     GridViewFilter,
+    GridViewFilterDrawerPanel,
+    GridViewFilterDrawerSection,
     GridViewFilterOption,
     GridViewFilters,
     GridViewFilterState,
@@ -66,10 +72,10 @@ from grid_view_spec.types.media import (
     GridViewImageSource,
     GridViewImageVariant,
 )
-from grid_view_spec.types.nav import GridViewNav, GridViewNavItem
+from grid_view_spec.types.nav import GridViewNav, GridViewNavItem, GridViewNavLevel
 from grid_view_spec.types.overlay import GridViewOverlay
 from grid_view_spec.types.result import GridViewDiagnostic, GridViewPolicy, GridViewResult
-from grid_view_spec.types.spec import GridViewSpec, GridViewSpecWire
+from grid_view_spec.types.spec import GridViewSpec
 from grid_view_spec.types.spec_meta import GridViewConfig, GridViewMeta
 from grid_view_spec.types.table_v2 import (
     ColumnSpecWire,
@@ -103,6 +109,8 @@ __all__ = [
     "GridViewBlockBase",
     "GridViewBlockType",
     "GridViewButtonAction",
+    "GridViewConfirmConfig",
+    "GridViewConfirmTone",
     "GridViewCard",
     "GridViewCards",
     "GridViewChart",
@@ -122,6 +130,8 @@ __all__ = [
     "GridViewFieldCondition",
     "GridViewFieldset",
     "GridViewFilter",
+    "GridViewFilterDrawerPanel",
+    "GridViewFilterDrawerSection",
     "GridViewFilterOption",
     "GridViewFilterState",
     "GridViewFilterValue",
@@ -145,8 +155,11 @@ __all__ = [
     "GridViewMeta",
     "GridViewNav",
     "GridViewNavItem",
+    "GridViewNavLevel",
     "GridViewOverlay",
     "GridViewOverlayAction",
+    "GridViewSelectAction",
+    "GridViewSelectOption",
     "GridViewPolicy",
     "GridViewResult",
     "GridViewSearch",
@@ -175,7 +188,6 @@ __all__ = [
     "ChartType",
     "ColumnFormat",
     "ColumnSpecWire",
-    "GridViewSpecWire",
     "JsonScalar",
     "JsonValue",
     "KpiAggregate",

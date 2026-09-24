@@ -10,12 +10,26 @@ from grid_view_spec.types.semantic import GridViewActionVariant, GridViewSemanti
 GridViewActionsPresentation = Literal["inline", "menu", "split", "compact"]
 GridViewExportFormat = Literal["pdf", "xlsx", "csv"]
 GridViewHttpMethod = Literal["get", "post"]
+GridViewConfirmTone = Literal["default", "primary", "warning", "danger"]
 
 GRIDVIEW_ACTIONS_PRESENTATIONS: frozenset[GridViewActionsPresentation] = frozenset(
     {"inline", "menu", "split", "compact"}
 )
 GRIDVIEW_EXPORT_FORMATS: frozenset[GridViewExportFormat] = frozenset({"pdf", "xlsx", "csv"})
 GRIDVIEW_HTTP_METHODS: frozenset[GridViewHttpMethod] = frozenset({"get", "post"})
+GRIDVIEW_CONFIRM_TONES: frozenset[GridViewConfirmTone] = frozenset(
+    {"default", "primary", "warning", "danger"}
+)
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GridViewConfirmConfig:
+    title: str = "Confirmation"
+    message: str = ""
+    tone: GridViewConfirmTone = "default"
+    confirm_text: str = "Confirm"
+    cancel_text: str = "Cancel"
+    close_on_backdrop: bool = True
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -30,6 +44,7 @@ class GridViewActionBase:
     disabled: bool = False
     reason: str = ""
     params: JsonObject = field(default_factory=empty_json_map)
+    confirm: GridViewConfirmConfig | str | None = None
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
@@ -60,6 +75,21 @@ class GridViewButtonAction(GridViewActionBase):
 
 
 @dataclass(frozen=True, slots=True, kw_only=True)
+class GridViewSelectOption:
+    value: str | int
+    label: str
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
+class GridViewSelectAction(GridViewActionBase):
+    type: Literal["select"] = "select"
+    action: str = ""
+    button_label: str = ""
+    options: tuple[GridViewSelectOption, ...] = ()
+    default: str | int | None = None
+
+
+@dataclass(frozen=True, slots=True, kw_only=True)
 class GridViewMenuAction(GridViewActionBase):
     type: Literal["menu"] = "menu"
     items: tuple[GridViewAction, ...] = ()
@@ -70,6 +100,7 @@ GridViewAction = (
     | GridViewOverlayAction
     | GridViewLinkAction
     | GridViewButtonAction
+    | GridViewSelectAction
     | GridViewMenuAction
 )
 

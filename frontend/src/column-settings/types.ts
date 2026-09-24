@@ -73,15 +73,9 @@ export interface ColumnSettingsOptions {
   groupsOrder?: string[];
   initialPresets?: Record<string, StoredColumnPreset>;
   preferencesUrl?: string;
-  /** Legacy localStorage scope used only to migrate prior column state. */
-  legacyStorageScope?: string;
-  /** @deprecated Use legacyStorageScope for migration-only legacy keys. */
-  storageScope?: string;
   /** Rendered GridViewSpec root that owns portable page preferences. */
   pageStateRoot?: Element | null;
   initialState?: ColumnStateItem[];
-  /** False when a host persists column state through its own authoritative store. */
-  persistLocalState?: boolean;
   onStateChange?: (state: ColumnStateItem[]) => void;
   pageStateHooks?: PageStateHooks;
 }
@@ -93,6 +87,7 @@ export interface ColumnSettingsHandle {
   closeColSelectorModal: () => void;
   resetColumnsToDefault: () => void;
   buildColCheckboxes: () => void;
+  mountColumnSettings: (container: HTMLElement) => void;
   buildColOrderList: () => void;
   saveCurrentPreset: () => void;
   renderSavedPresets: () => void;
@@ -107,6 +102,8 @@ export interface AgGridColumnLike {
     field?: string;
     headerName?: string;
     hide?: boolean;
+    pinned?: string;
+    width?: number;
     suppressExport?: boolean;
     menuGroup?: string;
     contextGroup?: string;

@@ -1,13 +1,14 @@
 from __future__ import annotations
 
 import dataclasses
-from typing import Literal, NotRequired, TypedDict
+from typing import Literal, NotRequired, TypedDict, TypeGuard
 
 from grid_view_spec.types.actions import GridViewAction
 from grid_view_spec.types.assets import GridViewTemplateAsset
 from grid_view_spec.types.block_base import GridViewBlockBase
 from grid_view_spec.types.filters_v2 import GridViewFilter
 from grid_view_spec.types.json import JsonObject, empty_json_map
+from grid_view_spec.types.wire import is_object_tuple
 
 GridViewTableBackend = Literal["simple", "ag_grid"]
 GridViewTableSearchMode = Literal["global", "per_column", "disabled"]
@@ -16,9 +17,10 @@ GridViewColumnAlign = Literal["", "left", "center", "right"]
 GridViewColumnPinned = Literal["", "left", "right"]
 GridViewSortDirection = Literal["asc", "desc"]
 GridViewDataSourceMethod = Literal["get", "post"]
-GridViewColumnSourceMerge = Literal["append", "replace"]
 GridViewTableEditMode = Literal["cell", "row"]
 GridViewTablePaginationMode = Literal["server", "client", "fragment"]
+GridViewTableSettingsSurface = Literal["drawer", "modal"]
+GridViewTableSettings = tuple[GridViewTableSettingsSurface, ...]
 
 GRIDVIEW_TABLE_BACKENDS: frozenset[GridViewTableBackend] = frozenset({"simple", "ag_grid"})
 GRIDVIEW_TABLE_SEARCH_MODES: frozenset[GridViewTableSearchMode] = frozenset(
@@ -31,13 +33,25 @@ GRIDVIEW_COLUMN_ALIGNS: frozenset[GridViewColumnAlign] = frozenset({"", "left", 
 GRIDVIEW_COLUMN_PINNEDS: frozenset[GridViewColumnPinned] = frozenset({"", "left", "right"})
 GRIDVIEW_SORT_DIRECTIONS: frozenset[GridViewSortDirection] = frozenset({"asc", "desc"})
 GRIDVIEW_DATASOURCE_METHODS: frozenset[GridViewDataSourceMethod] = frozenset({"get", "post"})
-GRIDVIEW_COLUMN_SOURCE_MERGES: frozenset[GridViewColumnSourceMerge] = frozenset(
-    {"append", "replace"}
-)
 GRIDVIEW_TABLE_EDIT_MODES: frozenset[GridViewTableEditMode] = frozenset({"cell", "row"})
 GRIDVIEW_TABLE_PAGINATION_MODES: frozenset[GridViewTablePaginationMode] = frozenset(
     {"server", "client", "fragment"}
 )
+GRIDVIEW_TABLE_SETTINGS_SURFACES: frozenset[GridViewTableSettingsSurface] = frozenset(
+    {"drawer", "modal"}
+)
+
+
+def is_valid_gridview_table_settings(value: object) -> TypeGuard[GridViewTableSettings]:
+    """Return whether a settings tuple names each supported surface once."""
+    if not is_object_tuple(value) or not value:
+        return False
+    if not all(
+        isinstance(surface, str) and surface in GRIDVIEW_TABLE_SETTINGS_SURFACES
+        for surface in value
+    ):
+        return False
+    return len(value) == len(set(value))
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -65,7 +79,6 @@ class GridViewColumnSource:
     depends_on: tuple[str, ...] = ()
     params: JsonObject = dataclasses.field(default_factory=empty_json_map)
     anchor: str = ""
-    merge: GridViewColumnSourceMerge = "append"
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -169,16 +182,6 @@ def gridview_table_page_window(
     for page in range(max(1, current - radius), min(num_pages, current + radius) + 1):
         pages.add(page)
     return tuple(sorted(pages))
-
-
-@dataclasses.dataclass(frozen=True, slots=True)
-class GridViewTableSettings:
-    columns: bool = True
-    order: bool = True
-    visibility: bool = True
-    pinning: bool = True
-    sizing: bool = True
-    presets: bool = True
 
 
 @dataclasses.dataclass(frozen=True, slots=True, kw_only=True)

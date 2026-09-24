@@ -29,7 +29,7 @@ from grid_view_spec.types.media import GridViewGallery, GridViewImage, GridViewI
 from grid_view_spec.types.overlay import GridViewOverlay
 from grid_view_spec.types.result import GridViewDiagnostic, GridViewPolicy, GridViewResult
 from grid_view_spec.types.spec import GridViewBlock, GridViewSpec
-from grid_view_spec.types.table_v2 import GridViewTable
+from grid_view_spec.types.table_v2 import GridViewTable, is_valid_gridview_table_settings
 from grid_view_spec.types.toolbar import GridViewToolbar
 from grid_view_spec.types.wire import is_object_list, is_object_tuple, is_wire_mapping
 from grid_view_spec.validate import codes as c
@@ -64,6 +64,11 @@ BUILTIN_RENDERERS = frozenset(
         "select",
     }
 )
+
+# These renderers are emitted by the simple-table templates and carry
+# structured values that the AG Grid runtime cannot faithfully represent.
+SIMPLE_TABLE_RENDERERS = frozenset({"tag", "progress", "chip", "period_pills", "select"})
+AG_GRID_RENDERERS = BUILTIN_RENDERERS - SIMPLE_TABLE_RENDERERS
 
 BlockIndex = dict[str, GridViewBlock]
 Diagnostics = list[GridViewDiagnostic]
@@ -233,6 +238,56 @@ def _check_filter_states(spec: GridViewSpec) -> list[GridViewDiagnostic]:
         if not isinstance(block, GridViewFilters):
             continue
         schema_by_id = {f.id: f for f in block.schema}
+        if block.drawer_layout == "workspace":
+            if block.presentation != "drawer":
+                diagnostics.append(
+                    error(
+                        c.FILTER_DRAWER_LAYOUT_INVALID,
+                        "workspace drawer layout requires drawer presentation",
+                        f"blocks.{block.id}.drawer_layout",
+                    )
+                )
+            seen_filter_ids: set[str] = set()
+            seen_section_ids: set[str] = set()
+            for section in block.drawer_sections:
+                section_path = f"blocks.{block.id}.drawer_sections.{section.id}"
+                if not section.id or not section.filter_ids or section.id in seen_section_ids:
+                    diagnostics.append(
+                        error(
+                            c.FILTER_DRAWER_SECTION_INVALID,
+                            "workspace drawer sections need unique ids and at least one filter",
+                            section_path,
+                        )
+                    )
+                seen_section_ids.add(section.id)
+                for filter_id in section.filter_ids:
+                    if filter_id not in schema_by_id:
+                        diagnostics.append(
+                            error(
+                                c.FILTER_DRAWER_SECTION_UNKNOWN_FILTER,
+                                f"workspace section references unknown filter {filter_id!r}",
+                                section_path,
+                            )
+                        )
+                    elif filter_id in seen_filter_ids:
+                        diagnostics.append(
+                            error(
+                                c.FILTER_DRAWER_SECTION_DUPLICATE_FILTER,
+                                f"workspace filter {filter_id!r} appears in more than one section",
+                                section_path,
+                            )
+                        )
+                    else:
+                        seen_filter_ids.add(filter_id)
+            for filter_id in schema_by_id:
+                if filter_id not in seen_filter_ids:
+                    diagnostics.append(
+                        error(
+                            c.FILTER_DRAWER_SECTION_INVALID,
+                            f"workspace filter {filter_id!r} is not assigned to a section",
+                            f"blocks.{block.id}.drawer_sections",
+                        )
+                    )
         for filter_id, value in block.state.values.items():
             filt = schema_by_id.get(filter_id)
             if filt is None:
@@ -328,15 +383,22 @@ def _check_chart_options(spec: GridViewSpec, policy: GridViewPolicy) -> list[Gri
 
 
 def _check_renderers(spec: GridViewSpec, policy: GridViewPolicy) -> list[GridViewDiagnostic]:
-    if not policy.registered_renderers:
-        return []
-    allowed = set(policy.registered_renderers) | BUILTIN_RENDERERS
     diagnostics: list[GridViewDiagnostic] = []
     for block in iter_all_blocks(spec):
         if not isinstance(block, GridViewTable):
             continue
+        allowed = set(policy.registered_renderers) | (
+            AG_GRID_RENDERERS if block.backend == "ag_grid" else BUILTIN_RENDERERS
+        )
         for col in block.columns:
-            if col.renderer and col.renderer not in allowed:
+            if col.renderer and (
+                (col.renderer not in allowed and bool(policy.registered_renderers))
+                or (
+                    block.backend == "ag_grid"
+                    and col.renderer in SIMPLE_TABLE_RENDERERS
+                    and col.renderer not in policy.registered_renderers
+                )
+            ):
                 diagnostics.append(
                     error(
                         c.UNKNOWN_RENDERER,
@@ -375,6 +437,25 @@ def _check_table_edit(spec: GridViewSpec) -> list[GridViewDiagnostic]:
                         f"blocks.{block.id}.edit",
                     )
                 )
+    return diagnostics
+
+
+def _check_table_settings(spec: GridViewSpec) -> list[GridViewDiagnostic]:
+    """Table settings must select each supported surface at most once."""
+    diagnostics: list[GridViewDiagnostic] = []
+    for block in iter_all_blocks(spec):
+        if (
+            isinstance(block, GridViewTable)
+            and block.settings is not None
+            and not is_valid_gridview_table_settings(block.settings)
+        ):
+            diagnostics.append(
+                error(
+                    c.INVALID_TABLE_SETTINGS,
+                    "table.settings must be a non-empty tuple of unique drawer/modal surfaces",
+                    f"blocks.{block.id}.settings",
+                )
+            )
     return diagnostics
 
 
@@ -1042,6 +1123,7 @@ def validate_spec(spec: GridViewSpec, *, policy: GridViewPolicy | None = None) -
     diagnostics.extend(_check_chart_options(spec, active_policy))
     diagnostics.extend(_check_renderers(spec, active_policy))
     diagnostics.extend(_check_table_edit(spec))
+    diagnostics.extend(_check_table_settings(spec))
     diagnostics.extend(_check_media_sources(spec))
     diagnostics.extend(_check_form_rules(spec, active_policy))
     diagnostics.extend(_check_trusted_css_vars(spec, active_policy))

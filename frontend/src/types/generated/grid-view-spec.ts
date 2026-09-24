@@ -61,6 +61,8 @@ export type GridViewFilters = GridViewBlockBase & {
   auto_apply?: boolean;
   navigate_on_change?: boolean;
   facets?: boolean;
+  drawer_layout?: "compact" | "workspace";
+  drawer_sections?: GridViewFilterDrawerSection[];
   fragment_endpoint?: string;
   fragment_target?: string;
   fragment_swap?: string;
@@ -68,7 +70,44 @@ export type GridViewFilters = GridViewBlockBase & {
 export type GridViewActions = GridViewBlockBase & {
   type?: "actions";
   presentation?: "inline" | "menu" | "split" | "compact";
-  items?: unknown[];
+  items?: GridViewAction[];
+};
+export type GridViewAction =
+  | GridViewExportAction
+  | GridViewOverlayAction
+  | GridViewLinkAction
+  | GridViewButtonAction
+  | GridViewSelectAction
+  | GridViewMenuAction;
+export type GridViewExportAction = GridViewActionBase & {
+  type?: "export";
+  format?: "pdf" | "xlsx" | "csv";
+  endpoint?: string;
+  include_state?: boolean;
+};
+export type GridViewOverlayAction = GridViewActionBase & {
+  type?: "overlay";
+  overlay?: string;
+};
+export type GridViewLinkAction = GridViewActionBase & {
+  type?: "link";
+  href?: string;
+  method?: "get" | "post";
+};
+export type GridViewButtonAction = GridViewActionBase & {
+  type?: "button";
+  action?: string;
+};
+export type GridViewSelectAction = GridViewActionBase & {
+  type?: "select";
+  action?: string;
+  button_label?: string;
+  options?: GridViewSelectOption[];
+  default?: string | number | null;
+};
+export type GridViewMenuAction = GridViewActionBase & {
+  type?: "menu";
+  items?: GridViewAction[];
 };
 export type GridViewTable = GridViewBlockBase & {
   type?: "table";
@@ -80,16 +119,20 @@ export type GridViewTable = GridViewBlockBase & {
   header?: {};
   search_mode?: "global" | "per_column" | "disabled";
   sort?: {};
-  settings?: null | {};
+  settings?: null | GridViewTableSettings;
   edit?: null | {};
   assets?: unknown[];
-  row_action?: null | {};
+  row_action?: null | GridViewAction;
   footer?: null | {};
   empty_message?: string;
   per_page?: number;
   pagination?: null | GridViewTablePagination;
   striped?: boolean;
 };
+/**
+ * @minItems 1
+ */
+export type GridViewTableSettings = ["drawer" | "modal", ...("drawer" | "modal")[]];
 export type GridViewCharts = GridViewBlockBase & {
   type?: "charts";
   charts: unknown[];
@@ -133,7 +176,11 @@ export type GridViewTabs = GridViewBlockBase & {
 export type GridViewNav = GridViewBlockBase & {
   type?: "nav";
   items: unknown[];
-  presentation?: "breadcrumbs" | "tabs" | "sidebar" | "menu" | "back";
+  presentation?: "breadcrumbs" | "tabs" | "sidebar" | "menu" | "back" | "tree";
+  levels?: unknown[];
+  search_placeholder?: string;
+  allow_create?: boolean;
+  saved_searches?: boolean;
 };
 export type GridViewContent = GridViewBlockBase & {
   type?: "content";
@@ -276,7 +323,17 @@ export interface GridViewFilter {
   id: string;
   label: string;
   param: string;
-  type: "text" | "number" | "number_range" | "select" | "multiselect" | "set" | "date" | "date_range" | "boolean";
+  type:
+    | "text"
+    | "number"
+    | "number_range"
+    | "select"
+    | "grouped_select"
+    | "multiselect"
+    | "set"
+    | "date"
+    | "date_range"
+    | "boolean";
   scope?: "server" | "client";
   options?: GridViewFilterOption[];
   options_endpoint?: string;
@@ -287,6 +344,7 @@ export interface GridViewFilter {
   all_exclusive?: boolean;
   presets?: {};
   default?: JsonValue;
+  drawer_control?: "default" | "checklist" | "tree" | "range" | "toggle";
 }
 export interface GridViewFilterOption {
   value: string;
@@ -296,6 +354,41 @@ export interface GridViewFilterOption {
   meta?: {};
   count?: number | null;
   disabled?: boolean;
+}
+export interface GridViewFilterDrawerSection {
+  id: string;
+  label: string;
+  filter_ids: string[];
+  searchable?: boolean;
+  list_size?: "sm" | "md" | "lg";
+  panel?: "filters" | "settings";
+}
+export interface GridViewActionBase {
+  id: string;
+  type: string;
+  label?: string;
+  icon?: string;
+  variant?: string;
+  tone?: string;
+  target?: string;
+  disabled?: boolean;
+  reason?: string;
+  params?: {
+    [k: string]: JsonValue;
+  };
+  confirm?: string | GridViewConfirmConfig | null;
+}
+export interface GridViewConfirmConfig {
+  title?: string;
+  message?: string;
+  tone?: "default" | "primary" | "warning" | "danger";
+  confirm_text?: string;
+  cancel_text?: string;
+  close_on_backdrop?: boolean;
+}
+export interface GridViewSelectOption {
+  value: string | number;
+  label: string;
 }
 export interface GridViewTablePagination {
   page?: number;

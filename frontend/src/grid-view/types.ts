@@ -3,6 +3,7 @@
 import type { ChartRuntimeDict, RowDict } from "../types/chart-bind";
 import type { KpiSpecDict, ResolvedKpiDict } from "../types/kpi-bind";
 import type { PageStateApi } from "../page-state/types";
+import type { GridActionContext } from "./registry-api";
 
 export type FilterState = Record<string, string | string[]>;
 
@@ -69,6 +70,7 @@ export interface GridHandle {
   toggleColSelector?: () => void;
   resetColumnsToDefault?: () => void;
   buildColCheckboxes?: () => void;
+  mountColumnSettings?: (container: HTMLElement) => void;
   buildColOrderList?: () => void;
   saveCurrentPreset?: () => void;
   renderSavedPresets?: () => void;
@@ -98,6 +100,10 @@ export interface ByIdRegistry {
 export interface I18nApi {
   initI18n: (catalog: Record<string, string>) => void;
   t: (key: string, fallback?: string) => string;
+}
+
+export interface FilterDrawerWorkspaceRuntime {
+  init: (scope?: Document | Element | null) => void;
 }
 
 /** Public surface mounted on window.GridView (see create-grid-view.ts). */
@@ -130,7 +136,9 @@ export interface GridViewPublic {
   assets?: {
     ensureAgGrid?: () => Promise<void>;
     ensureCharts?: () => Promise<void>;
+    ensureFilterDrawerWorkspace?: () => Promise<void>;
   };
+  FilterDrawerWorkspace?: FilterDrawerWorkspaceRuntime;
   FilterBar?: {
     selectedFilterValues: (root: Element) => Record<string, unknown>;
   };
@@ -155,7 +163,7 @@ export interface GridViewPublic {
   ) => void;
   registerAction: (
     name: string,
-    fn: (ctx: { rowId?: string; gridId?: string; params?: Record<string, unknown>; event?: Event }) => void
+    fn: (ctx: GridActionContext) => void
   ) => void;
   invokeCommit: (
     name: string,
@@ -170,13 +178,37 @@ export interface GridViewPublic {
   ) => Promise<boolean>;
   invokeAction: (
     name: string,
-    ctx: { rowId?: string; gridId?: string; params?: Record<string, unknown>; event?: Event }
+    ctx: GridActionContext
   ) => void;
   openGallery: (
     images: { url: string; alt?: string }[],
     index?: number,
     galleryId?: string,
   ) => void;
+  confirm: (
+    options:
+      | string
+      | {
+          title?: string;
+          message?: string;
+          tone?: "default" | "primary" | "warning" | "danger";
+          confirmText?: string;
+          cancelText?: string;
+          closeOnBackdrop?: boolean;
+        }
+  ) => Promise<boolean>;
+  notify: (
+    options:
+      | string
+      | {
+          id?: string;
+          title?: string;
+          message: string;
+          tone?: "info" | "success" | "warning" | "error" | "danger";
+          duration?: number;
+          action?: { label: string; onClick: (toast: unknown) => void };
+        }
+  ) => unknown;
   [key: string]: unknown;
 }
 

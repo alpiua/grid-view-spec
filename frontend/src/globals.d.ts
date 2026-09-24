@@ -11,7 +11,7 @@ import type {
   ColumnSettingsOptions,
 } from "./column-settings/types";
 import type { ChartsApi } from "./grid-view/charts-bridge";
-import type { ByIdRegistry } from "./grid-view/types";
+import type { ByIdRegistry, FilterDrawerWorkspaceRuntime } from "./grid-view/types";
 import type { PageStateApi } from "./page-state/types";
 
 interface SortableInstance {
@@ -83,7 +83,9 @@ interface GridViewGlobal {
   assets?: {
     ensureAgGrid?: () => Promise<void>;
     ensureCharts?: () => Promise<void>;
+    ensureFilterDrawerWorkspace?: () => Promise<void>;
   };
+  FilterDrawerWorkspace?: FilterDrawerWorkspaceRuntime;
   Charts?: ChartsApi;
   i18n?: { t: (key: string, fallback?: string) => string };
   [key: string]: unknown;

@@ -195,6 +195,65 @@ def test_unknown_renderer_when_registry_set() -> None:
     assert any(d.code == c.UNKNOWN_RENDERER for d in result.diagnostics)
 
 
+def test_simple_only_builtin_renderers_are_rejected_by_ag_grid() -> None:
+    renderer_names = ("tag", "progress", "chip", "period_pills", "select")
+    for renderer in renderer_names:
+        base = minimal_valid_spec()
+        spec = replace(
+            base,
+            blocks=tuple(
+                replace(
+                    block,
+                    backend="ag_grid",
+                    columns=(GridViewColumn(id="c1", label="C", renderer=renderer),),
+                )
+                if isinstance(block, GridViewTable)
+                else block
+                for block in base.blocks
+            ),
+        )
+        result = validate_spec(spec)
+        assert not result.ok
+        assert any(d.code == c.UNKNOWN_RENDERER for d in result.diagnostics)
+
+
+def test_custom_renderer_remains_allowed_without_registry_policy() -> None:
+    base = minimal_valid_spec()
+    spec = replace(
+        base,
+        blocks=tuple(
+            replace(
+                block,
+                backend="ag_grid",
+                columns=(GridViewColumn(id="c1", label="C", renderer="host_custom"),),
+            )
+            if isinstance(block, GridViewTable)
+            else block
+            for block in base.blocks
+        ),
+    )
+    assert validate_spec(spec).ok
+
+
+def test_registered_simple_only_renderer_is_allowed_by_ag_grid() -> None:
+    base = minimal_valid_spec()
+    spec = replace(
+        base,
+        blocks=tuple(
+            replace(
+                block,
+                backend="ag_grid",
+                columns=(GridViewColumn(id="c1", label="C", renderer="progress"),),
+            )
+            if isinstance(block, GridViewTable)
+            else block
+            for block in base.blocks
+        ),
+    )
+    result = validate_spec(spec, policy=GridViewPolicy(registered_renderers=("progress",)))
+    assert result.ok
+
+
 def test_toolbar_target_must_reference_a_table() -> None:
     """V2: toolbar.target must point to an existing table block (not a chart/nav/None-id)."""
     spec = replace(

@@ -21,7 +21,6 @@ def test_ag_grid_spec_config_emits_column_source() -> None:
             endpoint="/api/columns/",
             depends_on=("region",),
             anchor="sku",
-            merge="append",
         ),
     )
     config = ag_grid_spec_config(table, "stock")
@@ -50,5 +49,25 @@ def test_ag_grid_spec_config_emits_column_source() -> None:
         "dependsOn": ["region"],
         "params": {},
         "anchor": "sku",
-        "merge": "append",
     }
+
+
+def test_ag_grid_spec_config_emits_entire_row_drag() -> None:
+    table = GridViewTable(
+        id="brand_products",
+        backend="ag_grid",
+        columns=(GridViewColumn(id="title", label="Product", field="title"),),
+        extra={
+            "row_selection": "multiple",
+            "row_drag_entire_row": True,
+            "row_drag_multi_row": True,
+            "row_click_selection": "toggle",
+        },
+    )
+
+    config = ag_grid_spec_config(table, "brand_products")
+
+    assert config["rowSelection"] == "multiple"
+    assert config["rowDragEntireRow"] is True
+    assert config["rowDragMultiRow"] is True
+    assert config["rowClickSelection"] == "toggle"

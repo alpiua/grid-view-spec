@@ -15,15 +15,19 @@ from typing import TypedDict
 
 from grid_view_spec.types.actions import (
     GRIDVIEW_ACTIONS_PRESENTATIONS,
+    GRIDVIEW_CONFIRM_TONES,
     GRIDVIEW_EXPORT_FORMATS,
     GRIDVIEW_HTTP_METHODS,
     GridViewAction,
     GridViewActions,
     GridViewButtonAction,
+    GridViewConfirmConfig,
     GridViewExportAction,
     GridViewLinkAction,
     GridViewMenuAction,
     GridViewOverlayAction,
+    GridViewSelectAction,
+    GridViewSelectOption,
 )
 from grid_view_spec.types.assets import GRIDVIEW_TEMPLATE_ASSET_KINDS, GridViewTemplateAsset
 from grid_view_spec.types.chart_server import KpiAggregate
@@ -54,10 +58,15 @@ from grid_view_spec.types.content import (
     KpiSpec,
 )
 from grid_view_spec.types.filters_v2 import (
+    GRIDVIEW_FILTER_DRAWER_CONTROLS,
+    GRIDVIEW_FILTER_DRAWER_LAYOUTS,
+    GRIDVIEW_FILTER_DRAWER_LIST_SIZES,
+    GRIDVIEW_FILTER_DRAWER_PANELS,
     GRIDVIEW_FILTER_SCOPES,
     GRIDVIEW_FILTER_TYPES,
     GRIDVIEW_FILTERS_PRESENTATIONS,
     GridViewFilter,
+    GridViewFilterDrawerSection,
     GridViewFilterOption,
     GridViewFilters,
     GridViewFilterState,
@@ -115,7 +124,12 @@ from grid_view_spec.types.media import (
     GridViewImageSource,
     GridViewImageVariant,
 )
-from grid_view_spec.types.nav import GRIDVIEW_NAV_PRESENTATIONS, GridViewNav, GridViewNavItem
+from grid_view_spec.types.nav import (
+    GRIDVIEW_NAV_PRESENTATIONS,
+    GridViewNav,
+    GridViewNavItem,
+    GridViewNavLevel,
+)
 from grid_view_spec.types.overlay import (
     GRIDVIEW_OVERLAY_PRESENTATIONS,
     GRIDVIEW_OVERLAY_SIZES,
@@ -132,7 +146,6 @@ from grid_view_spec.types.spec_meta import GridViewConfig, GridViewMeta
 from grid_view_spec.types.table_v2 import (
     GRIDVIEW_COLUMN_ALIGNS,
     GRIDVIEW_COLUMN_PINNEDS,
-    GRIDVIEW_COLUMN_SOURCE_MERGES,
     GRIDVIEW_COLUMN_TYPES,
     GRIDVIEW_DATASOURCE_METHODS,
     GRIDVIEW_SORT_DIRECTIONS,
@@ -152,6 +165,7 @@ from grid_view_spec.types.table_v2 import (
     GridViewTableHeader,
     GridViewTablePagination,
     GridViewTableSettings,
+    is_valid_gridview_table_settings,
 )
 from grid_view_spec.types.toolbar import (
     GRIDVIEW_COUNTER_TONES,
@@ -162,7 +176,7 @@ from grid_view_spec.types.toolbar import (
     GridViewSearch,
     GridViewToolbar,
 )
-from grid_view_spec.types.wire import is_object_list, is_wire_mapping
+from grid_view_spec.types.wire import is_object_list, is_object_tuple, is_wire_mapping
 from grid_view_spec.validate.wire import (
     wire_bool,
     wire_int,
@@ -185,6 +199,22 @@ def _objects(value: object) -> list[Mapping[str, object]]:
     if not is_object_list(value):
         return []
     return [item for item in value if is_wire_mapping(item)]
+
+
+def wire_str_or_int(value: object) -> str | int:
+    """Return a select value accepted by the typed action contract."""
+    if isinstance(value, str):
+        return value
+    if isinstance(value, int) and not isinstance(value, bool):
+        return value
+    return ""
+
+
+def wire_optional_str_or_int(value: object) -> str | int | None:
+    """Return a select default while preserving an explicit ``None``."""
+    if value is None:
+        return None
+    return wire_str_or_int(value)
 
 
 # --- shared leaves -----------------------------------------------------------
@@ -265,6 +295,22 @@ def _decode_action_semantic(
     return icon, variant, tone
 
 
+def decode_confirm_config(value: object) -> GridViewConfirmConfig | str | None:
+    """Decode a confirmation configuration or string."""
+    if isinstance(value, str):
+        return value.strip() or None
+    if is_wire_mapping(value):
+        return GridViewConfirmConfig(
+            title=wire_str(value.get("title", "Confirmation")),
+            message=wire_str(value.get("message", "")),
+            tone=wire_literal(value.get("tone", "default"), GRIDVIEW_CONFIRM_TONES, "default"),
+            confirm_text=wire_str(value.get("confirm_text", "Confirm")),
+            cancel_text=wire_str(value.get("cancel_text", "Cancel")),
+            close_on_backdrop=wire_bool(value.get("close_on_backdrop", True)),
+        )
+    return None
+
+
 def decode_link_action(raw: Mapping[str, object]) -> GridViewLinkAction:
     """Decode a link action (also used inside entity headers and menus)."""
     icon, variant, tone = _decode_action_semantic(raw)
@@ -280,6 +326,7 @@ def decode_link_action(raw: Mapping[str, object]) -> GridViewLinkAction:
         params=wire_json_object(raw.get("params", {})),
         href=wire_str(raw.get("href")),
         method=wire_literal(raw.get("method"), GRIDVIEW_HTTP_METHODS, "get"),
+        confirm=decode_confirm_config(raw.get("confirm")),
     )
 
 
@@ -293,6 +340,7 @@ def decode_action(raw: Mapping[str, object]) -> GridViewAction:
     disabled = wire_bool(raw.get("disabled"))
     reason = wire_str(raw.get("reason"))
     params = wire_json_object(raw.get("params", {}))
+    confirm = decode_confirm_config(raw.get("confirm"))
     if action_type == "export":
         return GridViewExportAction(
             id=action_id,
@@ -304,6 +352,7 @@ def decode_action(raw: Mapping[str, object]) -> GridViewAction:
             disabled=disabled,
             reason=reason,
             params=params,
+            confirm=confirm,
             format=wire_literal(raw.get("format"), GRIDVIEW_EXPORT_FORMATS, "xlsx"),
             endpoint=wire_str(raw.get("endpoint")),
             include_state=wire_bool(raw.get("include_state", True)),
@@ -319,6 +368,7 @@ def decode_action(raw: Mapping[str, object]) -> GridViewAction:
             disabled=disabled,
             reason=reason,
             params=params,
+            confirm=confirm,
             overlay=wire_str(raw.get("overlay")),
         )
     if action_type == "link":
@@ -335,6 +385,32 @@ def decode_action(raw: Mapping[str, object]) -> GridViewAction:
             reason=reason,
             params=params,
             action=wire_str(raw.get("action")),
+            confirm=confirm,
+        )
+    if action_type == "select":
+        raw_opts = _objects(raw.get("options"))
+        select_options = tuple(
+            GridViewSelectOption(
+                value=wire_str_or_int(opt.get("value")),
+                label=wire_str(opt.get("label")),
+            )
+            for opt in raw_opts
+        )
+        return GridViewSelectAction(
+            id=action_id,
+            label=label,
+            icon=icon,
+            variant=variant,
+            tone=tone,
+            target=target,
+            disabled=disabled,
+            reason=reason,
+            params=params,
+            action=wire_str(raw.get("action")),
+            button_label=wire_str(raw.get("button_label")),
+            options=select_options,
+            default=wire_optional_str_or_int(raw.get("default")),
+            confirm=confirm,
         )
     if action_type == "menu":
         return GridViewMenuAction(
@@ -347,6 +423,7 @@ def decode_action(raw: Mapping[str, object]) -> GridViewAction:
             disabled=disabled,
             reason=reason,
             params=params,
+            confirm=confirm,
             items=tuple(decode_action(item) for item in _objects(raw.get("items"))),
         )
     raise ValueError(f"unknown action type {action_type!r}")
@@ -405,6 +482,27 @@ def decode_filter(raw: Mapping[str, object]) -> GridViewFilter:
         if is_wire_mapping(presets_raw)
         else GridViewSetPresets(),
         default=None if default_raw is None else decode_filter_value(default_raw),
+        drawer_control=wire_literal(
+            raw.get("drawer_control"), GRIDVIEW_FILTER_DRAWER_CONTROLS, "default"
+        ),
+    )
+
+
+def decode_filter_drawer_section(raw: Mapping[str, object]) -> GridViewFilterDrawerSection:
+    """Decode a workspace drawer section without accepting untyped filter ids."""
+    raw_filter_ids = raw.get("filter_ids")
+    filter_ids = (
+        tuple(item for item in raw_filter_ids if isinstance(item, str))
+        if is_object_list(raw_filter_ids)
+        else ()
+    )
+    return GridViewFilterDrawerSection(
+        id=wire_str(raw.get("id")),
+        label=wire_str(raw.get("label")),
+        filter_ids=filter_ids,
+        searchable=wire_bool(raw.get("searchable")),
+        list_size=wire_literal(raw.get("list_size"), GRIDVIEW_FILTER_DRAWER_LIST_SIZES, "md"),
+        panel=wire_literal(raw.get("panel"), GRIDVIEW_FILTER_DRAWER_PANELS, "filters"),
     )
 
 
@@ -486,8 +584,17 @@ def decode_column_source(raw: Mapping[str, object]) -> GridViewColumnSource:
         depends_on=wire_str_tuple(raw.get("depends_on")),
         params=wire_json_object(raw.get("params", {})),
         anchor=wire_str(raw.get("anchor")),
-        merge=wire_literal(raw.get("merge"), GRIDVIEW_COLUMN_SOURCE_MERGES, "append"),
     )
+
+
+def _positive_int_tuple(value: object) -> tuple[int, ...]:
+    if is_object_list(value):
+        values: list[object] | tuple[object, ...] = value
+    elif is_object_tuple(value):
+        values = value
+    else:
+        return ()
+    return tuple(number for item in values if (number := wire_int(item)) > 0)
 
 
 def decode_datasource(raw: Mapping[str, object]) -> GridViewDataSource:
@@ -513,16 +620,15 @@ def decode_sort_state(raw: Mapping[str, object]) -> GridViewSortState:
     )
 
 
-def decode_table_settings(raw: Mapping[str, object]) -> GridViewTableSettings:
-    """Decode user-facing table chrome toggles."""
-    return GridViewTableSettings(
-        columns=wire_bool(raw.get("columns", True)),
-        order=wire_bool(raw.get("order", True)),
-        visibility=wire_bool(raw.get("visibility", True)),
-        pinning=wire_bool(raw.get("pinning", True)),
-        sizing=wire_bool(raw.get("sizing", True)),
-        presets=wire_bool(raw.get("presets", True)),
-    )
+def decode_table_settings(raw: object) -> GridViewTableSettings | None:
+    """Decode the selected column-settings surfaces."""
+    if not is_object_list(raw):
+        return None
+    raw_surfaces = wire_str_tuple(raw)
+    if len(raw_surfaces) != len(raw):
+        return None
+    surfaces = tuple(raw_surfaces)
+    return surfaces if is_valid_gridview_table_settings(surfaces) else None
 
 
 def decode_table_edit(raw: Mapping[str, object]) -> GridViewTableEdit:
@@ -572,11 +678,7 @@ def decode_table_pagination(raw: Mapping[str, object]) -> GridViewTablePaginatio
         fragment_target=wire_str(raw.get("fragment_target")),
         fragment_swap=wire_str(raw.get("fragment_swap")) or "outerHTML",
         page_endpoint=wire_str(raw.get("page_endpoint")),
-        page_size_options=tuple(
-            max(1, wire_int(item))
-            for item in _objects(raw.get("page_size_options"))
-            if wire_int(item) > 0
-        ),
+        page_size_options=_positive_int_tuple(raw.get("page_size_options")),
     )
 
 
@@ -718,6 +820,47 @@ def decode_image_source(raw: Mapping[str, object]) -> GridViewImageSource:
     )
 
 
+def decode_nav_level(raw: Mapping[str, object]) -> GridViewNavLevel:
+    child_type_raw = raw.get("child_type")
+    return GridViewNavLevel(
+        level=wire_int(raw.get("level")),
+        type=wire_str(raw.get("type")),
+        label=wire_str(raw.get("label")),
+        show_count=wire_bool(raw.get("show_count")),
+        count_label=wire_str(raw.get("count_label")),
+        can_have_children=wire_bool(raw.get("can_have_children", True)),
+        child_type=wire_str(child_type_raw) if isinstance(child_type_raw, str) else None,
+        selectable=wire_bool(raw.get("selectable", True)),
+        draggable=wire_bool(raw.get("draggable")),
+        droppable=wire_bool(raw.get("droppable")),
+        accept_drop_types=wire_str_tuple(raw.get("accept_drop_types")),
+        actions=wire_str_tuple(raw.get("actions")),
+        extra=wire_json_object(raw.get("extra", {})),
+    )
+
+
+def decode_nav_item(raw: Mapping[str, object]) -> GridViewNavItem:
+    count_raw = raw.get("count")
+    parent_id_raw = raw.get("parent_id")
+    return GridViewNavItem(
+        id=wire_str(raw.get("id")),
+        label=wire_str(raw.get("label")),
+        href=wire_str(raw.get("href")),
+        icon=wire_str(raw.get("icon")),
+        active=wire_bool(raw.get("active")),
+        disabled=wire_bool(raw.get("disabled")),
+        count=(
+            wire_int(count_raw)
+            if count_raw is not None and not isinstance(count_raw, bool)
+            else None
+        ),
+        type=wire_str(raw.get("type")),
+        parent_id=wire_str(parent_id_raw) if isinstance(parent_id_raw, str) else None,
+        children=tuple(decode_nav_item(item) for item in _objects(raw.get("children"))),
+        extra=wire_json_object(raw.get("extra", {})),
+    )
+
+
 # --- blocks ------------------------------------------------------------------
 
 
@@ -807,6 +950,12 @@ def decode_block(raw: Mapping[str, object]) -> GridViewBlock:
             fragment_target=wire_str(raw.get("fragment_target")),
             fragment_swap=wire_str(raw.get("fragment_swap")) or "outerHTML",
             facets=wire_bool(raw.get("facets")),
+            drawer_layout=wire_literal(
+                raw.get("drawer_layout"), GRIDVIEW_FILTER_DRAWER_LAYOUTS, "compact"
+            ),
+            drawer_sections=tuple(
+                decode_filter_drawer_section(item) for item in _objects(raw.get("drawer_sections"))
+            ),
         )
     if block_type == "actions":
         return GridViewActions(
@@ -835,11 +984,7 @@ def decode_block(raw: Mapping[str, object]) -> GridViewBlock:
             header=decode_table_header(wire_object(raw.get("header", {}), label="table header")),
             search_mode=wire_literal(raw.get("search_mode"), GRIDVIEW_TABLE_SEARCH_MODES, "global"),
             sort=decode_sort_state(wire_object(raw.get("sort", {}), label="sort")),
-            settings=(
-                decode_table_settings(wire_object(raw["settings"], label="settings"))
-                if is_wire_mapping(raw.get("settings"))
-                else None
-            ),
+            settings=decode_table_settings(raw.get("settings")),
             edit=(
                 decode_table_edit(wire_object(raw["edit"], label="edit"))
                 if is_wire_mapping(raw.get("edit"))
@@ -959,17 +1104,11 @@ def decode_block(raw: Mapping[str, object]) -> GridViewBlock:
         return GridViewNav(
             **common,
             presentation=wire_literal(raw.get("presentation"), GRIDVIEW_NAV_PRESENTATIONS, "menu"),
-            items=tuple(
-                GridViewNavItem(
-                    id=wire_str(item.get("id")),
-                    label=wire_str(item.get("label")),
-                    href=wire_str(item.get("href")),
-                    icon=wire_str(item.get("icon")),
-                    active=wire_bool(item.get("active")),
-                    disabled=wire_bool(item.get("disabled")),
-                )
-                for item in _objects(raw.get("items"))
-            ),
+            items=tuple(decode_nav_item(item) for item in _objects(raw.get("items"))),
+            levels=tuple(decode_nav_level(lvl) for lvl in _objects(raw.get("levels"))),
+            search_placeholder=wire_str(raw.get("search_placeholder")),
+            allow_create=wire_bool(raw.get("allow_create")),
+            saved_searches=wire_bool(raw.get("saved_searches")),
         )
     if block_type == "content":
         return GridViewContent(

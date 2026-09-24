@@ -5,6 +5,9 @@ import type { FilterMatch } from "../grid-view/search/filter-engine";
 import type { AgGridApi, GridHandle } from "../grid-view/types";
 
 export interface AgGridHostApi extends AgGridColumnAdapterApi, AgGridApi {
+  getColumnDefs: () => AgGridColumnDef[];
+  getSelectedRows: () => unknown[];
+  forEachNode: (callback: (node: { setSelected: (selected: boolean) => void }) => void) => void;
   getFilterModel: () => Record<string, unknown>;
   setFilterModel: (model: Record<string, unknown> | null) => void;
   getDisplayedRowCount: () => number;
@@ -37,15 +40,12 @@ export interface AgGridHostLike {
 
 export interface AgGridContextHooks {
   gridId?: string;
-  /** Legacy key suffix read only while migrating old browser state. */
-  legacyStorageScope?: string;
-  /** @deprecated Use legacyStorageScope for migration-only legacy keys. */
-  storageScope?: string;
   dictionaryUrl?: string;
   syncUrlState?: boolean;
   restoreQuickFilter?: boolean;
   urlPageStateKeys?: string[];
   getPageState?: () => Record<string, unknown>;
+  onFilterChange?: (host: AgGridHostLike) => void;
   applyPageState?: (
     pageState: Record<string, unknown>,
     options: Record<string, unknown>
@@ -59,6 +59,8 @@ export interface AgGridInitialState {
   columnPinning?: { leftColIds: string[]; rightColIds: string[] };
   columnSizing?: AgGridColumnSizingState;
   columnVisibility?: { hiddenColIds: string[] };
+  /** AG Grid v31-compatible initial column filter model. */
+  filter?: { filterModel: Record<string, unknown> };
   /** AG Grid v31-compatible native sort initial state. */
   sort?: AgGridSortState;
 }
@@ -123,9 +125,7 @@ export interface PersistedGridState {
 }
 
 export interface LoadStateOptions {
-  deferColumnState?: boolean;
   reloadInfinite?: boolean;
-  fromStorageEvent?: boolean;
 }
 
 export interface AgGridGridContext {

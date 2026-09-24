@@ -176,6 +176,146 @@
         { "$ref": "#/$defs/GridViewTemplate" }
       ]
     },
+    "GridViewConfirmConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string" },
+        "message": { "type": "string" },
+        "tone": { "enum": ["default", "primary", "warning", "danger"] },
+        "confirm_text": { "type": "string" },
+        "cancel_text": { "type": "string" },
+        "close_on_backdrop": { "type": "boolean" }
+      }
+    },
+    "GridViewActionBase": {
+      "type": "object",
+      "required": ["id", "type"],
+      "properties": {
+        "id": { "type": "string" },
+        "type": { "type": "string" },
+        "label": { "type": "string" },
+        "icon": { "type": "string" },
+        "variant": { "type": "string" },
+        "tone": { "type": "string" },
+        "target": { "type": "string" },
+        "disabled": { "type": "boolean" },
+        "reason": { "type": "string" },
+        "params": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/JsonValue" }
+        },
+        "confirm": {
+          "oneOf": [
+            { "type": "string" },
+            { "$ref": "#/$defs/GridViewConfirmConfig" },
+            { "type": "null" }
+          ]
+        }
+      }
+    },
+    "GridViewExportAction": {
+      "allOf": [
+        { "$ref": "#/$defs/GridViewActionBase" },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "export" },
+            "format": { "enum": ["pdf", "xlsx", "csv"] },
+            "endpoint": { "type": "string" },
+            "include_state": { "type": "boolean" }
+          }
+        }
+      ]
+    },
+    "GridViewOverlayAction": {
+      "allOf": [
+        { "$ref": "#/$defs/GridViewActionBase" },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "overlay" },
+            "overlay": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "GridViewLinkAction": {
+      "allOf": [
+        { "$ref": "#/$defs/GridViewActionBase" },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "link" },
+            "href": { "type": "string" },
+            "method": { "enum": ["get", "post"] }
+          }
+        }
+      ]
+    },
+    "GridViewButtonAction": {
+      "allOf": [
+        { "$ref": "#/$defs/GridViewActionBase" },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "button" },
+            "action": { "type": "string" }
+          }
+        }
+      ]
+    },
+    "GridViewSelectOption": {
+      "type": "object",
+      "required": ["value", "label"],
+      "properties": {
+        "value": { "type": ["string", "integer"] },
+        "label": { "type": "string" }
+      }
+    },
+    "GridViewSelectAction": {
+      "allOf": [
+        { "$ref": "#/$defs/GridViewActionBase" },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "select" },
+            "action": { "type": "string" },
+            "button_label": { "type": "string" },
+            "options": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/GridViewSelectOption" }
+            },
+            "default": { "type": ["string", "integer", "null"] }
+          }
+        }
+      ]
+    },
+    "GridViewMenuAction": {
+      "allOf": [
+        { "$ref": "#/$defs/GridViewActionBase" },
+        {
+          "type": "object",
+          "properties": {
+            "type": { "const": "menu" },
+            "items": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/GridViewAction" }
+            }
+          }
+        }
+      ]
+    },
+    "GridViewAction": {
+      "oneOf": [
+        { "$ref": "#/$defs/GridViewExportAction" },
+        { "$ref": "#/$defs/GridViewOverlayAction" },
+        { "$ref": "#/$defs/GridViewLinkAction" },
+        { "$ref": "#/$defs/GridViewButtonAction" },
+        { "$ref": "#/$defs/GridViewSelectAction" },
+        { "$ref": "#/$defs/GridViewMenuAction" }
+      ]
+    },
     "GridViewHeader": {
       "allOf": [
         { "$ref": "#/$defs/GridViewBlockBase" },
@@ -269,6 +409,7 @@
             "number",
             "number_range",
             "select",
+            "grouped_select",
             "multiselect",
             "set",
             "date",
@@ -288,7 +429,11 @@
         "select_all_value": { "type": "string" },
         "all_exclusive": { "type": "boolean" },
         "presets": { "type": "object" },
-        "default": { "$ref": "#/$defs/JsonValue" }
+        "default": { "$ref": "#/$defs/JsonValue" },
+        "drawer_control": {
+          "enum": ["default", "checklist", "tree", "range", "toggle"],
+          "default": "default"
+        }
       }
     },
     "SetFilterModel": {
@@ -350,12 +495,29 @@
             "auto_apply": { "type": "boolean", "default": true },
             "navigate_on_change": { "type": "boolean", "default": true },
             "facets": { "type": "boolean", "default": false },
+            "drawer_layout": { "enum": ["compact", "workspace"], "default": "compact" },
+            "drawer_sections": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/GridViewFilterDrawerSection" }
+            },
             "fragment_endpoint": { "type": "string" },
             "fragment_target": { "type": "string" },
             "fragment_swap": { "type": "string", "default": "outerHTML" }
           }
         }
       ]
+    },
+    "GridViewFilterDrawerSection": {
+      "type": "object",
+      "required": ["id", "label", "filter_ids"],
+      "properties": {
+        "id": { "type": "string" },
+        "label": { "type": "string" },
+        "filter_ids": { "type": "array", "items": { "type": "string" } },
+        "searchable": { "type": "boolean", "default": false },
+        "list_size": { "enum": ["sm", "md", "lg"], "default": "md" },
+        "panel": { "enum": ["filters", "settings"], "default": "filters" }
+      }
     },
     "GridViewTablePagination": {
       "type": "object",
@@ -373,6 +535,12 @@
         "page_endpoint": { "type": "string" },
         "page_size_options": { "type": "array", "items": { "type": "integer" } }
       }
+    },
+    "GridViewTableSettings": {
+      "type": "array",
+      "minItems": 1,
+      "uniqueItems": true,
+      "items": { "enum": ["drawer", "modal"] }
     },
     "GridViewTable": {
       "allOf": [
@@ -396,11 +564,11 @@
               "default": "global"
             },
             "sort": { "type": "object" },
-            "settings": { "oneOf": [{ "type": "null" }, { "type": "object" }] },
+            "settings": { "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/GridViewTableSettings" }] },
             "edit": { "oneOf": [{ "type": "null" }, { "type": "object" }] },
             "assets": { "type": "array" },
             "row_action": {
-              "oneOf": [{ "type": "null" }, { "type": "object" }]
+              "oneOf": [{ "type": "null" }, { "$ref": "#/$defs/GridViewAction" }]
             },
             "footer": { "oneOf": [{ "type": "null" }, { "type": "object" }] },
             "empty_message": { "type": "string" },
@@ -606,8 +774,12 @@
             "type": { "const": "nav" },
             "items": { "type": "array" },
             "presentation": {
-              "enum": ["breadcrumbs", "tabs", "sidebar", "menu", "back"]
-            }
+              "enum": ["breadcrumbs", "tabs", "sidebar", "menu", "back", "tree"]
+            },
+            "levels": { "type": "array" },
+            "search_placeholder": { "type": "string" },
+            "allow_create": { "type": "boolean" },
+            "saved_searches": { "type": "boolean" }
           }
         }
       ]
@@ -855,7 +1027,10 @@
           "properties": {
             "type": { "const": "actions" },
             "presentation": { "enum": ["inline", "menu", "split", "compact"] },
-            "items": { "type": "array" }
+            "items": {
+              "type": "array",
+              "items": { "$ref": "#/$defs/GridViewAction" }
+            }
           }
         }
       ]
