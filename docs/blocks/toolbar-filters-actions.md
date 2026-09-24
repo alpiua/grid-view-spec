@@ -103,4 +103,26 @@ GridViewActions(
 
 Export actions use `GridViewExportAction` with `params.builder` or default to `spec.id`.
 
+`GridViewSelectAction` presents a native option selector and its submit button. Its inherited
+`disabled` flag disables both controls, so the host can keep a batch action unavailable until
+the current selection or permission state allows it:
+
+```python
+from grid_view_spec.types.actions import GridViewSelectAction, GridViewSelectOption
+```
+
+```python
+GridViewSelectAction(
+    id="bulk_status",
+    label="Bulk status",
+    action="set_status",
+    button_label="Apply",
+    disabled=True,
+    options=(
+        GridViewSelectOption(value="active", label="Active"),
+        GridViewSelectOption(value="paused", label="Paused"),
+    ),
+)
+```
+
 See [Export](../export/page-pattern.md).

@@ -25,6 +25,20 @@ GridViewForm(
 
 Editor types: `text`, `textarea`, `number`, `select`, `multiselect`, `date`, `date_range`, `boolean`, `file`.
 
+### File uploads
+
+When any field has `type="file"`, including a field inside a fieldset, the renderer sets
+`enctype="multipart/form-data"` on the form. The host receives the upload in
+`request.FILES`; it remains responsible for authentication, CSRF, size and content checks,
+storage, and processing. Rendering a file control does not persist the upload.
+
+```python
+upload = request.FILES.get("file")
+if upload is None:
+    return HttpResponseBadRequest("A file is required.")
+validate_uploaded_file(upload)  # Host-owned size and content validation.
+```
+
 ### Localized fields
 
 Field names are locale-neutral. Declare localization once on the field and supply the explicit

@@ -264,6 +264,11 @@ manager.gridApi.setGridOption(
 );
 ```
 
+Refreshing definitions keeps live width, visibility, pin, and order state for retained
+column ids; newly returned ids follow the refreshed definition order and removed ids
+disappear. Do not reapply startup `PageState` after a runtime refresh. See
+[Dynamic columns](columns.md) for the source and anchor contract.
+
 ### `gridOptions.context`
 
 | Key | Default | Contract |
