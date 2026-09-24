@@ -9,6 +9,8 @@ import {
   syncToolbarSearchChrome,
 } from "./filter-bar";
 import { clearSimpleTableFiltersForGrid } from "./simple-table";
+import { confirmAndInvokeFromElement, isDisabledElement } from "./action-confirmation";
+import { continueConfirmedLink, installConfirmationInterceptors } from "./confirmation-interceptor";
 
 function cssAttr(value: string): string {
   return typeof CSS !== "undefined" && CSS.escape
@@ -16,9 +18,66 @@ function cssAttr(value: string): string {
     : value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
-function syncClearAllButtons(): void {
+function hasActiveToolbarSearch(toolbar: Element | null): boolean {
+  if (!toolbar) return false;
+  return Array.from(
+    toolbar.querySelectorAll<HTMLInputElement>("[data-cm-toolbar-search], [data-cm-search]"),
+  ).some(
+    (input) =>
+      input.value.trim().length > 0 ||
+      (input.dataset.cmSearchCommitted || "").trim().length > 0,
+  );
+}
+
+function hasActiveUrlFilterState(): boolean {
+  const params = new URLSearchParams(window.location.search);
+  return ["q", "filters", "col_q"].some(
+    (key) => (params.get(key) || "").trim().length > 0,
+  );
+}
+
+function clearUrlFilterState(): void {
   const url = new URL(window.location.href);
-  const urlActive = url.searchParams.has("q") || url.searchParams.has("filters") || url.searchParams.has("col_q");
+  let changed = false;
+  ["q", "filters", "col_q"].forEach((key) => {
+    if (!url.searchParams.has(key)) return;
+    url.searchParams.delete(key);
+    changed = true;
+  });
+  if (changed) window.history.replaceState({}, "", url);
+}
+
+function clearToolbarSearchState(
+  scope: Element | null,
+  gridId: string,
+  filterBar: Element | null,
+): void {
+  const inputs = new Set<HTMLInputElement>();
+  const collect = (root: ParentNode | null | undefined): void => {
+    root
+      ?.querySelectorAll<HTMLInputElement>("[data-cm-toolbar-search], [data-cm-search]")
+      .forEach((input) => inputs.add(input));
+  };
+  collect(scope?.closest(".cm-toolbar-unified, [data-cm-toolbar]"));
+  collect(filterBar);
+  if (gridId) {
+    const escaped = cssAttr(gridId);
+    collect(
+      document.querySelector(
+        '[data-cm-toolbar-search-root][data-cm-table-grid-id="' + escaped + '"]',
+      ),
+    );
+    collect(document.querySelector('[data-grid-id="' + escaped + '"]'));
+  }
+  inputs.forEach((input) => {
+    input.value = "";
+    delete input.dataset.cmSearchCommitted;
+    syncToolbarSearchChrome(input);
+  });
+  clearUrlFilterState();
+}
+
+function syncClearAllButtons(): void {
   document.querySelectorAll<HTMLElement>('[data-cm-grid-action="clearAllFilters"]').forEach((btn) => {
     if (btn.dataset.cmServerFilterState === "1") {
       btn.classList.remove("is-hidden");
@@ -27,8 +86,6 @@ function syncClearAllButtons(): void {
     const gridId = btn.getAttribute("data-cm-grid-id") || "";
     const handle = window.GridView?.byId?.get(gridId);
     const toolbar = btn.closest(".cm-toolbar-unified");
-    const searchInput = toolbar?.querySelector<HTMLInputElement>("[data-cm-toolbar-search]");
-    const searchActive = !!searchInput?.value.trim();
     const toolbarFilterActive = !!toolbar?.querySelector(
       '[data-cm-multiselect] input[type="checkbox"]:checked'
     );
@@ -38,9 +95,10 @@ function syncClearAllButtons(): void {
     const agActive = Object.keys(model).length > 0;
     const handleActive =
       handle && typeof handle.hasActiveFilters === "function" ? handle.hasActiveFilters() : false;
+    const toolbarSearchActive = hasActiveToolbarSearch(toolbar);
     btn.classList.toggle(
       "is-hidden",
-      !(handleActive || urlActive || searchActive || toolbarFilterActive || simpleActive || agActive)
+      !(handleActive || toolbarFilterActive || simpleActive || agActive || toolbarSearchActive || hasActiveUrlFilterState())
     );
   });
 }
@@ -66,13 +124,26 @@ export function handleToolbarSavedSearchClick(e: Event): void {
   else if (action === "clearAllFilters") {
     const clearGridId = gridBtn.getAttribute("data-cm-grid-id") || scopeId;
     const toolbar = gridBtn.closest(".cm-toolbar-unified");
-    const filterBar = toolbar?.querySelector<HTMLElement>("[data-cm-filter-bar]");
+    const filterBar =
+      toolbar?.querySelector<HTMLElement>("[data-cm-filter-bar]") ||
+      Array.from(document.querySelectorAll<HTMLElement>("[data-cm-filter-bar]")).find(
+        (bar) => asHTMLElement(bar.closest(".cm-filters"))?.dataset.target === clearGridId,
+      );
+    clearToolbarSearchState(toolbar, clearGridId, filterBar || null);
     if (filterBar) {
       filterBar.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((input) => {
         input.checked = false;
       });
       filterBar.querySelectorAll<HTMLInputElement>("[data-cm-search]").forEach((input) => {
         input.value = "";
+      });
+      filterBar.querySelectorAll<HTMLInputElement>("[data-cm-filter-input]").forEach((input) => {
+        if (input.type === "checkbox") input.checked = false;
+        else input.value = "";
+      });
+      filterBar.querySelectorAll<HTMLSelectElement>("select[data-cm-grouped-select]").forEach((select) => {
+        const defaultOption = Array.from(select.options).find((option) => !option.disabled);
+        select.value = defaultOption?.value || "";
       });
       navigateFilterState(selectedFilterValues(filterBar), gridBtn, filterBar);
       return;
@@ -103,6 +174,7 @@ export function handleToolbarSavedSearchClick(e: Event): void {
 }
 
 export function bindDelegatedGridActions(): void {
+  installConfirmationInterceptors();
   if (getGlobal()._cmGridActionsBound) {
     window.setTimeout(syncClearAllButtons, 0);
     return;
@@ -116,19 +188,73 @@ export function bindDelegatedGridActions(): void {
   document.addEventListener("click", (e) => {
     const target = eventTargetElement(e.target);
     if (!target) return;
-    const cellBtn = target.closest("[data-cm-cell-action]");
+    const cellBtn = target.closest<HTMLElement>("[data-cm-cell-action]");
     if (cellBtn) {
       e.preventDefault();
       e.stopPropagation();
+      if (isDisabledElement(cellBtn)) return;
       const cellAction = cellBtn.getAttribute("data-cm-cell-action");
       if (cellAction) {
-        invokeAction(cellAction, {
-          rowId: cellBtn.getAttribute("data-cm-row-id") || undefined,
-          gridId: cellBtn.closest("[data-grid-id]")?.getAttribute("data-grid-id") || undefined,
-          event: e,
+        confirmAndInvokeFromElement(cellBtn, () => {
+            invokeAction(cellAction, {
+              rowId: cellBtn.getAttribute("data-cm-row-id") || undefined,
+              gridId: cellBtn.closest("[data-grid-id]")?.getAttribute("data-grid-id") || undefined,
+              event: e,
+              source: "cell",
+            });
         });
       }
       return;
+    }
+    const confirmedLink = target.closest<HTMLAnchorElement>("a[data-cm-confirm]");
+    if (confirmedLink) {
+      if (isDisabledElement(confirmedLink)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      e.preventDefault();
+      e.stopPropagation();
+      confirmAndInvokeFromElement(confirmedLink, () => {
+        continueConfirmedLink(confirmedLink);
+      });
+      return;
+    }
+    const actBtn = target.closest<HTMLElement>("[data-cm-action]");
+    if (actBtn) {
+      if (isDisabledElement(actBtn)) {
+        e.preventDefault();
+        e.stopPropagation();
+        return;
+      }
+      const actionName = actBtn.getAttribute("data-cm-action");
+      if (actionName && actionName !== "show_content") {
+        e.preventDefault();
+        e.stopPropagation();
+        const toolbar = actBtn.closest(".cm-toolbar-unified, [data-cm-toolbar]");
+        const targetTableId =
+          actBtn.getAttribute("data-cm-action-target") ||
+          toolbar?.getAttribute("data-cm-toolbar-target") ||
+          actBtn.closest("[data-grid-id]")?.getAttribute("data-grid-id") ||
+          undefined;
+        const selectRef = actBtn.getAttribute("data-cm-action-select-ref");
+        let selectedValue: string | undefined = undefined;
+        if (selectRef) {
+          const selectEl = actBtn.parentElement?.querySelector<HTMLSelectElement>(
+            `[data-cm-action-select="${selectRef}"]`
+          );
+          selectedValue = selectEl?.value;
+        }
+        confirmAndInvokeFromElement(actBtn, () => {
+          invokeAction(actionName, {
+            gridId: targetTableId,
+            selectedValue,
+            event: e,
+            source: "batch",
+          });
+        });
+        return;
+      }
     }
     const colBtn = target.closest("[data-cm-col-action]");
     if (colBtn) {

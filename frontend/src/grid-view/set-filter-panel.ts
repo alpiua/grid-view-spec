@@ -69,7 +69,7 @@ export class SetFilterPanel {
       options.loadValues || (() => ({ values: [], hasEmpty: false, emptyCount: 0 }));
     const L = options.labels || {};
     this.labels = {
-      listSearchPlaceholder: L.listSearchPlaceholder || i18n.t("filter.list_search", "Пошук…"),
+      listSearchPlaceholder: L.listSearchPlaceholder || i18n.t("filter.list_search", "Search…"),
       valueCountLabel: L.valueCountLabel || i18n.t("filter.value_count", "%(count)s values"),
       selectAll: L.selectAll || i18n.t("filter.select_all", "All"),
       onlyEmpty: L.onlyEmpty || i18n.t("filter.only_empty", "Empty"),

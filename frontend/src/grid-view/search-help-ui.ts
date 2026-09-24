@@ -1,6 +1,7 @@
 /** Search syntax help button — profile-aware tooltip content. */
 
 import { i18n } from "./i18n";
+import { positionFixedOverlay } from "./dom-utils";
 import { SearchProfile, resolveSearchProfile } from "./search/contract";
 import { buildSearchSyntaxTipHtml } from "./search-syntax-tip-html";
 
@@ -10,21 +11,74 @@ const INFO_ICON =
   '<circle cx="12" cy="8" r="1.35" fill="currentColor" stroke="none"/>' +
   '<path d="M12 11v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
 
+let searchHelpSequence = 0;
+
+function searchHelpTipFor(btn: HTMLElement): HTMLElement | null {
+  const tipId = btn.dataset.cmSearchHelpTipId;
+  if (tipId) {
+    const ownedTip = document.getElementById(tipId);
+    if (ownedTip instanceof HTMLElement) return ownedTip;
+  }
+  return btn.closest<HTMLElement>(".cm-toolbar-search")?.querySelector<HTMLElement>(
+    ":scope > .cm-ellipsis-tip--search-help"
+  ) || btn.querySelector<HTMLElement>(":scope > .cm-ellipsis-tip--search-help") || null;
+}
+
+
+function showSearchHelpTip(btn: HTMLElement): void {
+  const tip = searchHelpTipFor(btn);
+  if (!tip) return;
+  document.body.appendChild(tip);
+  tip.classList.add("cm-ellipsis-tip--search-help-portal");
+  tip.style.visibility = "hidden";
+  positionFixedOverlay(tip, btn, "start", true);
+  tip.style.removeProperty("visibility");
+}
+
+function hideSearchHelpTip(btn: HTMLElement): void {
+  const tip = searchHelpTipFor(btn);
+  const host = btn.closest<HTMLElement>(".cm-toolbar-search");
+  if (!tip || !host) return;
+  tip.classList.remove("cm-ellipsis-tip--search-help-portal");
+  tip.style.removeProperty("left");
+  tip.style.removeProperty("top");
+  tip.style.removeProperty("width");
+  host.appendChild(tip);
+}
+
+
 export function bindSearchSyntaxHelp(btn: HTMLElement): void {
   if (btn.dataset.cmSearchHelpBound === "1") return;
   btn.dataset.cmSearchHelpBound = "1";
   btn.classList.add("cm-tip-host");
   btn.removeAttribute("title");
+  btn.addEventListener("mouseenter", () => showSearchHelpTip(btn));
+  btn.addEventListener("mouseleave", () => hideSearchHelpTip(btn));
+  btn.addEventListener("focusin", () => showSearchHelpTip(btn));
+  btn.addEventListener("focusout", () => hideSearchHelpTip(btn));
+  window.addEventListener("resize", () => {
+    const tip = searchHelpTipFor(btn);
+    if (tip?.classList.contains("cm-ellipsis-tip--search-help-portal")) {
+      positionFixedOverlay(tip, btn, "start", true);
+    }
+  });
 }
 
 export function refreshSearchSyntaxHelp(btn: HTMLElement, profile: SearchProfile): void {
-  let tip = btn.querySelector(".cm-ellipsis-tip--search-help");
-  if (!(tip instanceof HTMLElement)) {
+  const host = btn.closest<HTMLElement>(".cm-toolbar-search") || btn;
+  let tip = searchHelpTipFor(btn);
+  if (!tip) {
     tip = document.createElement("span");
     tip.className = "cm-ellipsis-tip cm-ellipsis-tip--search-help";
     tip.setAttribute("role", "tooltip");
-    btn.appendChild(tip);
   }
+  if (!btn.id) {
+    searchHelpSequence += 1;
+    btn.id = `cm-search-help-${searchHelpSequence}`;
+  }
+  tip.id = `cm-search-help-tip-${btn.id}`;
+  btn.dataset.cmSearchHelpTipId = tip.id;
+  if (tip.parentElement !== host) host.appendChild(tip);
   tip.innerHTML = buildSearchSyntaxTipHtml(profile);
   bindSearchSyntaxHelp(btn);
 }

@@ -12,6 +12,11 @@
       "bundle": true
     },
     {
+      "id": "gridviewspec-filter-workspace",
+      "source": "src/filter-drawer-workspace-boot.ts",
+      "bundle": true
+    },
+    {
       "id": "gridviewspec-ag-grid-cdn",
       "source": "src/ag-grid-cdn.ts"
     },
@@ -29,6 +34,10 @@
     {
       "id": "gridviewspec-ag-grid-theme",
       "source": "styles/ag-grid-theme.css"
+    },
+    {
+      "id": "gridviewspec-filter-workspace",
+      "source": "styles/filter-drawer-workspace.css"
     }
   ]
 }

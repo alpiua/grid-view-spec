@@ -9,6 +9,7 @@ type EditColumnConfig = {
   emptyLabel?: string;
   skin?: string;
 };
+import { notify } from "../runtime/notifications";
 
 type TableEditConfig = {
   mode?: string;
@@ -107,7 +108,11 @@ async function saveSelect(
     }
     if (!ok) {
       select.value = prev;
-      window.alert("Не вдалося зберегти зміни");
+      const i18n = (window as unknown as { GridViewI18n?: Record<string, string> }).GridViewI18n;
+      notify({
+        message: i18n?.["table.save_error"] || "Failed to save changes",
+        tone: "error",
+      });
       return false;
     }
     select.dataset.cmEditPrev = value;
@@ -118,7 +123,11 @@ async function saveSelect(
     return true;
   } catch {
     select.value = prev;
-    window.alert("Помилка мережі");
+    const i18n = (window as unknown as { GridViewI18n?: Record<string, string> }).GridViewI18n;
+    notify({
+      message: i18n?.["table.network_error"] || "Network error",
+      tone: "error",
+    });
     return false;
   } finally {
     select.disabled = false;

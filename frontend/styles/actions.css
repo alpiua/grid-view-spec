@@ -268,3 +268,36 @@ button.cm-action {
     gap: 0.25rem;
 }
 
+/* Toolbar action select group (dropdown + action button) */
+.cm-action-select-group {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.cm-action-select {
+    height: 28px;
+    font-size: 12px;
+    padding: 0 8px;
+    border-radius: 6px;
+    border: 1px solid var(--cm-border, #cbd5e1);
+    background: var(--cm-surface, #ffffff);
+    color: var(--cm-text, #0f172a);
+    outline: none;
+    cursor: pointer;
+    max-width: 220px;
+}
+.cm-action-select:focus {
+    border-color: var(--cm-primary);
+    box-shadow: 0 0 0 2px color-mix(in srgb, var(--cm-primary) 30%, transparent);
+}
+.cm-action-select-group .cm-btn,
+.cm-action-select-group button[data-cm-action] {
+    height: 28px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 12px;
+    font-size: 12px;
+    border-radius: 6px;
+}
+

@@ -300,6 +300,15 @@
         width: 100% !important;
         gap: 8px !important;
     }
+    .cm-area-split > .cm-area {
+        flex: 1 1 auto !important;
+        width: 100% !important;
+    }
+    .cm-area-split > .cm-area-sidebar {
+        flex: 0 0 auto !important;
+        max-height: min(45vh, 400px);
+        overflow-y: auto;
+    }
     .cm-area-grid {
         grid-template-columns: 1fr !important;
     }

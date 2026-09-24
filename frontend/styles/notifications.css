@@ -1,0 +1,305 @@
+/* Dialog and Notification Toast styles for GridViewSpec */
+
+/* ── Modal Confirmation Dialog ────────────────────────────────────────── */
+
+dialog.cm-dialog-root {
+  position: fixed;
+  inset: 0;
+  z-index: var(--cm-z-dialog, 1500);
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 16px;
+  background: transparent;
+  border: none;
+  outline: none;
+}
+
+dialog.cm-dialog-root[open] {
+  display: flex;
+}
+
+dialog.cm-dialog-root::backdrop {
+  background: rgba(0, 0, 0, 0.45);
+  backdrop-filter: blur(2px);
+}
+
+.cm-dialog-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  width: min(32rem, calc(100vw - 2rem));
+  background: var(--cm-surface, #ffffff);
+  border: 1px solid var(--cm-border, #e5e7eb);
+  border-radius: 16px;
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.32), 0 4px 16px rgba(0, 0, 0, 0.16);
+  overflow: hidden;
+  animation: cm-dialog-enter 0.15s ease-out;
+}
+
+@keyframes cm-dialog-enter {
+  from {
+    opacity: 0;
+    transform: scale(0.96) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) translateY(0);
+  }
+}
+
+.cm-dialog-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--cm-border, #e5e7eb);
+}
+
+.cm-dialog-title {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 650;
+  letter-spacing: -0.01em;
+  color: var(--cm-text, #111827);
+}
+
+.cm-dialog-close-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 2rem;
+  height: 2rem;
+  padding: 0;
+  font-size: 1.25rem;
+  line-height: 1;
+  color: var(--cm-muted, #6b7280);
+  background: transparent;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: color 0.15s ease, background-color 0.15s ease;
+}
+
+.cm-dialog-close-btn:hover {
+  color: var(--cm-text, #111827);
+  background: var(--cm-hover, rgba(0, 0, 0, 0.05));
+}
+
+.cm-dialog-body {
+  padding: 20px;
+  font-size: 0.9375rem;
+  line-height: 1.55;
+  color: var(--cm-text, #4b5563);
+}
+
+.cm-dialog-footer {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 14px 20px;
+  background: var(--cm-bg, #f9fafb);
+  border-top: 1px solid var(--cm-border, #e5e7eb);
+}
+
+.cm-dialog-btn-cancel,
+.cm-dialog-btn-confirm {
+  min-height: 2.5rem;
+  padding: 0 1rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+  border: 1px solid transparent;
+  transition: transform 0.15s ease, background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.cm-dialog-btn-cancel:hover,
+.cm-dialog-btn-confirm:hover {
+  transform: translateY(-1px);
+}
+
+.cm-dialog-close-btn:focus-visible,
+.cm-dialog-btn-cancel:focus-visible,
+.cm-dialog-btn-confirm:focus-visible {
+  outline: 2px solid var(--cm-primary, #2563eb);
+  outline-offset: 2px;
+}
+
+.cm-dialog-btn-cancel {
+  background: var(--cm-surface, #ffffff);
+  border-color: var(--cm-border, #d1d5db);
+  color: var(--cm-text, #374151);
+}
+
+.cm-dialog-btn-cancel:hover {
+  background: var(--cm-hover, #f3f4f6);
+}
+
+.cm-dialog-btn-confirm.cm-btn-danger {
+  background: #dc2626;
+  border-color: #dc2626;
+  color: #ffffff;
+}
+
+.cm-dialog-btn-confirm.cm-btn-danger:hover {
+  background: #b91c1c;
+}
+
+.cm-dialog-btn-confirm.cm-btn-primary {
+  background: var(--cm-primary, #2563eb);
+  border-color: var(--cm-primary, #2563eb);
+  color: #ffffff;
+}
+
+.cm-dialog-btn-confirm.cm-btn-warning {
+  background: #d97706;
+  border-color: #d97706;
+  color: #ffffff;
+}
+
+.cm-dialog-btn-confirm.cm-btn-default {
+  background: var(--cm-surface, #ffffff);
+  border-color: var(--cm-border, #d1d5db);
+  color: var(--cm-text, #111827);
+}
+
+/* ── Toast Notification Container ─────────────────────────────────────── */
+
+.cm-toast-container {
+  position: fixed;
+  top: 16px;
+  right: 16px;
+  z-index: var(--cm-z-toast, 1600);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: var(--cm-toast-width, 360px);
+  max-width: var(--cm-toast-max-width, calc(100vw - 32px));
+  pointer-events: none;
+}
+
+.cm-toast {
+  position: relative;
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+  padding: 12px 14px;
+  background: var(--cm-surface, #ffffff);
+  border: 1px solid var(--cm-border, #e5e7eb);
+  border-radius: var(--cm-toast-radius, 8px);
+  box-shadow: var(--cm-toast-shadow, 0 4px 16px rgba(0, 0, 0, 0.16));
+  pointer-events: auto;
+  animation: cm-toast-slide-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  transition: opacity 0.2s, transform 0.2s;
+}
+
+.cm-toast.is-exiting {
+  opacity: 0;
+  transform: translateY(-8px) scale(0.96);
+}
+
+@keyframes cm-toast-slide-in {
+  from {
+    opacity: 0;
+    transform: translateY(-12px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.cm-toast-icon {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-top: 2px;
+}
+
+.cm-toast-content {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.cm-toast-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--cm-text, #111827);
+  margin-bottom: 2px;
+}
+
+.cm-toast-message {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+  color: var(--cm-muted, #4b5563);
+  word-break: break-word;
+}
+
+.cm-toast-action-btn {
+  display: inline-block;
+  margin-top: 6px;
+  padding: 3px 8px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--cm-primary, #2563eb);
+  background: transparent;
+  border: 1px solid var(--cm-border, #e5e7eb);
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.cm-toast-action-btn:hover {
+  background: var(--cm-hover, rgba(0, 0, 0, 0.05));
+}
+
+.cm-toast-close {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  font-size: 1rem;
+  line-height: 1;
+  color: var(--cm-muted, #9ca3af);
+  background: transparent;
+  border: none;
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.cm-toast-close:hover {
+  color: var(--cm-text, #111827);
+}
+
+/* Tone variants */
+.cm-toast-info .cm-toast-icon {
+  color: #2563eb;
+}
+
+.cm-toast-success {
+  border-left: 4px solid #16a34a;
+}
+.cm-toast-success .cm-toast-icon {
+  color: #16a34a;
+}
+
+.cm-toast-warning {
+  border-left: 4px solid #d97706;
+}
+.cm-toast-warning .cm-toast-icon {
+  color: #d97706;
+}
+
+.cm-toast-error,
+.cm-toast-danger {
+  border-left: 4px solid #dc2626;
+}
+.cm-toast-error .cm-toast-icon,
+.cm-toast-danger .cm-toast-icon {
+  color: #dc2626;
+}

@@ -1,5 +1,7 @@
 /** Content dismiss + pseudo-toast (show_content) runtime for GridViewSpec. */
 
+import { confirmAndInvokeFromElement } from "../grid-view/action-confirmation";
+
 function resolveContentBlock(targetId: string): HTMLElement | null {
   return (
     document.getElementById(`block-${targetId}`) ??
@@ -45,13 +47,15 @@ function initOverlayActions(scope: ParentNode): void {
     if (trigger.dataset.cmOverlayInit) return;
     trigger.dataset.cmOverlayInit = "1";
     trigger.addEventListener("click", () => {
-      const overlayId = trigger.getAttribute("data-overlay-id") ?? "";
-      const overlay = resolveOverlay(overlayId);
-      if (!overlay) return;
-      if (!trigger.id) trigger.id = `cm-overlay-trigger-${overlayId}`;
-      overlay.dataset.cmOverlayTrigger = trigger.id;
-      overlay.hidden = false;
-      overlay.querySelector<HTMLElement>("[data-cm-overlay-close]")?.focus();
+      confirmAndInvokeFromElement(trigger, () => {
+        const overlayId = trigger.getAttribute("data-overlay-id") ?? "";
+        const overlay = resolveOverlay(overlayId);
+        if (!overlay) return;
+        if (!trigger.id) trigger.id = `cm-overlay-trigger-${overlayId}`;
+        overlay.dataset.cmOverlayTrigger = trigger.id;
+        overlay.hidden = false;
+        overlay.querySelector<HTMLElement>("[data-cm-overlay-close]")?.focus();
+      });
     });
   });
 
@@ -97,11 +101,13 @@ export function initContentActions(scope: ParentNode): void {
     if (btn.dataset.cmShowContentInit) return;
     btn.dataset.cmShowContentInit = "1";
     btn.addEventListener("click", () => {
-      const targetId = btn.getAttribute("data-cm-action-target") ?? "";
-      if (!targetId) return;
-      const autoHideRaw = btn.getAttribute("data-cm-auto-hide-ms");
-      const autoHideMs = autoHideRaw ? parseInt(autoHideRaw, 10) : undefined;
-      showContentBlock(targetId, Number.isFinite(autoHideMs) ? autoHideMs : undefined);
+      confirmAndInvokeFromElement(btn, () => {
+        const targetId = btn.getAttribute("data-cm-action-target") ?? "";
+        if (!targetId) return;
+        const autoHideRaw = btn.getAttribute("data-cm-auto-hide-ms");
+        const autoHideMs = autoHideRaw ? parseInt(autoHideRaw, 10) : undefined;
+        showContentBlock(targetId, Number.isFinite(autoHideMs) ? autoHideMs : undefined);
+      });
     });
   });
 }

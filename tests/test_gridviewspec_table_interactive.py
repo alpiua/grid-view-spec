@@ -6,7 +6,11 @@ from grid_view_spec.hosts.memory import InMemoryHost
 from grid_view_spec.render import render_grid_view_spec
 from grid_view_spec.render.row_template import interpolate_row_fields, row_link_url
 from grid_view_spec.render.table_edit import table_edit_config_json
-from grid_view_spec.types.actions import GridViewButtonAction, GridViewLinkAction
+from grid_view_spec.types.actions import (
+    GridViewButtonAction,
+    GridViewConfirmConfig,
+    GridViewLinkAction,
+)
 from grid_view_spec.types.layout import GridViewArea, GridViewLayout
 from grid_view_spec.types.spec import GridViewSpec
 from grid_view_spec.types.table_v2 import GridViewColumn, GridViewTable, GridViewTableEdit
@@ -99,6 +103,41 @@ def test_table_renders_row_action_link_href() -> None:
     )
     html = render_grid_view_spec(spec, (), host=InMemoryHost())
     assert 'data-cm-row-url="/doctors/5/"' in html
+
+
+def test_table_renders_one_typed_confirmation_for_row_and_cell_actions() -> None:
+    """Row and cell actions expose the same snake_case confirmation payload."""
+    confirm = GridViewConfirmConfig(
+        title="Delete record",
+        message="This cannot be undone.",
+        confirm_text="Delete",
+        cancel_text="Keep",
+        close_on_backdrop=False,
+    )
+    spec = _table_spec(
+        GridViewTable(
+            id="records",
+            columns=(
+                GridViewColumn(
+                    id="action",
+                    label="Action",
+                    field="id",
+                    renderer="button",
+                    extra={"action": "delete", "confirm": {"message": "This cannot be undone."}},
+                ),
+            ),
+            rows=({"id": 5},),
+            row_action=GridViewLinkAction(
+                id="row",
+                href="/records/{id}/",
+                confirm=confirm,
+            ),
+        ),
+    )
+
+    html = render_grid_view_spec(spec, (), host=InMemoryHost())
+    assert 'data-cm-confirm="{&#34;title&#34;:&#34;Delete record&#34;' in html
+    assert 'data-cm-confirm="{&#34;message&#34;:&#34;This cannot be undone.&#34;}"' in html
 
 
 def test_table_renders_editable_select_cell() -> None:

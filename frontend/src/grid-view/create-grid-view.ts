@@ -1,7 +1,6 @@
 import { getGlobal } from "./dom-utils";
 import { byId } from "./registry";
 import { bindDelegatedGridActions, initSimpleTableColumnSettings } from "./actions";
-import { attachSimpleTableGlobals } from "./simple-table";
 import { i18n } from "./i18n";
 import { init } from "./init";
 import { ChartsBridge } from "./charts-bridge";
@@ -41,6 +40,8 @@ import { initTableEdit } from "./table-edit";
 import type { GridViewPublic } from "./types";
 import { closeGalleryLightbox, openGalleryLightbox } from "../runtime/gallery";
 import { PageState } from "../page-state/page-state";
+import { confirmDialog } from "../runtime/dialog";
+import { notify, bindNotificationChannel } from "../runtime/notifications";
 
 function mergePluginExports<T extends Record<string, unknown>>(
   base: T,
@@ -96,6 +97,8 @@ export function createGridView(): GridViewPublic {
     invokeAction,
     openGallery: openGalleryLightbox,
     closeGallery: closeGalleryLightbox,
+    confirm: confirmDialog,
+    notify,
   };
 }
 
@@ -104,6 +107,7 @@ export function bootstrapGridView(): GridViewPublic {
   const prior = (g.GridView ?? {}) as Partial<GridViewPublic>;
   const GridView = createGridView();
 
+  bindNotificationChannel();
   // Optional bundles (gridviewspec-ag-grid.min.js, gridviewspec-charts.min.js) may run
   // before the core bundle when ``load_ag_grid`` / ``load_charts`` are set in ``js.html``.
   GridView.AgGrid = mergePluginExports(
@@ -114,6 +118,9 @@ export function bootstrapGridView(): GridViewPublic {
     GridView.Charts as Record<string, unknown>,
     prior.Charts as Record<string, unknown> | undefined,
   ) as GridViewPublic["Charts"];
+  if (prior.FilterDrawerWorkspace) {
+    GridView.FilterDrawerWorkspace = prior.FilterDrawerWorkspace;
+  }
   if (prior.assets && typeof prior.assets === "object") {
     GridView.assets = { ...prior.assets, ...(GridView.assets ?? {}) };
   }
@@ -146,7 +153,6 @@ export function bootstrapGridView(): GridViewPublic {
   if (g.GridViewI18n) {
     i18n.initI18n(g.GridViewI18n);
   }
-  attachSimpleTableGlobals();
   bindDelegatedGridActions();
   (getGlobal() as Window).GridView = GridView;
   return GridView;

@@ -1,12 +1,11 @@
 import { AgGridHost } from "../src/ag-grid/host";
-import { legacyAgGridStateKey, prepareAgGridPageState } from "../src/ag-grid/page-state";
-import { ColumnSettingsHost } from "../src/column-settings/host";
 import {
   pageColumnStoreForRoot,
+  putPageColumnPresets,
   putPageColumns,
+  readPageColumnPresets,
   readPageColumns,
 } from "../src/column-settings/page-state";
-import type { ColumnAdapter, ColumnStateItem } from "../src/column-settings/types";
 import { PageState } from "../src/page-state/page-state";
 import {
   asDomElement,
@@ -122,70 +121,13 @@ function verifyPortableColumnState(): void {
       JSON.stringify([{ colId: "price", hide: true, pinned: "right", width: 144 }]),
     "Portable columns did not decode into the adapter-native shape",
   );
-}
-
-/** Proves standalone SimpleTable width state migrates from real adapter columns once. */
-function verifyWidthOnlyColumnMigration(): void {
-  const browser = new PageStateBrowserHarness();
-  const root = browser.specRoot("stock", "pim.stock");
-  const grid = browser.child(root);
-  browser.storage.setItem("cmColWidths_stock", JSON.stringify({ product: 280 }));
-  let columns: ColumnStateItem[] = [{ colId: "product", hide: false, pinned: null }];
-  const adapter: ColumnAdapter = {
-    getDescriptors: (): [] => [],
-    isVisible: (): boolean => true,
-    setVisible(): void {},
-    getPinned(): null {
-      return null;
-    },
-    setPinned(): void {},
-    getColumnState: (): ColumnStateItem[] => columns,
-    applyColumnState: (state): void => {
-      columns = state;
-    },
-    resetColumnState(): void {},
-    getDisplayedColumnIds: (): string[] => columns.map((column) => column.colId),
-  };
-
-  new ColumnSettingsHost("stock", adapter, {
-    pageStateRoot: asDomElement(grid),
-    legacyStorageScope: "pim.stock",
+  putPageColumnPresets(store, {
+    compact: { columns: [{ colId: "price", hide: false, pinned: null }], pageState: { search: "tent" } },
   });
-
-  const store = pageColumnStoreForRoot(asDomElement(grid), "stock");
-  assertState(store !== null, "Column settings did not use the rendered spec root");
   assertState(
-    JSON.stringify(readPageColumns(store)) ===
-      JSON.stringify([{ colId: "product", hide: false, pinned: null, width: 280 }]),
-    "Width-only legacy state did not migrate from existing adapter columns",
-  );
-  assertState(browser.storage.getItem("cmColWidths_stock") === null, "Migrated width-only legacy key was not removed");
-}
-
-/** Proves a legacy AG filter-only snapshot cannot return after clear. */
-function verifyFilterOnlyAgGridMigration(): void {
-  const browser = new PageStateBrowserHarness();
-  const root = browser.specRoot("stock", "pim.stock");
-  const grid = browser.child(root);
-  const legacyKey = legacyAgGridStateKey("stock", "pim.stock");
-  browser.storage.setItem(
-    legacyKey,
-    JSON.stringify({ filterState: { supplier: { filter: "Atlantmarker" } }, quickFilter: "bag" }),
-  );
-
-  const migrated = prepareAgGridPageState(asDomElement(grid), "stock", "pim.stock", undefined);
-  assertState(migrated !== null, "AG Grid page-state adapter was not created");
-  assertState(
-    JSON.stringify(migrated.read().filterState) === JSON.stringify({ supplier: { filter: "Atlantmarker" } }),
-    "Filter-only legacy AG state was not migrated",
-  );
-  assertState(browser.storage.getItem(legacyKey) === null, "Migrated filter-only AG key was not removed");
-  migrated.clear();
-  const reopened = prepareAgGridPageState(asDomElement(grid), "stock", "pim.stock", undefined);
-  assertState(reopened !== null, "AG Grid page-state adapter was not recreated");
-  assertState(
-    reopened.read().filterState === undefined && reopened.read().quickFilter === undefined,
-    "Clearing page state re-imported the removed legacy filter snapshot",
+    JSON.stringify(readPageColumnPresets(store)) ===
+      JSON.stringify({ compact: { columns: [{ colId: "price", hide: false, pinned: null, width: null }], pageState: { search: "tent" } } }),
+    "Local preset state did not round-trip through PageState",
   );
 }
 
@@ -213,7 +155,7 @@ function verifyAgGridInitialStateAndUrlPrecedence(): void {
   const host = new AgGridHost(
     "catalog",
     grid.id,
-    { context: { legacyStorageScope: "pim.products", syncUrlState: false } },
+    { context: { syncUrlState: false } },
     null,
     null,
     null,
@@ -252,7 +194,7 @@ function verifyAgGridInitialStateAndUrlPrecedence(): void {
   new AgGridHost(
     "empty_sort",
     emptyGrid.id,
-    { context: { legacyStorageScope: "pim.products", syncUrlState: false } },
+    { context: { syncUrlState: false } },
     null,
     null,
     null,
@@ -268,7 +210,5 @@ function verifyAgGridInitialStateAndUrlPrecedence(): void {
 export function verifyPageStateContract(): void {
   verifyPageStateIdentityAndRecovery();
   verifyPortableColumnState();
-  verifyWidthOnlyColumnMigration();
-  verifyFilterOnlyAgGridMigration();
   verifyAgGridInitialStateAndUrlPrecedence();
 }

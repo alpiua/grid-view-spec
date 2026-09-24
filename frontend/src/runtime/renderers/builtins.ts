@@ -2,6 +2,7 @@
  * Default AG-Grid cell renderers — wired from column spec `renderer` + `extra`.
  */
 import { registerRenderer } from "../../grid-view/registry-api";
+import { serializeConfirmAttribute } from "../../grid-view/action-confirmation";
 
 type AgCellParams = Record<string, unknown> & {
   value?: unknown;
@@ -47,17 +48,19 @@ function linkRenderer(params: AgCellParams): string {
   const recordKey = String(extra.record_key || "id");
   const rowId = params.data?.[recordKey];
   const rowAttr = rowId != null ? ` data-cm-row-id="${escHtml(rowId)}"` : "";
+  const confirm = serializeConfirmAttribute(extra.confirm);
+  const confirmAttr = confirm ? ` data-cm-confirm="${escHtml(confirm)}"` : "";
   if (typeof url === "string" && url) {
     const actionAttr = action ? ` data-cm-cell-action="${escHtml(action)}"` : "";
     return (
-      `<a href="${escHtml(url)}" class="cm-grid-link cm-link"${actionAttr}${rowAttr}` +
+      `<a href="${escHtml(url)}" class="cm-grid-link cm-link"${actionAttr}${rowAttr}${confirmAttr}` +
       ` style="font-weight:500;color:#818cf8">${escHtml(text)}</a>`
     );
   }
   if (action) {
     return (
       `<span class="cm-grid-link cm-link" role="button" tabindex="0"` +
-      ` data-cm-cell-action="${escHtml(action)}"${rowAttr}` +
+      ` data-cm-cell-action="${escHtml(action)}"${rowAttr}${confirmAttr}` +
       ` style="font-weight:500;cursor:pointer;color:#818cf8">${escHtml(text)}</span>`
     );
   }
@@ -101,12 +104,32 @@ function buttonRenderer(params: AgCellParams): string {
   const btnClass = String(extra.button_class || "cm-record-detail-btn");
   const recordKey = String(extra.record_key || "id");
   const rowId = params.data?.[recordKey];
+  const confirm = serializeConfirmAttribute(extra.confirm);
+  const confirmAttr = confirm ? ` data-cm-confirm="${escHtml(confirm)}"` : "";
   return (
     `<button type="button" class="${escHtml(btnClass)}"` +
     ` data-cm-cell-action="${escHtml(action)}"` +
-    ` data-cm-row-id="${escHtml(rowId ?? "")}">${escHtml(label)}</button>`
+    ` data-cm-row-id="${escHtml(rowId ?? "")}"${confirmAttr}>${escHtml(label)}</button>`
   );
 }
+function imageRenderer(params: AgCellParams): string {
+  const value = params.value;
+  if (!value || typeof value !== "string") {
+    return '<div class="cm-grid-img-cell flex items-center justify-center text-slate-400 text-xs">📦</div>';
+  }
+  return (
+    `<div class="cm-grid-img-cell flex items-center justify-center" style="width:36px;height:36px;margin:auto">` +
+    `<img src="${escHtml(value)}" alt="" style="width:36px;height:36px;object-fit:contain;border-radius:4px" loading="lazy"` +
+    ` onerror="this.style.display='none';this.nextElementSibling&&(this.nextElementSibling.style.display='inline')" />` +
+    `<span class="text-xs text-slate-400" style="display:none">📦</span>` +
+    `</div>`
+  );
+}
+
+function thumbnailRenderer(params: AgCellParams): string {
+  return imageRenderer(params);
+}
+
 
 let _registered = false;
 
@@ -118,4 +141,6 @@ export function initBuiltinRenderers(): void {
   registerRenderer("badge", badgeRenderer);
   registerRenderer("date", dateRenderer);
   registerRenderer("button", buttonRenderer);
+  registerRenderer("image", imageRenderer);
+  registerRenderer("thumbnail", thumbnailRenderer);
 }

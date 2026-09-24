@@ -51,9 +51,16 @@ def test_toolbar_renders_saved_searches_from_host_prefs() -> None:
     assert 'data-cm-grid-action="saveSearch"' in html
 
 
-def test_ag_grid_boot_config_includes_saved_searches() -> None:
+def test_ag_grid_boot_config_includes_server_preferences() -> None:
     host = InMemoryHost()
-    host.prefs.save("test-subject", "t1", GridPrefs(searches=("saved q",)))
+    host.prefs.save(
+        "test-subject",
+        "t1",
+        GridPrefs(
+            col_presets={"compact": [{"colId": "name", "hide": False, "pinned": None}]},
+            searches=("saved q",),
+        ),
+    )
     spec = GridViewSpec(
         id="page",
         blocks=(
@@ -73,4 +80,5 @@ def test_ag_grid_boot_config_includes_saved_searches() -> None:
 
     html = render_grid_view_spec(spec, (), host=host, backend="html")
     assert isinstance(html, str)
+    assert '"presets": {"compact": [{"colId": "name", "hide": false, "pinned": null}]}' in html
     assert '"searches": ["saved q"]' in html

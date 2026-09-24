@@ -1,5 +1,5 @@
 import { byId } from "./registry";
-import { getGlobal } from "./dom-utils";
+import { getGlobal, updateRecordCounters } from "./dom-utils";
 import { serializeColumnFilters } from "./search/column-filter-state";
 import { resolveToolbarSearchInput } from "./toolbar-search-input";
 import type { GridHandle } from "./types";
@@ -21,7 +21,7 @@ interface InfiniteBlockParams {
   filterModel?: Record<string, unknown>;
   sortModel?: unknown[];
   failCallback: () => void;
-  successCallback: (rows: unknown[], lastRow: number) => void;
+  successCallback: (rows: unknown[], lastRow?: number) => void;
 }
 
 interface InfiniteQueryOptions {
@@ -158,7 +158,7 @@ export function createInfiniteDatasource(options: {
       filterModel?: Record<string, unknown>;
       sortModel?: unknown[];
       failCallback: () => void;
-      successCallback: (rows: unknown[], lastRow: number) => void;
+        successCallback: (rows: unknown[], lastRow?: number) => void;
     }) {
       const handle = gridId ? byId.get(gridId) : null;
       if (!handle) {
@@ -169,15 +169,27 @@ export function createInfiniteDatasource(options: {
       if (blockParams.startRow === 0) {
         handle.showLoading?.();
       }
-      fetch(url + "?" + params.toString())
+      const requestUrl = new URL(url, window.location.origin);
+      params.forEach((value, key) => requestUrl.searchParams.set(key, value));
+      fetch(requestUrl.toString())
         .then(function (response) {
           if (!response.ok) throw new Error("HTTP " + response.status);
           return response.json();
         })
-        .then(function (data: { data: unknown[]; lastRow: number }) {
+        .then(function (data: { data: unknown[]; lastRow?: unknown; totalCount?: unknown }) {
+          const lastRow =
+            typeof data.lastRow === "number" && Number.isSafeInteger(data.lastRow) && data.lastRow >= 0
+              ? data.lastRow
+              : undefined;
+          const totalCount =
+            typeof data.totalCount === "number" && Number.isSafeInteger(data.totalCount) && data.totalCount >= 0
+              ? data.totalCount
+              : undefined;
           handle.hideOverlay?.();
-          blockParams.successCallback(data.data, data.lastRow);
-          options.onLastRow?.(data.lastRow);
+          blockParams.successCallback(data.data, lastRow);
+          if (gridId && totalCount !== undefined) updateRecordCounters(gridId, totalCount);
+          else if (gridId && lastRow !== undefined) updateRecordCounters(gridId, lastRow);
+          if (lastRow !== undefined) options.onLastRow?.(lastRow);
         })
         .catch(function (error) {
           console.error("[GridView.AgGrid] infinite fetch failed:", error);

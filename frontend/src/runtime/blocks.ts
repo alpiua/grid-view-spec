@@ -7,3 +7,4 @@ export { initButtonEllipsisTips } from "./layout";
 export { initContentActions } from "./content-actions";
 export { Charts } from "./charts";
 export { Kpi } from "./kpi";
+export { initNavTrees } from "./nav";

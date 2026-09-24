@@ -1,10 +1,5 @@
-import {
-  colPanelIsHidden,
-  colT,
-  getColSelectorPanel,
-  getCookie,
-  setColPanelHidden,
-} from "./helpers";
+import { enableDragReorder, DragReorderHandle } from "../grid-view/drag-drop";
+import { colPanelIsHidden, colT, getColSelectorPanel, getCookie, setColPanelHidden } from "./helpers";
 import type {
   ColumnAdapter,
   ColumnDescriptor,
@@ -18,17 +13,14 @@ import type {
   StoredColumnPreset,
 } from "./types";
 import {
-  isJsonRecord,
-  legacyScopedKey,
-  mergeLegacyWidths,
-  normalizeColumnState,
   pageColumnStoreForRoot,
+  putPageColumnPresets,
   putPageColumns,
-  readLegacyJson,
+  readPageColumnPresets,
   readPageColumns,
-  removeLegacyKeys,
   type PageColumnStore,
 } from "./page-state";
+import { renderDrawerColumnSettings } from "./drawer-settings";
 
 function isSavedColumnPreset(value: StoredColumnPreset): value is SavedColumnPreset {
   return !Array.isArray(value);
@@ -40,13 +32,13 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
   groupsOrder: string[];
   savedColPresets: Record<string, StoredColumnPreset>;
   preferencesUrl: string;
-  storageScope: string;
   pageColumnStore: PageColumnStore | null;
-  persistLocalState: boolean;
   onStateChange: ((state: ColumnStateItem[]) => void) | null;
-  colOrderSortable: SortableInstance | null;
+  colOrderSortable: DragReorderHandle | null;
   activePresetName: string | null = null;
   pageStateHooks: PageStateHooks;
+  drawerSettingsContainers = new Set<HTMLElement>();
+  drawerOrderSortables = new Map<HTMLElement, SortableInstance>();
 
   constructor(gridId: string, adapter: ColumnAdapter, options?: ColumnSettingsOptions) {
     const opts = options || {};
@@ -55,36 +47,13 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
     this.groupsOrder = opts.groupsOrder || [];
     this.savedColPresets = opts.initialPresets || {};
     this.pageStateHooks = opts.pageStateHooks || {};
-    try {
-      const stored =
-        localStorage.getItem("agGridPresets_" + this.gridId) ||
-        localStorage.getItem("cmColPresets_" + this.gridId);
-      if (stored) {
-        const parsed: unknown = JSON.parse(stored);
-        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-          this.savedColPresets = {
-            ...(parsed as Record<string, StoredColumnPreset>),
-            ...this.savedColPresets,
-          };
-        }
-      }
-    } catch {
-      /* ignore */
-    }
     this.preferencesUrl = opts.preferencesUrl || "";
-    this.storageScope = opts.legacyStorageScope || opts.storageScope || "";
     this.pageColumnStore = pageColumnStoreForRoot(opts.pageStateRoot, this.gridId);
-    this.persistLocalState = opts.persistLocalState !== false;
+    if (Object.keys(this.savedColPresets).length === 0 && this.pageColumnStore) {
+      this.savedColPresets = readPageColumnPresets(this.pageColumnStore);
+    }
     this.onStateChange = opts.onStateChange || null;
     this.colOrderSortable = null;
-    try {
-      const active = localStorage.getItem("cmActivePreset_" + this.gridId);
-      if (active && this.savedColPresets[active]) {
-        this.activePresetName = active;
-      }
-    } catch {
-      /* ignore */
-    }
     this._bindModalDismiss();
     this._applyInitialState(opts.initialState);
     this.renderSavedPresets();
@@ -100,20 +69,10 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       this.pageStateHooks.applyPageState(preset.pageState);
     }
     this.activePresetName = name;
-    try {
-      localStorage.setItem("cmActivePreset_" + this.gridId, name);
-    } catch {
-      /* quota exceeded */
-    }
     this.saveState();
     this.syncExportLinks();
-    this.buildColCheckboxes();
+    this.refreshColumnSettings();
     this.renderSavedPresets();
-  }
-
-  _storageKey(): string {
-    if (this.storageScope) return "cmColState_" + this.gridId + "__" + this.storageScope;
-    return "cmColState_" + this.gridId;
   }
 
   _bindModalDismiss(): void {
@@ -154,49 +113,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
   }
 
   _applyInitialState(initialState: ColumnStateItem[] | undefined): void {
-    let state: ColumnStateItem[] | undefined = initialState;
-    if (!state && this.pageColumnStore) {
-      state = readPageColumns(this.pageColumnStore) ?? undefined;
-      if (!state) {
-        const legacyState = normalizeColumnState(readLegacyJson(this._storageKey()));
-        const legacyWidthKey = "cmColWidths_" + this.gridId;
-        const legacyWidths = readLegacyJson(legacyWidthKey);
-        const hasLegacyWidths =
-          isJsonRecord(legacyWidths) && Object.keys(legacyWidths).length > 0;
-        let migrationBase = legacyState;
-
-        // SimpleTable historically persisted widths separately. Start from the
-        // adapter's actual columns when that is the only legacy state available.
-        if (!migrationBase && hasLegacyWidths) {
-          try {
-            const currentState = normalizeColumnState(this.adapter.getColumnState());
-            migrationBase = currentState && currentState.length > 0 ? currentState : null;
-          } catch {
-            migrationBase = null;
-          }
-        }
-
-        if (migrationBase) {
-          const migrated = mergeLegacyWidths(
-            migrationBase,
-            legacyWidths,
-          );
-          if (putPageColumns(this.pageColumnStore, migrated)) {
-            const migratedKeys = [legacyWidthKey];
-            if (legacyState) migratedKeys.unshift(this._storageKey());
-            removeLegacyKeys(migratedKeys);
-          }
-          state = migrated;
-        }
-      }
-    } else if (!state) {
-      try {
-        const raw = localStorage.getItem(this._storageKey());
-        if (raw) state = normalizeColumnState(JSON.parse(raw)) ?? undefined;
-      } catch {
-        /* ignore corrupt storage */
-      }
-    }
+    const state = initialState ?? (this.pageColumnStore ? readPageColumns(this.pageColumnStore) ?? undefined : undefined);
     if (state && Array.isArray(state)) {
       this.adapter.applyColumnState(state, true);
     }
@@ -214,12 +131,6 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
     const state = this.getColumnState();
     if (this.pageColumnStore) {
       putPageColumns(this.pageColumnStore, state);
-    } else if (this.persistLocalState) {
-      try {
-        localStorage.setItem(this._storageKey(), JSON.stringify(state));
-      } catch {
-        /* quota exceeded */
-      }
     }
     this.syncExportLinks();
     if (typeof this.onStateChange === "function") this.onStateChange(state);
@@ -230,7 +141,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
     const panel = getColSelectorPanel(this.gridId);
     if (!panel) return;
     setColPanelHidden(panel, false);
-    this.buildColCheckboxes();
+    this.refreshColumnSettings();
   }
 
   closeColSelectorModal(): void {
@@ -256,7 +167,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       this.closePresetsDropdown();
       if (!panel) return;
       setColPanelHidden(panel, false);
-      this.buildColCheckboxes();
+      this.refreshColumnSettings();
       return;
     }
     this.togglePresetsDropdown();
@@ -324,9 +235,11 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       }
       item.innerHTML = `
         <svg class="cm-col-preset-dropdown-item-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-        <span class="cm-col-preset-dropdown-item-name" style="flex: 1;">${name}</span>
+        <span class="cm-col-preset-dropdown-item-name" style="flex: 1;"></span>
         ${isActive ? '<svg class="cm-col-preset-active-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : ""}
       `;
+      const nameSpan = item.querySelector<HTMLElement>(".cm-col-preset-dropdown-item-name");
+      if (nameSpan) nameSpan.textContent = name;
       item.onclick = (e) => {
         e.stopPropagation();
         this.applyPreset(name);
@@ -357,21 +270,53 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
   resetColumnsToDefault(): void {
     this.adapter.resetColumnState();
     this.activePresetName = null;
-    try {
-      localStorage.removeItem("cmActivePreset_" + this.gridId);
-    } catch {
-      /* quota exceeded */
-    }
-    this.buildColCheckboxes();
+    this.refreshColumnSettings();
     this.saveState();
     this.syncExportLinks();
     this.renderSavedPresets();
   }
 
-  buildColCheckboxes(): void {
-    const container = document.getElementById("col-checkboxes-" + this.gridId);
-    if (!container) return;
-    container.innerHTML = "";
+  mountColumnSettings(container: HTMLElement): void {
+    this.drawerSettingsContainers.add(container);
+    this.renderDrawerSettings(container);
+  }
+
+  private refreshColumnSettings(): void {
+    this.buildColCheckboxes();
+    this.drawerSettingsContainers.forEach((container) => {
+      if (!container.isConnected) {
+        this.drawerSettingsContainers.delete(container);
+        this.drawerOrderSortables.get(container)?.destroy();
+        this.drawerOrderSortables.delete(container);
+        return;
+      }
+      this.renderDrawerSettings(container);
+    });
+  }
+
+  private renderDrawerSettings(container: HTMLElement): void {
+    this.drawerOrderSortables.get(container)?.destroy();
+    const sortable = renderDrawerColumnSettings(container, {
+      gridId: this.gridId,
+      adapter: this.adapter,
+      savedPresets: this.savedColPresets,
+      activePresetName: this.activePresetName,
+      getColumnState: () => this.getColumnState(),
+      resetColumns: () => this.resetColumnsToDefault(),
+      applyPreset: (name) => this.applyPreset(name),
+      savePreset: (name) => this.savePreset(name),
+      deletePreset: (name) => this.deletePreset(name),
+      saveColumns: () => this.saveState(),
+      refresh: () => this.refreshColumnSettings(),
+    });
+    if (sortable) this.drawerOrderSortables.set(container, sortable);
+    else this.drawerOrderSortables.delete(container);
+  }
+
+  buildColCheckboxes(container?: HTMLElement): void {
+    const target = container || document.getElementById("col-checkboxes-" + this.gridId);
+    if (!target) return;
+    target.innerHTML = "";
     const descriptors = this.adapter.getDescriptors();
     const groups: Record<string, ColumnDescriptor[]> = {};
     const mainLabel = colT("column_settings.main_group", "Main");
@@ -403,6 +348,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       const visible = this.adapter.isVisible(leafKey);
       const chip = document.createElement("div");
       chip.className = "cm-col-settings-chip " + (visible ? "is-on" : "is-off");
+      chip.dataset.cmColumnKey = leafKey;
       const textWrap = document.createElement("div");
       textWrap.className = "cm-col-settings-chip-label";
       textWrap.textContent =
@@ -412,7 +358,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       textWrap.onclick = (e) => {
         e.stopPropagation();
         this.adapter.setVisible(leafKey, !visible);
-        this.buildColCheckboxes();
+        this.refreshColumnSettings();
         this.saveState();
       };
       chip.appendChild(textWrap);
@@ -430,7 +376,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
             e.stopPropagation();
             const next = pinnedState === dir ? null : dir;
             this.adapter.setPinned(leafKey, next);
-            this.buildColCheckboxes();
+            this.refreshColumnSettings();
             this.saveState();
           };
           pins.appendChild(btn);
@@ -478,7 +424,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
             else if (kind === "None") this.adapter.setVisible(desc.colId, false);
             else this.adapter.setVisible(desc.colId, !desc.defaultHide);
           });
-          this.buildColCheckboxes();
+          this.refreshColumnSettings();
           this.saveState();
         };
         rightControls.appendChild(btn);
@@ -498,9 +444,9 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
         appendLeafChip(itemsCont, desc.colId, desc);
       });
       groupColDiv.appendChild(itemsCont);
-      container.appendChild(groupColDiv);
+      target.appendChild(groupColDiv);
     });
-    this.buildColOrderList();
+    if (!container) this.buildColOrderList();
   }
 
   buildColOrderList(): void {
@@ -534,49 +480,37 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       pill.textContent = label;
       listContainer.appendChild(pill);
     });
-    if (this.colOrderSortable) this.colOrderSortable.destroy();
-    const SortableCtor =
-      typeof window !== "undefined"
-        ? (((window as unknown as { Sortable?: { default?: SortableStatic } }).Sortable?.default ||
-            (window as unknown as { Sortable?: SortableStatic }).Sortable) as SortableStatic | undefined)
-        : undefined;
-    if (typeof SortableCtor !== "undefined") {
-      const host = this;
-      this.colOrderSortable = new SortableCtor(listContainer, {
-        animation: 150,
-        delay: 50,
-        delayOnTouchOnly: true,
-        touchStartThreshold: 3,
-        fallbackTolerance: 3,
-        ghostClass: "sortable-ghost",
-        chosenClass: "sortable-chosen",
-        onEnd() {
-          const newState: ColumnStateItem[] = [];
-          for (let i = 0; i < listContainer.children.length; i++) {
-            const child = listContainer.children[i];
-            if (!(child instanceof HTMLElement)) continue;
-            const colId = child.dataset.colid;
-            if (!colId) continue;
-            const prev =
-              host.getColumnState().find((c) => c.colId === colId) ||
-              ({ colId, hide: false, pinned: null } satisfies ColumnStateItem);
-            newState.push({
-              colId,
-              hide: !!prev.hide,
-              pinned: prev.pinned || null,
-            });
-          }
-          host
-            .getColumnState()
-            .filter((c) => c.hide)
-            .forEach((c) => {
-              newState.push(c);
-            });
-          host.adapter.applyColumnState(newState, true);
-          host.saveState();
-        },
-      });
-    }
+    const host = this;
+    this.colOrderSortable = enableDragReorder({
+      container: listContainer,
+      itemSelector: ".cm-col-order-pill",
+      draggingClass: "sortable-chosen",
+      onReorder() {
+        const newState: ColumnStateItem[] = [];
+        for (let i = 0; i < listContainer.children.length; i++) {
+          const child = listContainer.children[i];
+          if (!(child instanceof HTMLElement)) continue;
+          const colId = child.dataset.colid;
+          if (!colId) continue;
+          const prev =
+            host.getColumnState().find((c) => c.colId === colId) ||
+            ({ colId, hide: false, pinned: null } satisfies ColumnStateItem);
+          newState.push({
+            colId,
+            hide: !!prev.hide,
+            pinned: prev.pinned || null,
+          });
+        }
+        host
+          .getColumnState()
+          .filter((c) => c.hide)
+          .forEach((c) => {
+            newState.push(c);
+          });
+        host.adapter.applyColumnState(newState, true);
+        host.saveState();
+      },
+    });
   }
 
   renderSavedPresets(): void {
@@ -606,7 +540,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       const applyBtn = document.createElement("button");
       applyBtn.type = "button";
       applyBtn.className = "cm-col-preset-apply-btn";
-      applyBtn.textContent = colT("column_settings.load", colT("column_settings.apply", "Завантажити"));
+      applyBtn.textContent = colT("column_settings.load", colT("column_settings.apply", "Load"));
       applyBtn.onclick = (e) => {
         e.stopPropagation();
         this.applyPreset(name);
@@ -617,17 +551,7 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
       delBtn.innerHTML = "&times;";
       delBtn.onclick = (e) => {
         e.stopPropagation();
-        delete this.savedColPresets[name];
-        if (this.activePresetName === name) {
-          this.activePresetName = null;
-          try {
-            localStorage.removeItem("cmActivePreset_" + this.gridId);
-          } catch {
-            /* ignore */
-          }
-        }
-        this.saveColPresetsToServer();
-        this.renderSavedPresets();
+        this.deletePreset(name);
       };
       chip.appendChild(text);
       chip.appendChild(applyBtn);
@@ -690,9 +614,11 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
           item.role = "menuitem";
           item.innerHTML = `
             <svg class="cm-toolbar-more-icon cm-toolbar-more-icon--preset" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-            <span style="flex: 1; text-align: left;">${name}</span>
+            <span style="flex: 1; text-align: left;"></span>
             ${isActive ? '<svg class="cm-col-preset-active-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : ""}
           `;
+          const nameSpan = item.querySelector<HTMLElement>("span");
+          if (nameSpan) nameSpan.textContent = name;
           item.onclick = (e) => {
             e.stopPropagation();
             this.applyPreset(name);
@@ -709,29 +635,35 @@ export class ColumnSettingsHost implements ColumnSettingsHandle {
     }
   }
 
-  saveCurrentPreset(): void {
-    const nameInput = document.getElementById("preset-name-" + this.gridId);
-    const name =
-      nameInput instanceof HTMLInputElement ? nameInput.value.trim() : "";
-    if (!name) return;
+  private savePreset(name: string): boolean {
+    const normalizedName = name.trim();
+    if (!normalizedName) return false;
     const pageState = this.pageStateHooks.getPageState?.() ?? {};
-    this.savedColPresets[name] = Object.keys(pageState).length
+    this.savedColPresets[normalizedName] = Object.keys(pageState).length
       ? { columns: this.getColumnState(), pageState }
       : this.getColumnState();
-    if (nameInput instanceof HTMLInputElement) nameInput.value = "";
     this.renderSavedPresets();
     this.saveColPresetsToServer();
+    return true;
+  }
+
+  private deletePreset(name: string): void {
+    delete this.savedColPresets[name];
+    if (this.activePresetName === name) {
+      this.activePresetName = null;
+    }
+    this.saveColPresetsToServer();
+    this.renderSavedPresets();
+  }
+
+  saveCurrentPreset(): void {
+    const nameInput = document.getElementById("preset-name-" + this.gridId);
+    if (!(nameInput instanceof HTMLInputElement) || !this.savePreset(nameInput.value)) return;
+    nameInput.value = "";
   }
 
   saveColPresetsToServer(): void {
-    try {
-      localStorage.setItem(
-        "agGridPresets_" + this.gridId,
-        JSON.stringify(this.savedColPresets)
-      );
-    } catch {
-      /* quota exceeded */
-    }
+    if (this.pageColumnStore) putPageColumnPresets(this.pageColumnStore, this.savedColPresets);
     if (!this.preferencesUrl) return;
     fetch(this.preferencesUrl, {
       method: "POST",

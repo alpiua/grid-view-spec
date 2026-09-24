@@ -2,16 +2,12 @@
 
 import {
   isJsonRecord,
-  legacyScopedKey,
-  mergeLegacyWidths,
   normalizeColumnState,
   pageColumnStoreForRoot,
   putPageAgGridState,
   putPageColumns,
-  readLegacyJson,
   readPageAgGridState,
   readPageColumns,
-  removeLegacyKeys,
   type PageColumnStore,
 } from "../column-settings/page-state";
 import type { JsonValue } from "../page-state/types";
@@ -46,7 +42,7 @@ function sortStateFromModel(value: unknown): AgGridSortState | undefined {
   return { sortModel };
 }
 
-/** Extract legacy AG Grid sort embedded in its raw getColumnState() output. */
+/** Extract AG Grid sort embedded in raw getColumnState() output. */
 function sortStateFromColumnState(value: unknown): AgGridSortState | undefined {
   if (!Array.isArray(value) || !normalizeColumnState(value)) return undefined;
   const seen = new Set<string>();
@@ -100,7 +96,7 @@ function columnSizingStateFromModel(value: unknown): AgGridColumnSizingState | u
   return columnSizingModel.length ? { columnSizingModel } : undefined;
 }
 
-/** Extract AG-only flex sizing from legacy raw getColumnState() output. */
+/** Extract AG-only flex sizing from raw getColumnState() output. */
 function columnSizingStateFromColumnState(value: unknown): AgGridColumnSizingState | undefined {
   if (!Array.isArray(value) || !normalizeColumnState(value)) return undefined;
   const seen = new Set<string>();
@@ -237,76 +233,18 @@ function withFlexSizing(
   };
 }
 
-export function legacyAgGridStateKey(gridId: string, scope: string): string {
-  return legacyScopedKey("agGridState_", gridId, scope);
-}
-
-export function legacyColumnStateKey(gridId: string, scope: string): string {
-  return legacyScopedKey("cmColState_", gridId, scope);
-}
-
-export function readLegacyAgGridState(gridId: string, scope: string): PersistedGridState {
-  const stored = readLegacyJson(legacyAgGridStateKey(gridId, scope));
-  return isJsonRecord(stored) ? stateFromRecord(stored) : {};
-}
-
-/**
- * Migrate one exact legacy grid key set once, then supply native initial state
- * before AG Grid creates DOM so restored columns do not visibly reflow.
- */
+/** Supply native initial state from renderer-neutral page state before AG Grid creates DOM. */
 export function prepareAgGridPageState(
   root: Element,
   gridId: string,
-  legacyScope: string,
   configuredInitialState: AgGridInitialState | undefined,
 ): AgGridPageStateAdapter | null {
   const store = pageColumnStoreForRoot(root, gridId);
   if (!store) return null;
 
-  const agKey = legacyAgGridStateKey(gridId, legacyScope);
-  const columnKey = legacyColumnStateKey(gridId, legacyScope);
-  const widthKey = "cmColWidths_" + gridId;
-  let columns = readPageColumns(store);
-  const legacyAgRaw = readLegacyJson(agKey);
-  const hasLegacyAgState = isJsonRecord(legacyAgRaw);
-  const legacyAgState = hasLegacyAgState ? stateFromRecord(legacyAgRaw) : {};
-  const legacyColumns = normalizeColumnState(readLegacyJson(columnKey));
-  const legacyWidths = readLegacyJson(widthKey);
-  let persistedColumns = columns !== null;
-
-  if (!columns) {
-    const source = legacyAgState.colState ?? legacyColumns;
-    if (source) {
-      const migrated = mergeLegacyWidths(source, legacyWidths);
-      if (putPageColumns(store, migrated)) {
-        columns = readPageColumns(store) ?? migrated;
-        persistedColumns = true;
-        if (!legacyAgState.colState) removeLegacyKeys([columnKey, widthKey]);
-      } else {
-        columns = migrated;
-      }
-    }
-  }
-  if (persistedColumns && legacyColumns) removeLegacyKeys([columnKey, widthKey]);
-
-  let storedAgState = readPageAgGridState(store);
-  let persistedAgState = storedAgState !== null;
-  if (!persistedAgState) {
-    const migratedAgState = agOnlyState(legacyAgState);
-    if (!Object.keys(migratedAgState).length) {
-      persistedAgState = true;
-    } else if (putPageAgGridState(store, migratedAgState)) {
-      persistedAgState = true;
-      storedAgState = readPageAgGridState(store);
-    }
-  }
-  const legacyColumnsHandled = legacyAgState.colState === undefined || persistedColumns;
-  if (hasLegacyAgState && legacyColumnsHandled && persistedAgState) {
-    removeLegacyKeys([agKey]);
-    if (legacyAgState.colState !== undefined) removeLegacyKeys([widthKey]);
-  }
-
-  const initialAgState = storedAgState ? stateFromRecord(storedAgState) : legacyAgState;
+  const columns = readPageColumns(store);
+  const storedAgState = readPageAgGridState(store);
+  const initialAgState = storedAgState ? stateFromRecord(storedAgState) : {};
   const hasRestoredInitialState =
     columns !== null ||
     initialAgState.sort !== undefined ||

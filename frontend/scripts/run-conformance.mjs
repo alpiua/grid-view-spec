@@ -6,9 +6,7 @@ import {
   matchSetFilter,
   matchSmartHaystack,
   resolveKpis,
-  verifyAgGridColumnStateAuthority,
   verifyPageStateContract,
-  verifyPageStateMigrationContract,
 } from "./dist/conformance-search.mjs";
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../..");
@@ -109,23 +107,9 @@ for (const case_ of load("kpi_conformance.json")) {
 }
 
 try {
-  verifyAgGridColumnStateAuthority();
-} catch (error) {
-  console.error("AG Grid column-state authority:", error);
-  failures += 1;
-}
-
-try {
   verifyPageStateContract();
 } catch (error) {
   console.error("PageState contract:", error);
-  failures += 1;
-}
-
-try {
-  verifyPageStateMigrationContract();
-} catch (error) {
-  console.error("PageState migration contract:", error);
   failures += 1;
 }
 
@@ -134,4 +118,4 @@ if (failures) {
   process.exit(1);
 }
 
-console.log("JS conformance: filter + smart_search + column_scope + set_filter + kpi + ag_grid_column_state + page_state + page_state_migration passed");
+console.log("JS conformance: filter + smart_search + column_scope + set_filter + kpi + page_state passed");

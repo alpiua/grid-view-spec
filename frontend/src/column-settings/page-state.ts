@@ -2,7 +2,7 @@
 
 import { PageState } from "../page-state/page-state";
 import type { JsonValue, PageStateHandle } from "../page-state/types";
-import type { ColumnStateItem } from "./types";
+import type { ColumnStateItem, StoredColumnPreset } from "./types";
 
 const WIDTH_PATTERN = /^\d+(?:\.\d+)?(?:px|%|rem|em|vw|vh)?$/i;
 const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
@@ -10,6 +10,7 @@ const FORBIDDEN_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 export interface PageColumnStore {
   handle: PageStateHandle;
   columnsNamespace: string;
+  presetsNamespace: string;
   agGridNamespace: string;
 }
 
@@ -115,6 +116,7 @@ export function pageColumnStoreForRoot(
   return {
     handle,
     columnsNamespace: `grid.${gridId}.columns`,
+    presetsNamespace: `grid.${gridId}.presets`,
     agGridNamespace: `grid.${gridId}.ag_grid`,
   };
 }
@@ -143,6 +145,48 @@ export function putPageColumns(store: PageColumnStore, state: unknown): boolean 
   return persisted !== null && statesEqual(persisted, normalized);
 }
 
+export function readPageColumnPresets(store: PageColumnStore): Record<string, StoredColumnPreset> {
+  const value = store.handle.get(store.presetsNamespace);
+  if (!isJsonRecord(value)) return {};
+  const presets: Record<string, StoredColumnPreset> = {};
+  for (const [name, rawPreset] of Object.entries(value)) {
+    if (!isSafeKey(name)) continue;
+    const columns = Array.isArray(rawPreset)
+      ? normalizePageColumnState(rawPreset)
+      : isJsonRecord(rawPreset)
+        ? normalizePageColumnState(rawPreset.columns)
+        : null;
+    if (!columns) continue;
+    if (!Array.isArray(rawPreset) && isJsonRecord(rawPreset) && rawPreset.pageState !== undefined) {
+      if (!isJsonRecord(rawPreset.pageState)) continue;
+      presets[name] = { columns, pageState: rawPreset.pageState };
+    } else {
+      presets[name] = columns;
+    }
+  }
+  return presets;
+}
+
+export function putPageColumnPresets(
+  store: PageColumnStore,
+  presets: Record<string, StoredColumnPreset>,
+): void {
+  const serializable: Record<string, JsonValue> = {};
+  for (const [name, preset] of Object.entries(presets)) {
+    if (!isSafeKey(name)) continue;
+    const columns = normalizeColumnState(Array.isArray(preset) ? preset : preset.columns);
+    if (!columns) continue;
+    const value: Record<string, JsonValue> = { columns: serializeColumnState(columns) };
+    if (Array.isArray(preset)) {
+      serializable[name] = value.columns;
+    } else if (preset.pageState === undefined || isJsonRecord(preset.pageState)) {
+      if (preset.pageState !== undefined) value.pageState = preset.pageState;
+      serializable[name] = value;
+    }
+  }
+  store.handle.put(store.presetsNamespace, serializable);
+}
+
 export function readPageAgGridState(store: PageColumnStore): Record<string, JsonValue> | null {
   const value = store.handle.get(store.agGridNamespace);
   return isJsonRecord(value) ? value : null;
@@ -152,52 +196,4 @@ export function putPageAgGridState(store: PageColumnStore, state: Record<string,
   if (!isJsonRecord(state)) return false;
   store.handle.put(store.agGridNamespace, state);
   return readPageAgGridState(store) !== null;
-}
-
-function browserStorage(): Storage | null {
-  try {
-    return typeof window === "undefined" ? null : window.localStorage;
-  } catch {
-    return null;
-  }
-}
-
-export function readLegacyJson(key: string): JsonValue | null {
-  const storage = browserStorage();
-  if (!storage) return null;
-  try {
-    const value: unknown = JSON.parse(storage.getItem(key) || "null");
-    return isJsonValue(value) ? value : null;
-  } catch {
-    return null;
-  }
-}
-
-export function removeLegacyKeys(keys: readonly string[]): void {
-  const storage = browserStorage();
-  if (!storage) return;
-  keys.forEach((key) => {
-    try {
-      storage.removeItem(key);
-    } catch {
-      // Browser preferences remain optional when storage is unavailable.
-    }
-  });
-}
-
-export function legacyScopedKey(prefix: string, gridId: string, scope: string): string {
-  return scope ? `${prefix}${gridId}__${scope}` : `${prefix}${gridId}`;
-}
-
-/** Merge old standalone width values only where portable state has no width. */
-export function mergeLegacyWidths(
-  state: ColumnStateItem[],
-  legacyWidths: JsonValue | null,
-): ColumnStateItem[] {
-  if (!isJsonRecord(legacyWidths)) return state;
-  return state.map((column) => {
-    if (column.width != null) return column;
-    const width = normalizeWidth(legacyWidths[column.colId]);
-    return width == null ? column : { ...column, width };
-  });
 }

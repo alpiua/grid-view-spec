@@ -79,4 +79,11 @@
     --cm-z-search-active: 260;
     --cm-z-settings: 1300;
     --cm-z-lightbox: 1400;
+    --cm-z-dialog: 1500;
+    --cm-z-toast: 1600;
+
+    --cm-toast-width: 360px;
+    --cm-toast-max-width: calc(100vw - 32px);
+    --cm-toast-radius: 8px;
+    --cm-toast-shadow: 0 4px 16px rgba(0, 0, 0, 0.16);
 }

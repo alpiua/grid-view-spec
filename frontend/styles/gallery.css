@@ -170,3 +170,24 @@
     background: linear-gradient(transparent, rgba(0, 0, 0, 0.65));
     border-radius: 0 0 8px 8px;
 }
+
+@media (max-width: 768px) {
+    .cm-gallery-stage {
+        max-width: calc(100vw - 1.5rem);
+        max-height: 85vh;
+    }
+    .cm-gallery-stage img {
+        max-width: calc(100vw - 1.5rem);
+        max-height: calc(100vh - 5rem);
+    }
+    .cm-gallery-prev {
+        left: 0.5rem;
+    }
+    .cm-gallery-next {
+        right: 0.5rem;
+    }
+    .cm-gallery-close {
+        top: 0.5rem;
+        right: 0.5rem;
+    }
+}

@@ -10,6 +10,8 @@ interface GridViewAssetsManifest {
   chartsCdn?: string;
   chartsPlugin?: string;
   agGridCss?: string[];
+  filterWorkspacePlugin?: string;
+  filterWorkspaceCss?: string;
 }
 
 function manifest(): GridViewAssetsManifest {
@@ -122,8 +124,29 @@ export function ensureChartsAssetsLoaded(): Promise<void> {
   return chartsLoadPromise;
 }
 
+let filterWorkspaceLoadPromise: Promise<void> | null = null;
+
+export function ensureFilterDrawerWorkspaceAssetsLoaded(): Promise<void> {
+  const cfg = manifest();
+  if (cfg.filterWorkspaceCss) loadStylesheet(cfg.filterWorkspaceCss);
+
+  const gv = getGlobal().GridView;
+  if (gv?.FilterDrawerWorkspace) return Promise.resolve();
+  if (filterWorkspaceLoadPromise) return filterWorkspaceLoadPromise;
+
+  filterWorkspaceLoadPromise = loadScript(
+    cfg.filterWorkspacePlugin ?? "",
+    () => !!getGlobal().GridView?.FilterDrawerWorkspace,
+  ).catch((error) => {
+    filterWorkspaceLoadPromise = null;
+    throw error;
+  });
+  return filterWorkspaceLoadPromise;
+}
+
 export function installAssetLoader(gv: GridViewPublic): void {
   gv.assets = gv.assets ?? {};
   gv.assets.ensureAgGrid = ensureAgGridAssetsLoaded;
   gv.assets.ensureCharts = ensureChartsAssetsLoaded;
+  gv.assets.ensureFilterDrawerWorkspace = ensureFilterDrawerWorkspaceAssetsLoaded;
 }

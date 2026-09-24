@@ -1,6 +1,6 @@
 import { i18n } from "./i18n";
 import { byId, invokeGridAction } from "./registry";
-import { getGlobal } from "./dom-utils";
+import { getGlobal, positionFixedOverlay } from "./dom-utils";
 import { parseSmartQuery } from "./search/smart-query";
 import { collectColumnFiltersObject, serializeColumnFilters, matchColumnFilter } from "./search/column-filter-state";
 import { initColumnFilters, navigateWithTableFilters } from "./column-filters";
@@ -10,6 +10,7 @@ import { applyClientFilterState, initAllSimpleTables, applyFiltersInScope } from
 import { initButtonEllipsisTips } from "./table-cell-ui";
 import { asHTMLElement, asHtmlInput, isRecord } from "./dom-guards";
 import { resolveToolbarSearchInputForCtx } from "./toolbar-search-input";
+import { initFilterDrawers } from "./filter-drawer";
 
 type FilterState = Record<string, string | string[]>;
 
@@ -37,6 +38,8 @@ const MS_COUNTABLE =
 const MULTISELECT_CHANGE_DEBOUNCE_MS = 650;
 const multiselectChangeTimers = new WeakMap<HTMLElement, number>();
 let multiselectPanelToRestore: { barId: string; filterId: string } | null = null;
+let filterHistoryBound = false;
+let latestFilterNavigationUrl = "";
 
 export function setMultiselectTriggerLabel(root: Element, text: string): void {
   const trigger = root.querySelector(".cm-multiselect-trigger");
@@ -79,6 +82,25 @@ export function selectedFilterValues(root: Element): FilterState {
     const param = selEl.name || selEl.dataset.filterId;
     if (param) state[param] = selEl.value;
   });
+  const groupedValues = new Map<string, string[]>();
+  root.querySelectorAll<HTMLSelectElement>("select[data-cm-grouped-select]").forEach((select) => {
+    const param = select.name || select.closest<HTMLElement>("[data-filter-id]")?.dataset.filterParam;
+    if (!param) return;
+    const selected = groupedValues.get(param) || [];
+    if (select.value) selected.push(select.value);
+    groupedValues.set(param, selected);
+  });
+  groupedValues.forEach((values, param) => {
+    // Preserve an explicit empty state so buildFilterUrl removes a prior CSV
+    // value rather than leaving it in the browser URL.
+    state[param] = values;
+  });
+  root.querySelectorAll<HTMLInputElement>("[data-cm-filter-input]").forEach((input) => {
+    const field = asHTMLElement(input.closest("[data-filter-id]"));
+    const param = field?.dataset.filterParam || field?.dataset.filterId || input.name;
+    if (!param) return;
+    state[param] = input.type === "checkbox" ? (input.checked ? input.value || "1" : "") : input.value;
+  });
   const search = asHtmlInput(root.querySelector("[data-cm-search]"));
   if (search && search.name) state[search.name] = search.value;
   return state;
@@ -118,7 +140,6 @@ export function _updateMultiSelectLabel(ms: HTMLElement): void {
 export function applyFilterValues(root: Element, state: FilterState): void {
   if (!root || !state) return;
   Object.entries(state).forEach(([param, val]) => {
-    if (val == null || val === "") return;
     const values = Array.isArray(val)
       ? val.map(String)
       : String(val).split(",").map((v) => v.trim()).filter(Boolean);
@@ -151,6 +172,26 @@ export function applyFilterValues(root: Element, state: FilterState): void {
       if (selParam !== param) return;
       selEl.value = Array.isArray(val) ? String(val[0] || "") : String(val);
     });
+    root.querySelectorAll<HTMLInputElement>("[data-cm-filter-input]").forEach((input) => {
+      const field = asHTMLElement(input.closest("[data-filter-id]"));
+      const fieldParam = field?.dataset.filterParam || field?.dataset.filterId || input.name;
+      if (fieldParam !== param) return;
+      if (input.type === "checkbox") input.checked = values.includes(input.value || "1");
+      else input.value = Array.isArray(val) ? String(val[0] || "") : String(val ?? "");
+    });
+  });
+  root.querySelectorAll<HTMLSelectElement>("select[data-cm-grouped-select]").forEach((select) => {
+    const param = select.name || select.closest<HTMLElement>("[data-filter-id]")?.dataset.filterParam;
+    if (!param) return;
+    const rawValue = state[param];
+    const values = Array.isArray(rawValue)
+      ? rawValue.map(String)
+      : String(rawValue || "").split(",").map((value) => value.trim()).filter(Boolean);
+    const selected = Array.from(select.options).find(
+      (option) => !option.disabled && values.includes(option.value),
+    );
+    const fallback = Array.from(select.options).find((option) => !option.disabled);
+    select.value = selected?.value || fallback?.value || "";
   });
 }
 
@@ -162,6 +203,10 @@ export function filterNavigateHref() {
 
 function resolveToolbarGridId(anchor: Element | null | undefined): string {
   const anchorEl = asHTMLElement(anchor);
+  const directGridId = anchorEl?.getAttribute("data-cm-grid-id");
+  if (directGridId) return directGridId;
+  const drawerTarget = asHTMLElement(anchorEl?.closest(".cm-filters"))?.dataset.target;
+  if (drawerTarget) return drawerTarget;
   const root =
     asHTMLElement(anchorEl?.closest("[data-cm-toolbar-search-root]")) ||
     asHTMLElement(anchorEl?.closest(".cm-toolbar-unified")?.querySelector("[data-cm-toolbar-search-root]"));
@@ -245,7 +290,7 @@ export function navigateFilterState(
         target: frag.target,
         swap: frag.swap,
       });
-      window.history.pushState({}, "", pageUrl);
+      pushFilterHistory(pageUrl, anchorEl || bar);
       window.setTimeout(() => syncToolbarCounterFromTable(frag.gridId), 0);
       return true;
     }
@@ -260,12 +305,58 @@ export function navigateFilterState(
         swap: "innerHTML",
         select: "#" + specRoot.id,
       });
-      window.history.pushState({}, "", pageUrl);
+      pushFilterHistory(pageUrl, ref);
       return true;
     }
   }
   window.location.href = pageUrl;
   return false;
+}
+
+function pushFilterHistory(pageUrl: string, anchor: Element | null | undefined): void {
+  const specRoot = anchor instanceof Element
+    ? asHTMLElement(anchor.closest("[data-cm-grid-view-spec]"))
+    : null;
+  const state: Record<string, unknown> = isRecord(window.history.state) ? { ...window.history.state } : {};
+  if (specRoot?.dataset.specId) state.cmFilterSpecId = specRoot.dataset.specId;
+  window.history.pushState(state, "", pageUrl);
+  latestFilterNavigationUrl = pageUrl;
+}
+
+function isSameFilterPage(previousUrl: string, nextUrl: string): boolean {
+  const previous = new URL(previousUrl, window.location.origin);
+  const next = new URL(nextUrl, window.location.origin);
+  return previous.pathname === next.pathname && previous.searchParams.get("tab") === next.searchParams.get("tab");
+}
+
+function restoreFilterHistorySpec(): void {
+  if (filterHistoryBound) return;
+  filterHistoryBound = true;
+  window.addEventListener("popstate", () => {
+    const nextUrl = filterNavigateHref();
+    if (!isSameFilterPage(latestFilterNavigationUrl, nextUrl)) return;
+    latestFilterNavigationUrl = nextUrl;
+    // HTMX restores its own cached snapshot during the same popstate dispatch.
+    // Queue our canonical server-spec swap after that restore so URL and rows
+    // cannot diverge when this filter navigation used pushState directly.
+    window.setTimeout(() => {
+      const historyState = isRecord(window.history.state) ? window.history.state : {};
+      const specId = typeof historyState.cmFilterSpecId === "string" ? historyState.cmFilterSpecId : "";
+      const roots = Array.from(document.querySelectorAll<HTMLElement>("[data-cm-grid-view-spec]"));
+      const specRoot = specId
+        ? asHTMLElement(document.getElementById("cm-spec-" + specId))
+        : roots.length === 1 ? roots[0] : null;
+      const htmx = getGlobal().htmx;
+      if (!specRoot?.id || !htmx || typeof htmx.ajax !== "function") return;
+      const wrapId = "cm-spec-wrap-" + specRoot.dataset.specId;
+      if (!document.getElementById(wrapId)) return;
+      htmx.ajax("GET", filterNavigateHref(), {
+        target: "#" + wrapId,
+        swap: "innerHTML",
+        select: "#" + specRoot.id,
+      });
+    }, 0);
+  });
 }
 
 function toolbarSearchUsesFragmentNavigation(searchInput: HTMLInputElement): boolean {
@@ -277,7 +368,7 @@ function toolbarSearchUsesFragmentNavigation(searchInput: HTMLInputElement): boo
 export function buildFilterUrl(baseUrl: string, state: FilterState): string {
   const url = new URL(baseUrl, window.location.origin);
   Object.entries(state).forEach(([key, val]) => {
-    if (val === "" || val == null) {
+    if (val === "" || val == null || (Array.isArray(val) && val.length === 0)) {
       url.searchParams.delete(key);
       return;
     }
@@ -299,19 +390,7 @@ export function activeExportColIds(gridId: string): string {
       if (Array.isArray(ids)) return ids.map(String).join(",");
     }
   }
-  try {
-    const raw = localStorage.getItem("cmColState_" + gridId);
-    if (!raw) return "";
-    const state: unknown = JSON.parse(raw);
-    if (!Array.isArray(state)) return "";
-    return state
-      .filter((col): col is Record<string, unknown> => isRecord(col) && !col.hide)
-      .map((col) => String(col.colId || ""))
-      .filter(Boolean)
-      .join(",");
-  } catch {
-    return "";
-  }
+  return "";
 }
 
 export function withActiveTableColumns(urlString: string, scopeEl: Element | null | undefined): string {
@@ -490,6 +569,18 @@ export function bindFilterBar(barEl: Element, opts?: FilterBarOptions) {
   bar.querySelectorAll("select[data-filter-scope='server']").forEach((selEl) => {
     if (selEl instanceof HTMLSelectElement) selEl.addEventListener("change", onChange);
   });
+  bar.querySelectorAll<HTMLSelectElement>("select[data-cm-grouped-select]").forEach((select) => {
+    select.addEventListener("change", onChange);
+  });
+  bar.querySelectorAll<HTMLInputElement>("[data-cm-filter-input]").forEach((input) => {
+    input.addEventListener("change", onChange);
+    input.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        onChange();
+      }
+    });
+  });
   const search = asHtmlInput(bar.querySelector("[data-cm-search]"));
   if (search) {
     search.addEventListener("keydown", (e) => {
@@ -511,21 +602,35 @@ export function getCsrfToken() {
   return "";
 }
 
+
 export function setSavedSearchPanelOpen(dropdown: HTMLElement | null, open: boolean) {
   if (!dropdown) return;
   var scopeId = dropdown.dataset.cmSavedDropdownFor || "";
   var loadBtn = scopeId
     ? document.getElementById("cm-saved-searches-btn-" + scopeId)
     : null;
-  if (open) {
+  const root = scopeId
+    ? document.querySelector<HTMLElement>(
+        '[data-cm-toolbar-search-root][data-cm-search-scope-id="' + scopeId + '"]'
+      )
+    : null;
+  if (open && loadBtn instanceof HTMLElement) {
+    document.body.appendChild(dropdown);
+    dropdown.classList.add("cm-toolbar-search-saved-panel--portal");
     dropdown.classList.remove("is-hidden", "hidden");
     dropdown.classList.add("is-open");
-    if (loadBtn) loadBtn.setAttribute("aria-expanded", "true");
-  } else {
-    dropdown.classList.add("is-hidden");
-    dropdown.classList.remove("is-open");
-    if (loadBtn) loadBtn.setAttribute("aria-expanded", "false");
+    dropdown.style.right = "auto";
+    positionFixedOverlay(dropdown, loadBtn, "end");
+    loadBtn.setAttribute("aria-expanded", "true");
+    return;
   }
+  dropdown.classList.add("is-hidden");
+  dropdown.classList.remove("is-open", "cm-toolbar-search-saved-panel--portal");
+  dropdown.style.removeProperty("left");
+  dropdown.style.removeProperty("top");
+  dropdown.style.removeProperty("right");
+  if (root) root.appendChild(dropdown);
+  if (loadBtn) loadBtn.setAttribute("aria-expanded", "false");
 }
 
 /** Saved toolbar searches — one contract: scope_id (DOM), pref_grid_id (GridPreference). */
@@ -572,32 +677,14 @@ export const ToolbarSearch = {
           if (fromAttr.length) return fromAttr;
         }
       } catch (e) {
-        /* ignore — broken attribute encoding; fall through to localStorage */
+        /* ignore broken attribute encoding */
       }
-    }
-    try {
-      var ls = localStorage.getItem("cmSavedSearches_" + ctx.prefId);
-      if (ls) {
-        var fromLs = JSON.parse(ls);
-        if (Array.isArray(fromLs)) {
-          return fromLs.filter(function (s) {
-            return typeof s === "string" && s;
-          });
-        }
-      }
-    } catch (e) {
-      /* ignore */
     }
     return [];
   },
   persist: function (ctx: ToolbarSearchContext | null, items: string[]): void {
     if (!ctx) return;
     ctx.root.dataset.cmSavedSearches = JSON.stringify(items);
-    try {
-      localStorage.setItem("cmSavedSearches_" + ctx.prefId, JSON.stringify(items));
-    } catch (e) {
-      /* ignore */
-    }
     var host = byId.get(ctx.scopeId);
     if (host) host.savedQuickSearches = items;
     var url = (getGlobal().GridView && getGlobal().GridView.preferencesUrl) || "";
@@ -643,12 +730,16 @@ export const ToolbarSearch = {
     if (!ctx || !ctx.container) return;
     const container = ctx.container;
     container.innerHTML = "";
+    const i18n = (getGlobal() as unknown as { GridViewI18n?: Record<string, string> }).GridViewI18n;
+
     if (!items.length) {
-      setSavedSearchPanelOpen(ctx.dropdown, false);
+      const empty = document.createElement("div");
+      empty.className = "cm-toolbar-search-saved-empty p-2 text-slate-400 dark:text-gray-500 text-center text-[11px]";
+      empty.textContent = i18n?.["search.no_saved_searches"] || "No saved searches";
+      container.appendChild(empty);
       if (ctx.input) syncToolbarSearchChrome(ctx.input);
       return;
     }
-    var self = ToolbarSearch;
     items.forEach(function (text) {
       var item = document.createElement("div");
       item.className = "cm-toolbar-search-saved-item";
@@ -657,7 +748,7 @@ export const ToolbarSearch = {
       item.appendChild(label);
       item.addEventListener("mousedown", function (e) {
         e.preventDefault();
-        self.apply(ctx, text, onPick ?? undefined);
+        ToolbarSearch.apply(ctx, text, onPick ?? undefined);
       });
       var del = document.createElement("button");
       del.type = "button";
@@ -669,8 +760,8 @@ export const ToolbarSearch = {
         var next = items.filter(function (s) {
           return s !== text;
         });
-        self.persist(ctx, next);
-        self.render(ctx, next, onPick);
+        ToolbarSearch.persist(ctx, next);
+        ToolbarSearch.render(ctx, next, onPick);
       });
       item.appendChild(del);
       container.appendChild(item);
@@ -702,6 +793,7 @@ export const ToolbarSearch = {
           ? serverToolbarSearchApplyClient(ctx.input)
           : null;
       ToolbarSearch.render(ctx, ToolbarSearch.load(ctx), onPick);
+
     }
     setSavedSearchPanelOpen(ctx.dropdown, opening);
   },
@@ -732,7 +824,12 @@ export const ToolbarSearch = {
             '[data-cm-toolbar-search-root][data-cm-search-scope-id="' + esc + '"]'
           );
           const target = e.target;
-          if (root instanceof HTMLElement && target instanceof Node && !root.contains(target)) {
+          if (
+            root instanceof HTMLElement &&
+            target instanceof Node &&
+            !root.contains(target) &&
+            !dd.contains(target)
+          ) {
             setSavedSearchPanelOpen(dd, false);
           }
         });
@@ -909,6 +1006,7 @@ export function initToolbarSearch(scope: Document | Element | null | undefined):
 
 export function initFilterBars(scope: Document | Element | null | undefined): void {
   const root = scope && "querySelectorAll" in scope ? scope : document;
+  latestFilterNavigationUrl = filterNavigateHref();
   root.querySelectorAll("[data-cm-filter-bar]").forEach((barEl) => {
     const bar = asHTMLElement(barEl);
     if (!bar) return;
@@ -917,6 +1015,22 @@ export function initFilterBars(scope: Document | Element | null | undefined): vo
       bindFilterBar(bar, { navigate: bar.dataset.navigateOnChange !== "0" });
     }
   });
+  initFilterDrawers(root);
+  const workspaceRoot = root.querySelector("[data-cm-filter-drawer-workspace]");
+  if (workspaceRoot) {
+    const workspace = getGlobal().GridView?.FilterDrawerWorkspace;
+    if (workspace) {
+      workspace.init(root);
+    } else {
+      const ensureWorkspace = getGlobal().GridView?.assets?.ensureFilterDrawerWorkspace;
+      if (ensureWorkspace) {
+        void ensureWorkspace()
+          .then(() => getGlobal().GridView?.FilterDrawerWorkspace?.init(root))
+          .catch(() => undefined);
+      }
+    }
+  }
+  restoreFilterHistorySpec();
   initToolbarSearch(root);
 }
 

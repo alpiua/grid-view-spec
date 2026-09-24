@@ -11,17 +11,28 @@ export function createAgGridColumnAdapter(
   columnMeta: Record<string, Partial<ColumnMetaInput>> | null | undefined
 ): ColumnAdapter {
   const meta = columnMeta || {};
-  let initialState = gridApi.getColumnState ? gridApi.getColumnState() : [];
+  const getDefaultColumnState = (): ColumnStateItem[] => {
+    if (!gridApi || !gridApi.getColumns) return [];
+    return gridApi.getColumns().map((col) => {
+      const colDef = col.getColDef();
+      const colId = col.getColId();
+      return {
+        colId,
+        hide: colDef.hide === true,
+        pinned: (colDef.pinned === "left" || colDef.pinned === "right") ? colDef.pinned : null,
+        ...(colDef.width !== undefined ? { width: colDef.width } : {}),
+      };
+    });
+  };
   return {
     hasGroupedHeaders() {
       return false;
     },
     getDescriptors(): ColumnDescriptor[] {
       if (!gridApi || !gridApi.getColumns) return [];
-      if (!initialState.length && gridApi.getColumnState) initialState = gridApi.getColumnState();
       return gridApi.getColumns().map((col) => {
         const colDef = col.getColDef();
-        const colId = colDef.field || col.getColId();
+        const colId = col.getColId();
         const saved = meta[colId] || {};
         return {
           colId,
@@ -32,6 +43,12 @@ export function createAgGridColumnAdapter(
           _col: col,
         };
       });
+    },
+    getLeafLabel(colId: string): string {
+      if (!gridApi || !gridApi.getColumn) return colId;
+      const col = gridApi.getColumn(colId);
+      const colDef = col?.getColDef();
+      return colDef?.headerName || meta[colId]?.label || colId;
     },
     isVisible(colId: string): boolean {
       const col = gridApi.getColumn(colId);
@@ -45,7 +62,8 @@ export function createAgGridColumnAdapter(
       return col ? col.getPinned() : null;
     },
     setPinned(colId: string, pinned: string | null): void {
-      gridApi.applyColumnState({ state: [{ colId, pinned, hide: false }] });
+      const hide = gridApi.getColumn(colId)?.isVisible() === false;
+      gridApi.applyColumnState({ state: [{ colId, pinned, hide }] });
     },
     getColumnState(): ColumnStateItem[] {
       return gridApi.getColumnState();
@@ -54,8 +72,9 @@ export function createAgGridColumnAdapter(
       gridApi.applyColumnState({ state, applyOrder: !!applyOrder });
     },
     resetColumnState(): void {
-      if (initialState.length) {
-        gridApi.applyColumnState({ state: initialState, applyOrder: true });
+      const defaultState = getDefaultColumnState();
+      if (defaultState.length) {
+        gridApi.applyColumnState({ state: defaultState, applyOrder: true });
       }
     },
     getDisplayedColumnIds(): string[] {

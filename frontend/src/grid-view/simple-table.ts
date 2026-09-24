@@ -26,6 +26,7 @@ import { ChartsBridge } from "./charts-bridge";
 import { initSimpleTableColumnSettings } from "./actions";
 import { queryRecordCounters } from "./dom-utils";
 import { invokeAction } from "./registry-api";
+import { confirmAndInvokeFromElement } from "./action-confirmation";
 import { asHTMLElement, eventTargetElement, isRecord } from "./dom-guards";
 import type { ChartRuntimeDict, RowDict } from "../types/chart-bind";
 
@@ -289,7 +290,11 @@ export class SimpleTable {
         )
           return;
         const url = row.dataset.cmRowUrl;
-        if (url) window.location.href = url;
+        if (url) {
+          confirmAndInvokeFromElement(row, () => {
+            window.location.href = url;
+          });
+        }
       });
     });
     this.tbody.querySelectorAll("[data-cm-row-action]").forEach((rowEl) => {
@@ -306,10 +311,13 @@ export class SimpleTable {
           return;
         const action = row.dataset.cmRowAction;
         if (!action) return;
-        invokeAction(action, {
-          rowId: row.dataset.cmRowId,
-          gridId: this.w.getAttribute("data-grid-id") || undefined,
-          event,
+        confirmAndInvokeFromElement(row, () => {
+          invokeAction(action, {
+            rowId: row.dataset.cmRowId,
+            gridId: this.w.getAttribute("data-grid-id") || undefined,
+            event,
+            source: "row",
+          });
         });
       });
     });
@@ -412,14 +420,7 @@ export class SimpleTable {
     const url = new URL(window.location.href);
     ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
     window.history.replaceState({}, "", url);
-    const gridId =
-      this.w.dataset.gridId ||
-      this.table.closest<HTMLElement>("[data-grid-id]")?.dataset.gridId ||
-      "";
-    if (gridId) {
-      localStorage.removeItem("cmColState_" + gridId);
-      localStorage.removeItem("cmTableState_" + gridId);
-    }
+    const gridId = this._gridId();
     this.applyAllFilters();
     document.dispatchEvent(
       new CustomEvent("cm-grid-state-change", { detail: { gridId } }),
@@ -443,7 +444,8 @@ export class SimpleTable {
     if (Object.keys(collectColumnFiltersFromTable(this.table)).length)
       return true;
     const params = new URLSearchParams(window.location.search);
-    if (params.has("q") || params.has("col_q")) return true;
+    if (["q", "col_q"].some((key) => (params.get(key) || "").trim().length > 0))
+      return true;
     return false;
   }
   syncFilterChrome(): void {
@@ -741,8 +743,8 @@ export class SimpleTable {
       }
       if (match) shown++;
     });
-    const filtered = globalActive || hasColFilters;
-    this._syncSectionVisibility(colKeys, globalActive);
+    const filtered = globalActive || hasColFilters || clientFilterKeys.length > 0;
+    this._syncSectionVisibility(colKeys, filtered);
     this._syncSectionTotals(filtered);
     this._syncTableEmptyState(shown, filtered);
     this._syncRecordCounters(shown);
@@ -921,6 +923,7 @@ export function attachSimpleTableGlobals() {
   if (document.readyState === "loading") {
     document.addEventListener("DOMContentLoaded", () =>
       initAllSimpleTables(document),
+      { once: true },
     );
   } else {
     initAllSimpleTables(document);

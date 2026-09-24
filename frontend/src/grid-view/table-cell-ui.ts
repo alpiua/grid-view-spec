@@ -485,12 +485,17 @@ export function bindButtonEllipsisTip(el: HTMLElement): void {
 
 export function initButtonEllipsisTips(scope: Document | Element | null | undefined): void {
   const root = scope && "querySelectorAll" in scope ? scope : document;
-  const selector = [
-    `${BTN_TIP_SCOPE} button[title]`,
-    `${BTN_TIP_SCOPE} a[title]`,
-    `${BTN_TIP_SCOPE} button[aria-label]`,
-    `${BTN_TIP_SCOPE} a[aria-label]`,
-  ].join(", ");
+  const selectors: string[] = [];
+  BTN_TIP_SCOPE.split(",").forEach((container: string) => {
+    const prefix = container.trim();
+    selectors.push(
+      `${prefix} button[title]`,
+      `${prefix} a[title]`,
+      `${prefix} button[aria-label]`,
+      `${prefix} a[aria-label]`
+    );
+  });
+  const selector = selectors.join(", ");
   root.querySelectorAll(selector).forEach(function (node) {
     if (!(node instanceof HTMLElement)) return;
     if (node.closest(".cm-col-resize-handle")) return;

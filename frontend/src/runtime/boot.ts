@@ -8,6 +8,7 @@ import {
   initButtonEllipsisTips,
   initContentActions,
   initFilterBars,
+  initNavTrees,
   initTabGroups,
   initTableEdit,
 } from "./blocks";
@@ -17,6 +18,7 @@ import { initImageRenderers } from "./renderers/image";
 import { unloadAgGridStyles } from "./asset-loader";
 import { bootAgGridSpecFromDocument } from "./table-ag-grid";
 import { bindDelegatedGridActions } from "../grid-view/actions";
+import { installConfirmationInterceptors } from "../grid-view/confirmation-interceptor";
 import type { GridViewPublic } from "../grid-view/types";
 
 type BootScope = Document | Element | null | undefined;
@@ -92,18 +94,21 @@ function scopeElement(scope: BootScope): Document | Element {
 }
 
 function hasWidgetMarkers(root: Document | Element): boolean {
+  const hasMarker = (selector: string): boolean =>
+    (root instanceof Element && root.matches(selector)) || !!root.querySelector(selector);
+
   return !!(
-    root.querySelector("[data-cm-table]") ||
-    root.querySelector("[data-cm-filter-bar]") ||
-    root.querySelector("[data-cm-chart-config]") ||
-    root.querySelector("[data-cm-kpi-root]") ||
-    root.querySelector("[data-cm-tab-group]") ||
-    root.querySelector('[data-cm-action="show_content"]') ||
-    root.querySelector("[data-cm-content-dismissible]") ||
-    root.querySelector("[data-cm-grid-view-spec]") ||
-    root.querySelector("[data-cm-grid-artifact-boot]") ||
-    root.querySelector("script.cm-ag-grid-spec-config") ||
-    root.querySelector(LAZY_SEL)
+    hasMarker("[data-cm-table]") ||
+    hasMarker("[data-cm-filter-bar]") ||
+    hasMarker("[data-cm-chart-config]") ||
+    hasMarker("[data-cm-kpi-root]") ||
+    hasMarker("[data-cm-tab-group]") ||
+    hasMarker("[data-cm-nav-tree]") ||
+    hasMarker('[data-cm-action="show_content"]') ||
+    hasMarker("[data-cm-content-dismissible]") ||
+    hasMarker("[data-cm-grid-view-spec]") ||
+    hasMarker("script.cm-ag-grid-spec-config") ||
+    hasMarker(LAZY_SEL)
   );
 }
 
@@ -146,42 +151,6 @@ function bootChartsWhenReady(scope: Document | Element, gv: GridViewPublic): voi
   tryInit();
 }
 
-function bootSingleArtifactRoot(root: HTMLElement, gv: GridViewPublic): void {
-  if (root.dataset.cmGridViewSpecBooted) return;
-  root.dataset.cmGridViewSpecBooted = "1";
-
-  let attempts = 0;
-  const tryInit = (): void => {
-    const g = window as Window & { echarts?: unknown };
-    if (
-      gv &&
-      (typeof g.echarts !== "undefined" || !root.querySelector("[data-cm-chart-config]"))
-    ) {
-      gv.init({ root });
-      return;
-    }
-    attempts += 1;
-    if (attempts >= MAX_CHART_BOOT_ATTEMPTS) return;
-    window.setTimeout(tryInit, CHART_BOOT_INTERVAL_MS);
-  };
-  tryInit();
-}
-
-function bootArtifactRoots(scope: Document | Element, gv: GridViewPublic): void {
-  scope.querySelectorAll("[data-cm-grid-artifact-boot]").forEach((root) => {
-    bootSingleArtifactRoot(root as HTMLElement, gv);
-  });
-}
-
-function bootSpecRoots(scope: Document | Element, gv: GridViewPublic): void {
-  scope.querySelectorAll("[data-cm-grid-view-spec]").forEach((specRoot) => {
-    const el = specRoot as HTMLElement;
-    if (el.dataset.cmGridViewSpecBooted) return;
-    el.dataset.cmGridViewSpecBooted = "1";
-    bootScope(el, gv);
-  });
-}
-
 function syncAgGridStyles(): void {
   if (!document.querySelector("script.cm-ag-grid-spec-config")) {
     unloadAgGridStyles();
@@ -190,6 +159,7 @@ function syncAgGridStyles(): void {
 
 /** Boot widgets inside a scope (tables, filters, charts, KPI, tabs). */
 export function bootScope(scope: BootScope, gv?: GridViewPublic): void {
+  installConfirmationInterceptors();
   syncAgGridStyles();
   const gridView = (gv ?? window.GridView) as GridViewPublic | undefined;
   if (!gridView) return;
@@ -216,14 +186,13 @@ export function bootScope(scope: BootScope, gv?: GridViewPublic): void {
   safe("initFilterBars", () => initFilterBars(root));
   safe("initButtonEllipsisTips", () => initButtonEllipsisTips(root));
   safe("initTabGroups", () => initTabGroups(root));
+  safe("initNavTrees", () => initNavTrees(root));
   safe("initContentActions", () => initContentActions(root));
   safe("bindDelegatedGridActions", () => bindDelegatedGridActions());
   safe("initGalleryBlocks", () => initGalleryBlocks(root));
   safe("initImageRenderers", () => initImageRenderers(root));
   safe("initAllKpi", () => gridView.initAllKpi(root));
   safe("bootChartsWhenReady", () => bootChartsWhenReady(root, gridView));
-  safe("bootArtifactRoots", () => bootArtifactRoots(root, gridView));
-  safe("bootSpecRoots", () => bootSpecRoots(root, gridView));
   safe("bootAgGridInScope", () => bootAgGridInScope(root, gridView));
 }
 
@@ -241,13 +210,6 @@ export function boot(root: BootScope, gv?: GridViewPublic): void {
   }
 
   const el = root as Element;
-  if (el.matches("[data-cm-grid-artifact-boot]")) {
-    const host = el as HTMLElement;
-  delete host.dataset.cmGridViewSpecBooted;
-    bootSingleArtifactRoot(host, gridView);
-    return;
-  }
-
   if (el.matches("[data-cm-grid-view-spec]")) {
     const host = el as HTMLElement;
     delete host.dataset.cmGridViewSpecBooted;
@@ -263,6 +225,7 @@ let _htmxBound = false;
 /** Wire HTMX afterSwap to unified boot (initial boot: js.html after all bundles). */
 export function installRuntimeBoot(gv: GridViewPublic): void {
   initBuiltinRenderers();
+  installConfirmationInterceptors();
 
   if (_htmxBound || typeof document === "undefined") return;
   _htmxBound = true;
@@ -271,11 +234,6 @@ export function installRuntimeBoot(gv: GridViewPublic): void {
     const detail = (event as CustomEvent<{ target?: Element }>).detail;
     const target = detail?.target;
     if (!target) return;
-
-    if (target.matches?.("[data-cm-grid-artifact-boot]")) {
-      boot(target, gv);
-      return;
-    }
 
     bootScope(target, gv);
   });

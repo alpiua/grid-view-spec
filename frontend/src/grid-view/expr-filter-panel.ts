@@ -4,7 +4,7 @@ import { SearchProfile, columnFilterPlaceholderKey } from "./search/contract";
 
 /**
  * Expression column-filter panel. Reuses the Set-filter shell (the
- * Всі / Порожньо / Не порожньо mode row + styling) but replaces the value
+ * All / Empty / Non-empty mode row + styling) but replaces the value
  * checklist with a single smart-expression input (``>10``, ``10..20``, ``%x%``,
  * ``^prefix``, ``suffix$``, ``!negation``). Produces a ``ColumnFilterEntry``:
  * an expr string, an empty/non-empty mode model, or ``null`` for "all".
@@ -115,7 +115,7 @@ export class ExprFilterPanel {
             cb.checked = cb === target;
           });
         } else {
-          // "Усі" picked, or a mode toggled off → no filter.
+          // "All" picked, or a mode toggled off → no filter.
           this.mode = "all";
           this._syncAllChecked();
         }
@@ -143,7 +143,7 @@ export class ExprFilterPanel {
     });
   }
 
-  /** Reflect "no filter" state — only the «Усі» checkbox is ticked. */
+  /** Reflect "no filter" state — only the "All" checkbox is ticked. */
   _syncAllChecked(): void {
     this.modeCheckboxes.forEach((cb) => {
       cb.checked = cb.value === "all";

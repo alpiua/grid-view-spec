@@ -245,6 +245,7 @@ export class PageStateBrowserHarness {
 
   private createGrid(options: { initialState?: unknown }): {
     getColumns: () => object[];
+    getColumnDefs: () => object[];
     getColumnState: () => ColumnStateItem[];
     applyColumnState: () => void;
     getFilterModel: () => Record<string, unknown>;
@@ -268,6 +269,7 @@ export class PageStateBrowserHarness {
     };
     return {
       getColumns: (): object[] => [{}],
+      getColumnDefs: (): object[] => [],
       getColumnState: (): ColumnStateItem[] => [],
       applyColumnState(): void {},
       getFilterModel: (): Record<string, unknown> => api.filterModel ?? {},
