@@ -10,6 +10,35 @@ type AgCellParams = Record<string, unknown> & {
   colDef?: { field?: string; cellRendererParams?: Record<string, unknown> };
 };
 
+type CurrencyFormatterConfig = {
+  currency: string;
+  locale: string;
+  precision: number;
+  showSymbol: boolean;
+  emptyValue?: string;
+  strict?: boolean;
+};
+
+function isCurrencyFormatterConfig(value: unknown): value is CurrencyFormatterConfig {
+  if (
+    typeof value !== "object" ||
+    value === null ||
+    !("currency" in value) ||
+    !("locale" in value) ||
+    !("precision" in value) ||
+    !("showSymbol" in value)
+  ) return false;
+  const c = value as Record<string, unknown>;
+  return (
+    typeof c.currency === "string" &&
+    typeof c.locale === "string" &&
+    typeof c.precision === "number" &&
+    typeof c.showSymbol === "boolean" &&
+    (!("emptyValue" in c) || typeof c.emptyValue === "string" || c.emptyValue === undefined) &&
+    (!("strict" in c) || typeof c.strict === "boolean" || c.strict === undefined)
+  );
+}
+
 function escHtml(value: unknown): string {
   if (value === undefined || value === null || value === "") return "";
   const d = document.createElement("div");
@@ -17,26 +46,222 @@ function escHtml(value: unknown): string {
   return d.innerHTML;
 }
 
+function isValidGrouping(groups: string[]): boolean {
+  if (!groups || groups.length < 2) return false;
+  const first = groups[0];
+  if (first.length < 1 || first.length > 3 || !/^\d+$/.test(first)) return false;
+  return groups.slice(1).every((g) => g.length === 3 && /^\d+$/.test(g));
+}
+
+function parseFormattedNumber(value: unknown, locale: string): number | string | null {
+  if (typeof value === "number") {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (typeof value !== "string") {
+    return null;
+  }
+  let cleaned = value.trim().replace(/\u00a0/g, " ");
+  if (!cleaned) return null;
+  cleaned = cleaned.replace(/[\$€£₴¥]/g, "").trim();
+  cleaned = cleaned.replace(/^[A-Z]{3}\s+/, "").replace(/\s+[A-Z]{3}$/, "").trim();
+  if (!cleaned) return null;
+
+  let sign = "";
+  let bodyWithSpaces = cleaned;
+  if (cleaned.startsWith("-") || cleaned.startsWith("+")) {
+    sign = cleaned.startsWith("-") ? "-" : "";
+    const rest = cleaned.slice(1).trim();
+    if (!rest || rest.startsWith("+") || rest.startsWith("-")) {
+      return null;
+    }
+    bodyWithSpaces = rest;
+  }
+
+  // Space grouping validation
+  if (bodyWithSpaces.includes(" ")) {
+    let intPart = bodyWithSpaces;
+    if (bodyWithSpaces.includes(",") && bodyWithSpaces.includes(".")) {
+      const lastComma = bodyWithSpaces.lastIndexOf(",");
+      const lastDot = bodyWithSpaces.lastIndexOf(".");
+      const decPos = Math.max(lastComma, lastDot);
+      intPart = bodyWithSpaces.slice(0, decPos);
+      if (bodyWithSpaces.slice(decPos).includes(" ")) return null;
+    } else if (bodyWithSpaces.includes(",")) {
+      const parts = bodyWithSpaces.split(",");
+      if (parts.length === 2) {
+        intPart = parts[0];
+        if (parts[1].includes(" ")) return null;
+      }
+    } else if (bodyWithSpaces.includes(".")) {
+      const parts = bodyWithSpaces.split(".");
+      if (parts.length === 2) {
+        intPart = parts[0];
+        if (parts[1].includes(" ")) return null;
+      }
+    }
+
+    const spaceGroups = intPart.split(" ");
+    if (spaceGroups.length > 1 && !isValidGrouping(spaceGroups)) {
+      return null;
+    }
+  }
+
+  const noSpaces = bodyWithSpaces.replace(/ /g, "");
+  const body = noSpaces;
+  if (!body) return null;
+
+  const hasComma = body.includes(",");
+  const hasDot = body.includes(".");
+  const loc = locale.toLowerCase();
+  const isDotGroupingLocale = loc.startsWith("de");
+  const isCommaGroupingLocale = loc.startsWith("en") || loc.startsWith("ja");
+
+  let normalized: string | null = null;
+
+  if (hasComma && hasDot) {
+    const lastComma = body.lastIndexOf(",");
+    const lastDot = body.lastIndexOf(".");
+    if (lastComma > lastDot) {
+      const intPart = body.slice(0, lastComma);
+      const decPart = body.slice(lastComma + 1);
+      if (!/^\d+$/.test(decPart)) return null;
+      if (intPart.includes(".")) {
+        const groups = intPart.split(".");
+        if (!isValidGrouping(groups)) return null;
+        normalized = `${sign}${groups.join("")}.${decPart}`;
+      } else {
+        if (!/^\d+$/.test(intPart)) return null;
+        normalized = `${sign}${intPart}.${decPart}`;
+      }
+    } else {
+      const intPart = body.slice(0, lastDot);
+      const decPart = body.slice(lastDot + 1);
+      if (!/^\d+$/.test(decPart)) return null;
+      if (intPart.includes(",")) {
+        const groups = intPart.split(",");
+        if (!isValidGrouping(groups)) return null;
+        normalized = `${sign}${groups.join("")}.${decPart}`;
+      } else {
+        if (!/^\d+$/.test(intPart)) return null;
+        normalized = `${sign}${intPart}.${decPart}`;
+      }
+    }
+  } else if (hasComma) {
+    const groups = body.split(",");
+    if (groups.length > 2) {
+      if (!isValidGrouping(groups)) return null;
+      normalized = `${sign}${groups.join("")}`;
+    } else if (isCommaGroupingLocale && isValidGrouping(groups)) {
+      normalized = `${sign}${groups.join("")}`;
+    } else {
+      if (groups.length === 2 && /^\d+$/.test(groups[0]) && /^\d+$/.test(groups[1])) {
+        normalized = `${sign}${groups[0]}.${groups[1]}`;
+      } else {
+        return null;
+      }
+    }
+  } else if (hasDot) {
+    const groups = body.split(".");
+    if (groups.length > 2) {
+      if (!isValidGrouping(groups)) return null;
+      normalized = `${sign}${groups.join("")}`;
+    } else if (isDotGroupingLocale && isValidGrouping(groups)) {
+      normalized = `${sign}${groups.join("")}`;
+    } else {
+      if (groups.length === 2 && /^\d+$/.test(groups[0]) && /^\d+$/.test(groups[1])) {
+        normalized = `${sign}${groups[0]}.${groups[1]}`;
+      } else {
+        return null;
+      }
+    }
+  } else {
+    if (!/^\d+$/.test(body)) return null;
+    normalized = `${sign}${body}`;
+  }
+
+  if (normalized === null) return null;
+  return normalized;
+}
+
 function moneyRenderer(params: AgCellParams): string {
-  const value = params.value;
-  if (value === undefined || value === null || value === "") return "";
-  const field = params.colDef?.field || "";
-  const rowCurr = params.data?.[`${field}_currency`];
-  const curr = (typeof rowCurr === "string" && rowCurr) || "UAH";
-  const symbols: Record<string, string> = { USD: "$", EUR: "€", UAH: "₴", PLN: "zł", GBP: "£" };
-  const colors: Record<string, string> = { USD: "#10b981", EUR: "#3b82f6", UAH: "#eab308" };
-  const sym = symbols[curr] || curr;
-  const color = colors[curr] || "#9ca3af";
-  const numValue = Number(value);
-  const useDecimals = curr !== "UAH";
-  const displayValue = useDecimals
-    ? numValue.toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-    : Math.round(numValue).toLocaleString("uk-UA");
-  const cssClass = String(params.colDef?.cellRendererParams?.css_class || "");
-  const inner =
-    displayValue +
-    ` <span style="color:${color};font-size:12px;margin-left:2px">${sym}</span>`;
-  return cssClass ? `<span class="${escHtml(cssClass)}">${inner}</span>` : inner;
+  try {
+    const value = params.value;
+    const formatter = params.colDef?.cellRendererParams?.currencyFormatter;
+    if (formatter !== undefined && formatter !== null) {
+      if (!isCurrencyFormatterConfig(formatter)) return "";
+      const config = formatter;
+      const fallback = config.emptyValue !== undefined ? escHtml(config.emptyValue) : "";
+      try {
+        if (
+          value === undefined ||
+          value === null ||
+          (typeof value === "string" && value.trim() === "") ||
+          typeof value === "boolean"
+        ) return fallback;
+        if (config.strict && typeof value === "string") return fallback;
+
+        const precision = config.precision;
+        const currency = config.currency;
+        const locale = config.locale;
+        const showSymbol = config.showSymbol;
+        const number = parseFormattedNumber(value, locale);
+        if (
+          number === null ||
+          typeof precision !== "number" ||
+          !Number.isInteger(precision) ||
+          precision < 0 ||
+          precision > 6 ||
+          typeof currency !== "string" ||
+          typeof locale !== "string" ||
+          typeof showSymbol !== "boolean"
+        ) return fallback;
+
+        const displayValue = new Intl.NumberFormat(
+          locale,
+          showSymbol
+            ? {
+                style: "currency",
+                currency,
+                minimumFractionDigits: precision,
+                maximumFractionDigits: precision,
+              }
+            : { minimumFractionDigits: precision, maximumFractionDigits: precision },
+        ).format(number as unknown as number);
+        const cssClass = String(params.colDef?.cellRendererParams?.css_class || "");
+        const safeValue = escHtml(displayValue);
+        return cssClass ? `<span class="${escHtml(cssClass)}">${safeValue}</span>` : safeValue;
+      } catch {
+        return fallback;
+      }
+    }
+
+    if (
+      value === undefined ||
+      value === null ||
+      (typeof value === "string" && value.trim() === "") ||
+      typeof value === "boolean"
+    ) return "";
+
+    const field = params.colDef?.field || "";
+    const rowCurr = params.data?.[`${field}_currency`];
+    const curr = (typeof rowCurr === "string" && rowCurr) || "UAH";
+    const symbols: Record<string, string> = { USD: "$", EUR: "€", UAH: "₴", PLN: "zł", GBP: "£" };
+    const colors: Record<string, string> = { USD: "#10b981", EUR: "#3b82f6", UAH: "#eab308" };
+    const sym = symbols[curr] || curr;
+    const color = colors[curr] || "#9ca3af";
+    const numValue = Number(value);
+    const useDecimals = curr !== "UAH";
+    const displayValue = useDecimals
+      ? numValue.toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      : Math.round(numValue).toLocaleString("uk-UA");
+    const cssClass = String(params.colDef?.cellRendererParams?.css_class || "");
+    const inner =
+      displayValue +
+      ` <span style="color:${color};font-size:12px;margin-left:2px">${sym}</span>`;
+    return cssClass ? `<span class="${escHtml(cssClass)}">${inner}</span>` : inner;
+  } catch {
+    return "";
+  }
 }
 
 function linkRenderer(params: AgCellParams): string {

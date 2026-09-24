@@ -113,6 +113,14 @@ interface AgGridSpecColumn {
   hidden?: boolean;
   type?: string;
   renderer?: string;
+  currencyFormatter?: {
+    currency: string;
+    locale: string;
+    precision: number;
+    showSymbol: boolean;
+    emptyValue?: string;
+    strict?: boolean;
+  } | null;
   editable?: boolean;
   width?: string;
   minWidth?: string;
@@ -235,10 +243,13 @@ function buildColumnDefsFromSpec(columns: AgGridSpecColumn[]): Record<string, un
       def.minWidth = 200;
     }
     if (rendererId) def.cellRenderer = wrapRegisteredRenderer(rendererId);
-    if (col.extra && Object.keys(col.extra).length > 0) {
-      def.cellRendererParams = col.extra;
-      if (col.extra.flex != null) def.flex = Number(col.extra.flex);
-      const cellClass = col.extra.cell_class;
+    if ((col.extra && Object.keys(col.extra).length > 0) || col.currencyFormatter) {
+      def.cellRendererParams = {
+        ...col.extra,
+        ...(col.currencyFormatter ? { currencyFormatter: col.currencyFormatter } : {}),
+      };
+      if (col.extra?.flex != null) def.flex = Number(col.extra.flex);
+      const cellClass = col.extra?.cell_class;
       if (typeof cellClass === "string" && cellClass) def.cellClass = cellClass;
     }
     return def;

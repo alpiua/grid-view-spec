@@ -7120,29 +7120,194 @@
   }
 
   // src/runtime/renderers/builtins.ts
+  function isCurrencyFormatterConfig(value) {
+    if (typeof value !== "object" || value === null || !("currency" in value) || !("locale" in value) || !("precision" in value) || !("showSymbol" in value)) return false;
+    const c = value;
+    return typeof c.currency === "string" && typeof c.locale === "string" && typeof c.precision === "number" && typeof c.showSymbol === "boolean" && (!("emptyValue" in c) || typeof c.emptyValue === "string" || c.emptyValue === void 0) && (!("strict" in c) || typeof c.strict === "boolean" || c.strict === void 0);
+  }
   function escHtml(value) {
     if (value === void 0 || value === null || value === "") return "";
     const d = document.createElement("div");
     d.textContent = String(value);
     return d.innerHTML;
   }
+  function isValidGrouping(groups) {
+    if (!groups || groups.length < 2) return false;
+    const first = groups[0];
+    if (first.length < 1 || first.length > 3 || !/^\d+$/.test(first)) return false;
+    return groups.slice(1).every((g) => g.length === 3 && /^\d+$/.test(g));
+  }
+  function parseFormattedNumber(value, locale) {
+    if (typeof value === "number") {
+      return Number.isFinite(value) ? value : null;
+    }
+    if (typeof value !== "string") {
+      return null;
+    }
+    let cleaned = value.trim().replace(/\u00a0/g, " ");
+    if (!cleaned) return null;
+    cleaned = cleaned.replace(/[\$€£₴¥]/g, "").trim();
+    cleaned = cleaned.replace(/^[A-Z]{3}\s+/, "").replace(/\s+[A-Z]{3}$/, "").trim();
+    if (!cleaned) return null;
+    let sign = "";
+    let bodyWithSpaces = cleaned;
+    if (cleaned.startsWith("-") || cleaned.startsWith("+")) {
+      sign = cleaned.startsWith("-") ? "-" : "";
+      const rest = cleaned.slice(1).trim();
+      if (!rest || rest.startsWith("+") || rest.startsWith("-")) {
+        return null;
+      }
+      bodyWithSpaces = rest;
+    }
+    if (bodyWithSpaces.includes(" ")) {
+      let intPart = bodyWithSpaces;
+      if (bodyWithSpaces.includes(",") && bodyWithSpaces.includes(".")) {
+        const lastComma = bodyWithSpaces.lastIndexOf(",");
+        const lastDot = bodyWithSpaces.lastIndexOf(".");
+        const decPos = Math.max(lastComma, lastDot);
+        intPart = bodyWithSpaces.slice(0, decPos);
+        if (bodyWithSpaces.slice(decPos).includes(" ")) return null;
+      } else if (bodyWithSpaces.includes(",")) {
+        const parts = bodyWithSpaces.split(",");
+        if (parts.length === 2) {
+          intPart = parts[0];
+          if (parts[1].includes(" ")) return null;
+        }
+      } else if (bodyWithSpaces.includes(".")) {
+        const parts = bodyWithSpaces.split(".");
+        if (parts.length === 2) {
+          intPart = parts[0];
+          if (parts[1].includes(" ")) return null;
+        }
+      }
+      const spaceGroups = intPart.split(" ");
+      if (spaceGroups.length > 1 && !isValidGrouping(spaceGroups)) {
+        return null;
+      }
+    }
+    const noSpaces = bodyWithSpaces.replace(/ /g, "");
+    const body = noSpaces;
+    if (!body) return null;
+    const hasComma = body.includes(",");
+    const hasDot = body.includes(".");
+    const loc = locale.toLowerCase();
+    const isDotGroupingLocale = loc.startsWith("de");
+    const isCommaGroupingLocale = loc.startsWith("en") || loc.startsWith("ja");
+    let normalized = null;
+    if (hasComma && hasDot) {
+      const lastComma = body.lastIndexOf(",");
+      const lastDot = body.lastIndexOf(".");
+      if (lastComma > lastDot) {
+        const intPart = body.slice(0, lastComma);
+        const decPart = body.slice(lastComma + 1);
+        if (!/^\d+$/.test(decPart)) return null;
+        if (intPart.includes(".")) {
+          const groups = intPart.split(".");
+          if (!isValidGrouping(groups)) return null;
+          normalized = `${sign}${groups.join("")}.${decPart}`;
+        } else {
+          if (!/^\d+$/.test(intPart)) return null;
+          normalized = `${sign}${intPart}.${decPart}`;
+        }
+      } else {
+        const intPart = body.slice(0, lastDot);
+        const decPart = body.slice(lastDot + 1);
+        if (!/^\d+$/.test(decPart)) return null;
+        if (intPart.includes(",")) {
+          const groups = intPart.split(",");
+          if (!isValidGrouping(groups)) return null;
+          normalized = `${sign}${groups.join("")}.${decPart}`;
+        } else {
+          if (!/^\d+$/.test(intPart)) return null;
+          normalized = `${sign}${intPart}.${decPart}`;
+        }
+      }
+    } else if (hasComma) {
+      const groups = body.split(",");
+      if (groups.length > 2) {
+        if (!isValidGrouping(groups)) return null;
+        normalized = `${sign}${groups.join("")}`;
+      } else if (isCommaGroupingLocale && isValidGrouping(groups)) {
+        normalized = `${sign}${groups.join("")}`;
+      } else {
+        if (groups.length === 2 && /^\d+$/.test(groups[0]) && /^\d+$/.test(groups[1])) {
+          normalized = `${sign}${groups[0]}.${groups[1]}`;
+        } else {
+          return null;
+        }
+      }
+    } else if (hasDot) {
+      const groups = body.split(".");
+      if (groups.length > 2) {
+        if (!isValidGrouping(groups)) return null;
+        normalized = `${sign}${groups.join("")}`;
+      } else if (isDotGroupingLocale && isValidGrouping(groups)) {
+        normalized = `${sign}${groups.join("")}`;
+      } else {
+        if (groups.length === 2 && /^\d+$/.test(groups[0]) && /^\d+$/.test(groups[1])) {
+          normalized = `${sign}${groups[0]}.${groups[1]}`;
+        } else {
+          return null;
+        }
+      }
+    } else {
+      if (!/^\d+$/.test(body)) return null;
+      normalized = `${sign}${body}`;
+    }
+    if (normalized === null) return null;
+    return normalized;
+  }
   function moneyRenderer(params) {
-    var _a, _b, _c, _d;
-    const value = params.value;
-    if (value === void 0 || value === null || value === "") return "";
-    const field = ((_a = params.colDef) == null ? void 0 : _a.field) || "";
-    const rowCurr = (_b = params.data) == null ? void 0 : _b[`${field}_currency`];
-    const curr = typeof rowCurr === "string" && rowCurr || "UAH";
-    const symbols = { USD: "$", EUR: "\u20AC", UAH: "\u20B4", PLN: "z\u0142", GBP: "\xA3" };
-    const colors = { USD: "#10b981", EUR: "#3b82f6", UAH: "#eab308" };
-    const sym = symbols[curr] || curr;
-    const color = colors[curr] || "#9ca3af";
-    const numValue = Number(value);
-    const useDecimals = curr !== "UAH";
-    const displayValue = useDecimals ? numValue.toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Math.round(numValue).toLocaleString("uk-UA");
-    const cssClass = String(((_d = (_c = params.colDef) == null ? void 0 : _c.cellRendererParams) == null ? void 0 : _d.css_class) || "");
-    const inner = displayValue + ` <span style="color:${color};font-size:12px;margin-left:2px">${sym}</span>`;
-    return cssClass ? `<span class="${escHtml(cssClass)}">${inner}</span>` : inner;
+    var _a, _b, _c, _d, _e, _f, _g, _h;
+    try {
+      const value = params.value;
+      const formatter = (_b = (_a = params.colDef) == null ? void 0 : _a.cellRendererParams) == null ? void 0 : _b.currencyFormatter;
+      if (formatter !== void 0 && formatter !== null) {
+        if (!isCurrencyFormatterConfig(formatter)) return "";
+        const config = formatter;
+        const fallback = config.emptyValue !== void 0 ? escHtml(config.emptyValue) : "";
+        try {
+          if (value === void 0 || value === null || typeof value === "string" && value.trim() === "" || typeof value === "boolean") return fallback;
+          if (config.strict && typeof value === "string") return fallback;
+          const precision = config.precision;
+          const currency = config.currency;
+          const locale = config.locale;
+          const showSymbol = config.showSymbol;
+          const number = parseFormattedNumber(value, locale);
+          if (number === null || typeof precision !== "number" || !Number.isInteger(precision) || precision < 0 || precision > 6 || typeof currency !== "string" || typeof locale !== "string" || typeof showSymbol !== "boolean") return fallback;
+          const displayValue2 = new Intl.NumberFormat(
+            locale,
+            showSymbol ? {
+              style: "currency",
+              currency,
+              minimumFractionDigits: precision,
+              maximumFractionDigits: precision
+            } : { minimumFractionDigits: precision, maximumFractionDigits: precision }
+          ).format(number);
+          const cssClass2 = String(((_d = (_c = params.colDef) == null ? void 0 : _c.cellRendererParams) == null ? void 0 : _d.css_class) || "");
+          const safeValue = escHtml(displayValue2);
+          return cssClass2 ? `<span class="${escHtml(cssClass2)}">${safeValue}</span>` : safeValue;
+        } catch (e) {
+          return fallback;
+        }
+      }
+      if (value === void 0 || value === null || typeof value === "string" && value.trim() === "" || typeof value === "boolean") return "";
+      const field = ((_e = params.colDef) == null ? void 0 : _e.field) || "";
+      const rowCurr = (_f = params.data) == null ? void 0 : _f[`${field}_currency`];
+      const curr = typeof rowCurr === "string" && rowCurr || "UAH";
+      const symbols = { USD: "$", EUR: "\u20AC", UAH: "\u20B4", PLN: "z\u0142", GBP: "\xA3" };
+      const colors = { USD: "#10b981", EUR: "#3b82f6", UAH: "#eab308" };
+      const sym = symbols[curr] || curr;
+      const color = colors[curr] || "#9ca3af";
+      const numValue = Number(value);
+      const useDecimals = curr !== "UAH";
+      const displayValue = useDecimals ? numValue.toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Math.round(numValue).toLocaleString("uk-UA");
+      const cssClass = String(((_h = (_g = params.colDef) == null ? void 0 : _g.cellRendererParams) == null ? void 0 : _h.css_class) || "");
+      const inner = displayValue + ` <span style="color:${color};font-size:12px;margin-left:2px">${sym}</span>`;
+      return cssClass ? `<span class="${escHtml(cssClass)}">${inner}</span>` : inner;
+    } catch (e) {
+      return "";
+    }
   }
   function linkRenderer(params) {
     var _a, _b, _c, _d, _e;
@@ -7445,7 +7610,7 @@
   }
   function buildColumnDefsFromSpec(columns) {
     return columns.map((col) => {
-      var _a, _b, _c, _d, _e, _f, _g, _h, _i;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j, _k;
       const field = col.field || col.id;
       const rendererId = resolveRendererId(col);
       const agFilter = resolveAgColumnFilter(col);
@@ -7487,10 +7652,13 @@
         def.minWidth = 200;
       }
       if (rendererId) def.cellRenderer = wrapRegisteredRenderer(rendererId);
-      if (col.extra && Object.keys(col.extra).length > 0) {
-        def.cellRendererParams = col.extra;
-        if (col.extra.flex != null) def.flex = Number(col.extra.flex);
-        const cellClass = col.extra.cell_class;
+      if (col.extra && Object.keys(col.extra).length > 0 || col.currencyFormatter) {
+        def.cellRendererParams = {
+          ...col.extra,
+          ...col.currencyFormatter ? { currencyFormatter: col.currencyFormatter } : {}
+        };
+        if (((_j = col.extra) == null ? void 0 : _j.flex) != null) def.flex = Number(col.extra.flex);
+        const cellClass = (_k = col.extra) == null ? void 0 : _k.cell_class;
         if (typeof cellClass === "string" && cellClass) def.cellClass = cellClass;
       }
       return def;

@@ -18,7 +18,12 @@ from grid_view_spec.render.action_urls import (
     pagination_page_size_href,
 )
 from grid_view_spec.render.ag_grid import ag_grid_spec_config_json
-from grid_view_spec.render.bind import format_kpi_value, kpi_block_rows, resolve_kpi_value
+from grid_view_spec.render.bind import (
+    format_currency,
+    format_kpi_value,
+    kpi_block_rows,
+    resolve_kpi_value,
+)
 from grid_view_spec.render.block_registry import (
     AG_GRID_BUNDLE_IDS,
     asset_bundles_for_types,
@@ -350,6 +355,7 @@ def render_grid_view_spec(
             interpolate_row=interpolate_row_fields,
             row_link_url=row_link_url,
             column_filter_wire=column_filter_wire,
+            format_currency=format_currency,
         )
     return _placeholder_html(ctx)
 

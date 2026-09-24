@@ -90,3 +90,167 @@ function assertActionRendererContract(): void {
 }
 
 assertActionRendererContract();
+
+function assertCurrencyRendererContract(): void {
+  const priorDocument = globalThis.document;
+  const fakeDocument = {
+    createElement: () => {
+      let text = "";
+      return {
+        set textContent(value: string) {
+          text = value;
+        },
+        get innerHTML(): string {
+          return text
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/\"/g, "&quot;");
+        },
+      };
+    },
+  };
+  Object.defineProperty(globalThis, "document", {
+    configurable: true,
+    writable: true,
+    value: fakeDocument,
+  });
+  try {
+    initBuiltinRenderers();
+    const money = getRegisteredRenderer("money");
+    if (!money) throw new Error("Built-in money renderer was not registered");
+    const currencyFormatter = {
+      currency: "USD",
+      locale: "en-US",
+      precision: 1,
+      showSymbol: false,
+    };
+    const render = (value: unknown): string => {
+      const rendered = money({
+        value,
+        colDef: { field: "price", cellRendererParams: { currencyFormatter } },
+      });
+      if (typeof rendered !== "string") {
+        throw new Error("Currency renderer returned a DOM node");
+      }
+      return rendered;
+    };
+    if (!render(1234.5).includes("1,234.5")) {
+      throw new Error("Currency renderer ignored locale or precision");
+    }
+    for (const value of [null, "", "   ", true, Number.NaN, Number.POSITIVE_INFINITY]) {
+      if (render(value) !== "") throw new Error("Currency renderer did not reject an invalid value");
+    }
+    const withSymbol = money({
+      value: 1234.5,
+      colDef: {
+        field: "price",
+        cellRendererParams: {
+          currencyFormatter: { ...currencyFormatter, showSymbol: true },
+        },
+      },
+    });
+    if (typeof withSymbol !== "string" || !withSymbol.includes("$")) {
+      throw new Error("Currency renderer omitted the configured currency symbol");
+    }
+    const withEmpty = money({
+      value: null,
+      colDef: {
+        field: "price",
+        cellRendererParams: {
+          currencyFormatter: { ...currencyFormatter, emptyValue: "N/A" },
+        },
+      },
+    });
+    if (withEmpty !== "N/A") {
+      throw new Error("Currency renderer did not use custom emptyValue");
+    }
+    const withStrict = money({
+      value: "1234.5",
+      colDef: {
+        field: "price",
+        cellRendererParams: {
+          currencyFormatter: { ...currencyFormatter, strict: true, emptyValue: "INVALID" },
+        },
+      },
+    });
+    if (withStrict !== "INVALID") {
+      throw new Error("Currency renderer did not enforce strict mode on string value");
+    }
+    const groupedUsd = money({
+      value: "1,234",
+      colDef: {
+        field: "price",
+        cellRendererParams: {
+          currencyFormatter: { ...currencyFormatter, showSymbol: true, precision: 2 },
+        },
+      },
+    });
+    if (!groupedUsd.includes("$1,234.00")) {
+      throw new Error("Currency renderer failed to parse en-US grouped string 1,234");
+    }
+    const groupedDe = money({
+      value: "1.234",
+      colDef: {
+        field: "price",
+        cellRendererParams: {
+          currencyFormatter: {
+            ...currencyFormatter,
+            locale: "de-DE",
+            currency: "EUR",
+            showSymbol: true,
+            precision: 2,
+          },
+        },
+      },
+    });
+    if (!groupedDe.includes("1.234,00")) {
+      throw new Error("Currency renderer failed to parse de-DE grouped string 1.234");
+    }
+    const largeNumber = money({
+      value: "9007199254740993",
+      colDef: {
+        field: "price",
+        cellRendererParams: {
+          currencyFormatter: { ...currencyFormatter, showSymbol: true, precision: 2 },
+        },
+      },
+    });
+    if (!largeNumber.includes("9,007,199,254,740,993.00")) {
+      throw new Error(`Large number lost precision: ${largeNumber}`);
+    }
+    for (const badStr of ["12,34,56", "1.2.3", "12 34 56", "1 2 3", "1 234, 50", "--12"]) {
+      const res = money({
+        value: badStr,
+        colDef: {
+          field: "price",
+          cellRendererParams: {
+            currencyFormatter: { ...currencyFormatter, emptyValue: "N/A" },
+          },
+        },
+      });
+      if (res !== "N/A") {
+        throw new Error(`Currency renderer failed to reject malformed string '${badStr}'`);
+      }
+    }
+    const throwingParams = money({
+      value: 100,
+      colDef: {
+        get cellRendererParams(): Record<string, unknown> {
+          throw new Error("getter failed");
+        },
+      },
+    });
+    if (throwingParams !== "") {
+      throw new Error("Currency renderer failed zero-exception contract on throwing params getter");
+    }
+  } finally {
+    Object.defineProperty(globalThis, "document", {
+      configurable: true,
+      writable: true,
+      value: priorDocument,
+    });
+  }
+}
+
+assertCurrencyRendererContract();

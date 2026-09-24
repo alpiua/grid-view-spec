@@ -50,6 +50,20 @@ def ag_grid_spec_config(
                 ),
                 "checkboxSelection": bool(col.extra.get("checkbox_selection")),
                 "extra": dict(col.extra),
+                **(
+                    {
+                        "currencyFormatter": {
+                            "currency": col.currency_formatter.currency,
+                            "locale": col.currency_formatter.locale,
+                            "precision": col.currency_formatter.precision,
+                            "showSymbol": col.currency_formatter.show_symbol,
+                            "emptyValue": col.currency_formatter.empty_value,
+                            "strict": col.currency_formatter.strict,
+                        }
+                    }
+                    if col.currency_formatter is not None
+                    else {}
+                ),
             }
             for col in block.columns
         ],

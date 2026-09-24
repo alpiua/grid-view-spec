@@ -179,6 +179,10 @@
                   </select>
                 </div>
               </div>
+            {% elif col.type == 'currency' and col.currency_formatter %}
+              <span class="cm-currency{% if css %} {{ css | e }}{% endif %}{% if val_css %} {{ val_css }}{% endif %}">
+                {{ format_currency(val, col.currency_formatter) }}
+              </span>
             {% elif val is none or val == '' or (val is iterable and val is not string and val | list | length == 0) %}
             <span class="cm-muted">—</span>
             {% elif col.renderer == 'select' %}
@@ -260,7 +264,9 @@
                 {% if cell_confirm is not none %}data-cm-confirm="{{ confirm_config_json(cell_confirm) | e }}"{% endif %}
               >{{ val | e }}</a>
             {% elif col.type == 'currency' %}
-              <span class="cm-currency{% if css %} {{ css | e }}{% endif %}{% if val_css %} {{ val_css }}{% endif %}">{{ "{:,.0f}".format(val | float) }} ₴</span>
+              <span class="cm-currency{% if css %} {{ css | e }}{% endif %}{% if val_css %} {{ val_css }}{% endif %}">
+                {% if col.currency_formatter %}{{ format_currency(val, col.currency_formatter) }}{% else %}{{ "{:,.0f}".format(val | float) }} ₴{% endif %}
+              </span>
             {% elif col.type == 'number' %}
               <span class="cm-number{% if css %} {{ css | e }}{% endif %}{% if val_css %} {{ val_css }}{% endif %}">{{ val }}</span>
             {% else %}
@@ -302,10 +308,16 @@
           {% if fvc == 'signed' %}{% set fval_css = 'cm-val-positive' if fval_f > 0 else ('cm-val-negative' if fval_f < 0 else '') %}
           {% elif fvc and (fval_f != 0 if col.type in ('number', 'currency') else (fval is not none and fval != '' and fval != '0')) %}{% set fval_css = 'cm-val-' + fvc %}{% endif %}
           <td data-cm-col-key="{{ col.id | e }}" data-cm-align="{{ col.align | e }}" class="{{ fcss | e }}">
-            {% if fval is none or fval == '' %}
+            {% if col.type == 'currency' and col.currency_formatter %}
+            <span class="cm-currency{% if fval_css %} {{ fval_css }}{% endif %}">
+              {{ format_currency(fval, col.currency_formatter) }}
+            </span>
+            {% elif fval is none or fval == '' %}
             <span class="cm-muted">—</span>
             {% elif col.type == 'currency' %}
-            <span class="cm-currency{% if fval_css %} {{ fval_css }}{% endif %}">{{ "{:,.0f}".format(fval | float) }} ₴</span>
+            <span class="cm-currency{% if fval_css %} {{ fval_css }}{% endif %}">
+              {% if col.currency_formatter %}{{ format_currency(fval, col.currency_formatter) }}{% else %}{{ "{:,.0f}".format(fval | float) }} ₴{% endif %}
+            </span>
             {% elif col.type == 'number' %}
             <span class="cm-number{% if fval_css %} {{ fval_css }}{% endif %}">{{ fval }}</span>
             {% else %}

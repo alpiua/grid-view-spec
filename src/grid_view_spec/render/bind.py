@@ -12,8 +12,14 @@ from grid_view_spec.types.content import (
     GridViewKpi,
     KpiSpec,
 )
+from grid_view_spec.types.formatters import CurrencyFormatter
 from grid_view_spec.types.json import RowDict
 from grid_view_spec.types.table_v2 import GridViewTable
+
+
+def format_currency(value: object, formatter: CurrencyFormatter) -> str:
+    """Format numeric values using the typed CurrencyFormatter."""
+    return formatter.format(value)
 
 
 def _group_number(n: float, decimals: int) -> str:

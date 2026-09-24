@@ -87,6 +87,7 @@ from grid_view_spec.types.form import (
     GridViewTranslationEnvelope,
     GridViewValidator,
 )
+from grid_view_spec.types.formatters import CurrencyFormatter
 from grid_view_spec.types.header import (
     GRIDVIEW_FACT_TONES,
     GRIDVIEW_HEADER_PRESENTATIONS,
@@ -687,9 +688,33 @@ def decode_table_pagination(raw: Mapping[str, object]) -> GridViewTablePaginatio
     )
 
 
+def decode_currency_formatter(raw: object) -> CurrencyFormatter | None:
+    """Decode a currency formatter configuration from untrusted wire input."""
+    if not is_wire_mapping(raw):
+        return None
+    precision = raw.get("precision", 2)
+    return CurrencyFormatter(
+        currency=wire_str(raw.get("currency"), default="UAH") or "UAH",
+        locale=wire_str(raw.get("locale"), default="uk-UA") or "uk-UA",
+        precision=(
+            precision
+            if isinstance(precision, int)
+            and not isinstance(precision, bool)
+            and 0 <= precision <= 6
+            else 2
+        ),
+        show_symbol=wire_bool(raw.get("show_symbol"), default=True),
+        empty_value=wire_str(raw.get("empty_value"), default="—"),
+        strict=wire_bool(raw.get("strict"), default=False),
+    )
+
+
 def decode_column(raw: Mapping[str, object]) -> GridViewColumn:
     """Decode one table column definition."""
     filter_raw = raw.get("filter")
+    formatter_raw = raw.get("currency_formatter")
+    if formatter_raw is None:
+        formatter_raw = raw.get("formatter")
     return GridViewColumn(
         id=wire_str(raw.get("id")),
         label=wire_str(raw.get("label")),
@@ -709,6 +734,7 @@ def decode_column(raw: Mapping[str, object]) -> GridViewColumn:
         hidden=wire_bool(raw.get("hidden")),
         pinned=wire_literal(raw.get("pinned"), GRIDVIEW_COLUMN_PINNEDS, ""),
         extra=wire_json_object(raw.get("extra", {})),
+        currency_formatter=decode_currency_formatter(formatter_raw),
     )
 
 
