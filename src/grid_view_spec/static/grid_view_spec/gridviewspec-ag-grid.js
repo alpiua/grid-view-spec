@@ -530,6 +530,7 @@
   }
   var AgGridHost = class {
     constructor(gridId, containerId, optionsVar, initialPresets, initialSearches, groupsOrder) {
+      this._themeObserverCleanup = null;
       var _a;
       this.gridId = gridId;
       this.containerId = containerId;
@@ -723,6 +724,8 @@
       };
     }
     initGrid() {
+      var _a, _b, _c, _d;
+      (_a = this._themeObserverCleanup) == null ? void 0 : _a.call(this);
       const gridDiv = document.getElementById(this.containerId);
       if (!gridDiv) return;
       const applyTheme = () => {
@@ -741,15 +744,48 @@
           if (mutation.attributeName === "class") applyTheme();
         });
       });
-      observer.observe(document.documentElement, { attributes: true });
+      observer.observe(document.documentElement, { attributes: true, attributeFilter: ["class"] });
+      const cleanup = (event) => {
+        var _a2, _b2;
+        if (event && !(event.target instanceof Element && event.target.contains(gridDiv))) return;
+        observer.disconnect();
+        document.removeEventListener("htmx:beforeCleanupElement", cleanup);
+        this._themeObserverCleanup = null;
+        try {
+          (_b2 = (_a2 = this.gridApi) == null ? void 0 : _a2.destroy) == null ? void 0 : _b2.call(_a2);
+        } catch (error) {
+          console.error("AG Grid destroy failed:", error);
+        } finally {
+          this.gridApi = void 0;
+          this._colSettings = null;
+          this._pageStateAdapter = null;
+        }
+      };
+      this._themeObserverCleanup = cleanup;
+      document.addEventListener("htmx:beforeCleanupElement", cleanup);
       this._extractColumnMeta();
       this._colSettings = null;
       this._preparePageState(gridDiv);
       this._prepareUrlInitialState();
       const agGridLib = window.agGrid;
-      if (!agGridLib) throw new Error("AG Grid is not loaded");
-      const created = agGridLib.createGrid(gridDiv, this.gridOptions);
+      if (!agGridLib) {
+        (_b = this._themeObserverCleanup) == null ? void 0 : _b.call(this);
+        throw new Error("AG Grid is not loaded");
+      }
+      const urlParams = this._readUrlGridParams();
+      const quickFilter = urlParams.hasQ ? urlParams.q : this._readStoredGridState().quickFilter;
+      if (typeof quickFilter === "string") writeSearchInputValue(this._resolveSearchInput(), quickFilter);
+      this._searchText = quickFilter != null ? quickFilter : "";
+      const gridOptions = quickFilter === void 0 ? this.gridOptions : { ...this.gridOptions, quickFilterText: quickFilter };
+      let created;
+      try {
+        created = agGridLib.createGrid(gridDiv, gridOptions);
+      } catch (error) {
+        (_c = this._themeObserverCleanup) == null ? void 0 : _c.call(this);
+        throw error;
+      }
       if (!isAgGridHostApi(created)) {
+        (_d = this._themeObserverCleanup) == null ? void 0 : _d.call(this);
         throw new Error("AG Grid createGrid returned an invalid API");
       }
       this.gridApi = created;
@@ -849,6 +885,10 @@
         writeSearchInputValue(qsInput, state.quickFilter);
         this._searchText = state.quickFilter;
       }
+      if (!isInfiniteRowModel(api) && (urlParams.hasQ || typeof state.quickFilter === "string")) {
+        api.setGridOption("quickFilterText", this._searchText);
+      }
+      this.syncSearchToolbarUi();
       const pageState = Object.keys(urlPageState).length ? { ...(_b = state.pageState) != null ? _b : {}, ...urlPageState } : (_c = state.pageState) != null ? _c : {};
       this._applyPageState(pageState, {
         fromUrl: Object.keys(urlPageState).length > 0
@@ -868,7 +908,7 @@
       const state = {
         colState: api.getColumnState(),
         filterState: api.getFilterModel(),
-        quickFilter: readSearchInputValue(qfEl),
+        quickFilter: qfEl ? readSearchInputValue(qfEl) : this._searchText,
         pageState: this._collectPageState()
       };
       if (this._pageStateAdapter) {
@@ -971,7 +1011,8 @@
       const api = this.gridApi;
       if (!api) return;
       const el = this._resolveSearchInput();
-      this._searchText = readSearchInputTrimmed(el);
+      this._searchText = el ? readSearchInputTrimmed(el) : this._searchText;
+      if (!isInfiniteRowModel(api)) api.setGridOption("quickFilterText", this._searchText);
       this.syncFilterChrome();
       this.saveGridState();
       if (isInfiniteRowModel(api)) {
@@ -992,7 +1033,7 @@
     }
     clearSearch() {
       const el = this._resolveSearchInput();
-      const wasEmpty = !el || readSearchInputTrimmed(el) === "";
+      const wasEmpty = this._searchText.trim() === "";
       writeSearchInputValue(el, "");
       this._searchText = "";
       const url = new URL(window.location.href);
@@ -1024,18 +1065,20 @@
       const input = this._resolveSearchInput();
       writeSearchInputValue(input, text);
       this._searchText = text;
+      if (!isInfiniteRowModel(api)) api.setGridOption("quickFilterText", text);
       this.syncSearchToolbarUi();
       this.saveGridState();
       if (isInfiniteRowModel(api)) {
         api.purgeInfiniteCache();
       }
     }
-    clearAllFilters() {
+    clearAllFilters(options = {}) {
       const api = this.gridApi;
       if (!api) return;
       api.setFilterModel(null);
       writeSearchInputValue(this._resolveSearchInput(), "");
       this._searchText = "";
+      if (!isInfiniteRowModel(api)) api.setGridOption("quickFilterText", "");
       const url = new URL(window.location.href);
       ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
       window.history.replaceState({}, "", url);
@@ -1044,7 +1087,7 @@
       }
       this.syncSearchToolbarUi();
       document.dispatchEvent(new CustomEvent("cm-grid-state-change", { detail: { gridId: this.gridId } }));
-      if (isInfiniteRowModel(api)) {
+      if (options.purgeInfiniteCache !== false && isInfiniteRowModel(api)) {
         api.purgeInfiniteCache();
       }
     }
@@ -1089,7 +1132,7 @@
     init(params) {
       const eGui = document.createElement("div");
       eGui.className = "cm-ellipsis-tip cm-ellipsis-tip--floating";
-      eGui.innerHTML = params.value ? params.value : "No data";
+      eGui.textContent = params.value ? params.value : "No data";
       this.eGui = eGui;
     }
     getGui() {
@@ -1981,7 +2024,9 @@
         item.htmlFor = id;
         const count = this.valueCounts.get(val);
         const countHtml = count === void 0 ? "" : '<span class="cm-set-filter-item-count">' + String(count) + "</span>";
-        item.innerHTML = '<input type="checkbox" id="' + id + '"' + (isChecked ? " checked" : "") + '><span class="cm-set-filter-item-label">' + val + "</span>" + countHtml;
+        item.innerHTML = '<input type="checkbox" id="' + id + '"' + (isChecked ? " checked" : "") + '><span class="cm-set-filter-item-label"></span>' + countHtml;
+        const label = requiredElement(item, ".cm-set-filter-item-label", HTMLElement);
+        label.textContent = val;
         const checkbox = requiredElement(item, "input", HTMLInputElement);
         checkbox.addEventListener("mousedown", (e) => e.stopPropagation());
         checkbox.addEventListener("click", (e) => e.stopPropagation());

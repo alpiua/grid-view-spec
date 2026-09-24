@@ -87,12 +87,12 @@
       if (typeof fn === "function") fn();
     }
   };
-  function invokeGridAction(gridId, method) {
+  function invokeGridAction(gridId, method, options) {
     const handle = byId.get(gridId != null ? gridId : "");
     if (!handle || typeof handle !== "object") return;
     const fn = Reflect.get(handle, method);
     if (typeof fn === "function") {
-      fn.call(handle);
+      fn.call(handle, options);
     }
   }
 
@@ -2864,7 +2864,8 @@
       }
     };
     safe("initColumnFilters", () => initColumnFilters(scope));
-    scope.querySelectorAll('[data-cm-column-settings="1"]').forEach(function(shell) {
+    const settingsRoots = scope instanceof Element && scope.matches('[data-cm-column-settings="1"]') ? [scope, ...Array.from(scope.querySelectorAll('[data-cm-column-settings="1"]'))] : Array.from(scope.querySelectorAll('[data-cm-column-settings="1"]'));
+    settingsRoots.forEach((shell) => {
       safe(
         "initSimpleTableColumnSettings",
         () => initSimpleTableColumnSettings(shell)
@@ -3121,7 +3122,9 @@
         item.htmlFor = id;
         const count = this.valueCounts.get(val);
         const countHtml = count === void 0 ? "" : '<span class="cm-set-filter-item-count">' + String(count) + "</span>";
-        item.innerHTML = '<input type="checkbox" id="' + id + '"' + (isChecked ? " checked" : "") + '><span class="cm-set-filter-item-label">' + val + "</span>" + countHtml;
+        item.innerHTML = '<input type="checkbox" id="' + id + '"' + (isChecked ? " checked" : "") + '><span class="cm-set-filter-item-label"></span>' + countHtml;
+        const label = requiredElement(item, ".cm-set-filter-item-label", HTMLElement);
+        label.textContent = val;
         const checkbox = requiredElement(item, "input", HTMLInputElement);
         checkbox.addEventListener("mousedown", (e) => e.stopPropagation());
         checkbox.addEventListener("click", (e) => e.stopPropagation());
@@ -5255,7 +5258,6 @@
   }
 
   // src/grid-view/confirmation-interceptor.ts
-  var nativeConfirm = null;
   var nativeAlert = null;
   var interceptorsBound = false;
   function defaultConfirmMessage(message) {
@@ -5300,17 +5302,6 @@
       return false;
     }
   }
-  function fallbackConfirm(message) {
-    return nativeConfirm ? nativeConfirm(defaultConfirmMessage(message)) : false;
-  }
-  function interceptedConfirm(message) {
-    const normalizedMessage = defaultConfirmMessage(message);
-    try {
-      return confirmDialog({ message: normalizedMessage, tone: "danger" }).catch(() => fallbackConfirm(normalizedMessage));
-    } catch (e) {
-      return Promise.resolve(fallbackConfirm(normalizedMessage));
-    }
-  }
   function interceptedAlert(message) {
     const normalizedMessage = String(message != null ? message : "");
     try {
@@ -5347,7 +5338,9 @@
     document.addEventListener(
       "htmx:confirm",
       (event) => {
+        var _a;
         if (!(event instanceof CustomEvent) || !isHtmxConfirmDetail(event.detail)) return;
+        if (!((_a = event.detail.question) == null ? void 0 : _a.trim())) return;
         event.preventDefault();
         let settled = false;
         const issueRequestOnce = () => {
@@ -5370,13 +5363,6 @@
     );
   }
   function installGlobalDialogInterceptors() {
-    if (!nativeConfirm) {
-      const currentConfirm = window.confirm;
-      if (typeof currentConfirm === "function") {
-        const originalConfirm = currentConfirm.bind(window);
-        if (defineDialogMethod("confirm", interceptedConfirm)) nativeConfirm = originalConfirm;
-      }
-    }
     if (!nativeAlert) {
       const currentAlert = window.alert;
       if (typeof currentAlert === "function") {
@@ -5509,6 +5495,7 @@
           const defaultOption = Array.from(select.options).find((option) => !option.disabled);
           select.value = (defaultOption == null ? void 0 : defaultOption.value) || "";
         });
+        invokeGridAction(clearGridId, "clearAllFilters", { purgeInfiniteCache: false });
         navigateFilterState(selectedFilterValues(filterBar), gridBtn, filterBar);
         return;
       }
@@ -6593,8 +6580,12 @@
             if (arrow) arrow.classList.remove("rotate-180");
           }
         }
+        if (target.closest(".cm-nav-tree-action")) {
+          e.stopPropagation();
+          return;
+        }
         const row = target.closest(".cm-nav-tree-row");
-        if (row && !target.closest(".cm-nav-tree-action")) {
+        if (row && !row.hasAttribute("data-disabled") && !target.closest(".cm-nav-tree-action")) {
           tree.querySelectorAll(".cm-nav-tree-row.is-active").forEach((r) => {
             r.classList.remove(
               "is-active",
@@ -6803,6 +6794,7 @@
           });
         }
         tree.querySelectorAll(".cm-nav-tree-row").forEach((row) => {
+          if (row.hasAttribute("data-disabled")) return;
           row.setAttribute("draggable", "true");
           row.addEventListener("dragstart", (e) => {
             const node = row.closest(".cm-nav-tree-node");
@@ -7342,7 +7334,7 @@
   function ensureFilterDrawerWorkspaceAssetsLoaded() {
     var _a;
     const cfg = manifest();
-    if (cfg.filterWorkspaceCss) loadStylesheet(cfg.filterWorkspaceCss);
+    if (cfg.filterWorkspaceCss) loadStylesheet(cfg.filterWorkspaceCss, false);
     const gv2 = getGlobal().GridView;
     if (gv2 == null ? void 0 : gv2.FilterDrawerWorkspace) return Promise.resolve();
     if (filterWorkspaceLoadPromise) return filterWorkspaceLoadPromise;
@@ -7371,6 +7363,36 @@
   var specFilterListeners = /* @__PURE__ */ new Set();
   function isRecord4(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  function collectColumnIds(columns, ids = /* @__PURE__ */ new Set()) {
+    for (const column of columns) {
+      const id = column.colId || column.field;
+      if (Array.isArray(column.children)) collectColumnIds(column.children.filter(isRecord4), ids);
+      else if (typeof id === "string" && id) ids.add(id);
+    }
+    return ids;
+  }
+  function setColumnDefsPreservingState(gridApi, columnDefs) {
+    var _a, _b;
+    if (!gridApi.setGridOption) return;
+    let columnState = [];
+    try {
+      columnState = (_b = (_a = gridApi.getColumnState) == null ? void 0 : _a.call(gridApi)) != null ? _b : [];
+    } catch (error) {
+      console.warn("[GridView.AgGrid] Column state unavailable; refreshing definitions anyway:", error);
+    }
+    gridApi.setGridOption("columnDefs", columnDefs);
+    if (!gridApi.applyColumnState) return;
+    const columnIds = [...collectColumnIds(columnDefs)];
+    const retainedState = columnState.filter(({ colId }) => columnIds.includes(colId));
+    const retainedIds = new Set(retainedState.map(({ colId }) => colId));
+    const newColumnIds = columnIds.filter((colId) => !retainedIds.has(colId));
+    for (const colId of newColumnIds) {
+      const nextId = columnIds.slice(columnIds.indexOf(colId) + 1).find((id) => retainedIds.has(id));
+      const index = nextId ? retainedState.findIndex(({ colId: colId2 }) => colId2 === nextId) : -1;
+      retainedState.splice(index < 0 ? retainedState.length : index, 0, { colId });
+    }
+    if (retainedState.length) gridApi.applyColumnState({ state: retainedState, applyOrder: true });
   }
   function isColumnStateItem(value) {
     if (!isRecord4(value) || typeof value.colId !== "string" || typeof value.hide !== "boolean") {
@@ -7539,7 +7561,7 @@
     if (!gv2 || !config.gridId) return;
     const gridId = config.gridId;
     const generation = (((_a = specGridStates.get(gridId)) == null ? void 0 : _a.generation) || 0) + 1;
-    specGridStates.set(gridId, { generation, config });
+    specGridStates.set(gridId, { generation, filterGeneration: 0, config });
     const isCurrent = () => {
       var _a2;
       return ((_a2 = specGridStates.get(gridId)) == null ? void 0 : _a2.generation) === generation;
@@ -7708,7 +7730,7 @@
         specFilterListeners.add(gridId);
         document.addEventListener("cm-filter-change", (e) => {
           void (async () => {
-            var _a3, _b3, _c2, _d2, _e, _f, _g;
+            var _a3, _b3, _c2, _d2, _e;
             const state = specGridStates.get(gridId);
             if (!state) return;
             const currentConfig = state.config;
@@ -7721,17 +7743,18 @@
             if (((_b3 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _b3.autoApply) === "1" && navigates) return;
             const current = registry.get(gridId);
             if (!current) return;
+            const filterGeneration = ++state.filterGeneration;
             if (currentConfig.columnSource && current.gridApi) {
               try {
                 const nextDefs = await resolveColumnDefs(currentConfig, getPageState);
-                if (((_c2 = specGridStates.get(gridId)) == null ? void 0 : _c2.generation) !== state.generation) return;
-                (_e = (_d2 = current.gridApi).setGridOption) == null ? void 0 : _e.call(_d2, "columnDefs", nextDefs);
+                if (((_c2 = specGridStates.get(gridId)) == null ? void 0 : _c2.generation) !== state.generation || state.filterGeneration !== filterGeneration) return;
+                setColumnDefsPreservingState(current.gridApi, nextDefs);
               } catch (error) {
                 console.error("[GridView.AgGrid] column_source refresh failed:", error);
               }
             }
-            if (((_f = specGridStates.get(gridId)) == null ? void 0 : _f.generation) !== state.generation) return;
-            (_g = current.reloadData) == null ? void 0 : _g.call(current);
+            if (((_d2 = specGridStates.get(gridId)) == null ? void 0 : _d2.generation) !== state.generation || state.filterGeneration !== filterGeneration) return;
+            (_e = current.reloadData) == null ? void 0 : _e.call(current);
             const syncExportLinks2 = agModule == null ? void 0 : agModule.syncExportLinks;
             syncExportLinks2 == null ? void 0 : syncExportLinks2(gridId, { getExtraParams: getPageState, exportColumns: true });
           })();
@@ -7832,7 +7855,7 @@
   }
   function hasWidgetMarkers(root) {
     const hasMarker = (selector) => root instanceof Element && root.matches(selector) || !!root.querySelector(selector);
-    return !!(hasMarker("[data-cm-table]") || hasMarker("[data-cm-filter-bar]") || hasMarker("[data-cm-chart-config]") || hasMarker("[data-cm-kpi-root]") || hasMarker("[data-cm-tab-group]") || hasMarker("[data-cm-nav-tree]") || hasMarker('[data-cm-action="show_content"]') || hasMarker("[data-cm-content-dismissible]") || hasMarker("[data-cm-grid-view-spec]") || hasMarker("script.cm-ag-grid-spec-config") || hasMarker(LAZY_SEL));
+    return !!(hasMarker("[data-cm-table]") || hasMarker("[data-cm-filter-bar]") || hasMarker("[data-cm-chart-config]") || hasMarker("[data-cm-kpi-root]") || hasMarker("[data-cm-tab-group]") || hasMarker("[data-cm-nav-tree]") || hasMarker('[data-cm-action="show_content"]') || hasMarker("[data-cm-content-dismissible]") || hasMarker("[data-cm-grid-view-spec]") || hasMarker("script.cm-ag-grid-spec-config") || hasMarker('[data-cm-column-settings="1"]') || hasMarker(LAZY_SEL));
   }
   function bootAgGridInScope(root, gridView2) {
     var _a;
@@ -7931,8 +7954,8 @@
     document.addEventListener("htmx:afterSwap", (event) => {
       const detail = event.detail;
       const target = detail == null ? void 0 : detail.target;
-      if (!target) return;
-      bootScope(target, gv2);
+      const scope = (target == null ? void 0 : target.isConnected) ? target : document;
+      bootScope(scope, gv2);
     });
     document.addEventListener("htmx:oobAfterSwap", (event) => {
       var _a, _b;
@@ -8099,7 +8122,8 @@
         gridApi.applyColumnState({ state: [{ colId, pinned, hide }] });
       },
       getColumnState() {
-        return gridApi.getColumnState();
+        const state = gridApi.getColumnState();
+        return Array.isArray(state) ? state : [];
       },
       applyColumnState(state, applyOrder) {
         gridApi.applyColumnState({ state, applyOrder: !!applyOrder });
@@ -8581,7 +8605,7 @@
       const overTarget = (_a = e.target) == null ? void 0 : _a.closest(itemSelector);
       if (!overTarget || overTarget === draggedEl || !container.contains(overTarget)) return;
       const rect = overTarget.getBoundingClientRect();
-      const isVertical = rect.height >= rect.width;
+      const isVertical = getComputedStyle(container).flexDirection.startsWith("column");
       const offset = isVertical ? e.clientY - rect.top : e.clientX - rect.left;
       const threshold = isVertical ? rect.height / 2 : rect.width / 2;
       if (offset < threshold) {
@@ -8902,7 +8926,7 @@
     const heading = document.createElement("div");
     heading.className = "cm-filter-drawer-card-heading";
     const title = document.createElement("h3");
-    title.textContent = colT("column_settings.title", "\u041D\u0430\u043B\u0430\u0448\u0442\u0443\u0432\u0430\u043D\u043D\u044F \u043A\u043E\u043B\u043E\u043D\u043E\u043A");
+    title.textContent = colT("column_settings.title", "Column Settings");
     heading.append(title);
     header.append(heading);
     const list = document.createElement("div");
@@ -9332,6 +9356,7 @@
         const label = desc ? desc.label : item.colId;
         const pill = document.createElement("div");
         pill.className = "cm-col-order-pill" + (item.pinned ? " is-pinned" : "");
+        pill.draggable = true;
         pill.dataset.colid = item.colId;
         pill.textContent = label;
         listContainer.appendChild(pill);
