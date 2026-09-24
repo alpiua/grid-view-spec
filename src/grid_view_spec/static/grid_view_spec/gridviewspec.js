@@ -12,10 +12,37 @@
   function getGlobal() {
     return window;
   }
+  function positionFixedOverlay(overlay2, trigger, align, shrinkToStartEdge = false) {
+    const padding = 12;
+    const triggerRect = trigger.getBoundingClientRect();
+    if (shrinkToStartEdge && align === "start") {
+      overlay2.style.removeProperty("width");
+      const availableWidth = Math.max(0, window.innerWidth - triggerRect.left - padding);
+      overlay2.style.width = `${Math.min(overlay2.getBoundingClientRect().width, availableWidth)}px`;
+    }
+    const overlayRect = overlay2.getBoundingClientRect();
+    const preferredLeft = align === "start" ? triggerRect.left : triggerRect.right - overlayRect.width;
+    const left = Math.max(
+      padding,
+      Math.min(preferredLeft, window.innerWidth - overlayRect.width - padding)
+    );
+    const below = triggerRect.bottom + 6;
+    const top = below + overlayRect.height <= window.innerHeight - padding ? below : Math.max(padding, triggerRect.top - overlayRect.height - 6);
+    overlay2.style.left = `${left}px`;
+    overlay2.style.top = `${top}px`;
+  }
   function tableGridId(table) {
     var _a, _b;
     const shell = (_a = table == null ? void 0 : table.closest) == null ? void 0 : _a.call(table, "[data-grid-id]");
     return shell instanceof HTMLElement ? ((_b = shell.dataset.gridId) == null ? void 0 : _b.trim()) || "" : "";
+  }
+  function updateRecordCounters(gridId, count) {
+    if (!gridId || !Number.isSafeInteger(count) || count < 0) return;
+    const value = String(count);
+    const escapedGridId = cssEscape(gridId);
+    document.querySelectorAll(`[data-cm-count-for="${escapedGridId}"]`).forEach((counter) => {
+      counter.textContent = value;
+    });
   }
   function queryRecordCounters(table, fallbackRoot) {
     var _a;
@@ -1123,20 +1150,68 @@
 
   // src/grid-view/search-help-ui.ts
   var INFO_ICON = '<svg class="cm-search-help-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2"/><circle cx="12" cy="8" r="1.35" fill="currentColor" stroke="none"/><path d="M12 11v5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>';
+  var searchHelpSequence = 0;
+  function searchHelpTipFor(btn) {
+    var _a;
+    const tipId = btn.dataset.cmSearchHelpTipId;
+    if (tipId) {
+      const ownedTip = document.getElementById(tipId);
+      if (ownedTip instanceof HTMLElement) return ownedTip;
+    }
+    return ((_a = btn.closest(".cm-toolbar-search")) == null ? void 0 : _a.querySelector(
+      ":scope > .cm-ellipsis-tip--search-help"
+    )) || btn.querySelector(":scope > .cm-ellipsis-tip--search-help") || null;
+  }
+  function showSearchHelpTip(btn) {
+    const tip = searchHelpTipFor(btn);
+    if (!tip) return;
+    document.body.appendChild(tip);
+    tip.classList.add("cm-ellipsis-tip--search-help-portal");
+    tip.style.visibility = "hidden";
+    positionFixedOverlay(tip, btn, "start", true);
+    tip.style.removeProperty("visibility");
+  }
+  function hideSearchHelpTip(btn) {
+    const tip = searchHelpTipFor(btn);
+    const host = btn.closest(".cm-toolbar-search");
+    if (!tip || !host) return;
+    tip.classList.remove("cm-ellipsis-tip--search-help-portal");
+    tip.style.removeProperty("left");
+    tip.style.removeProperty("top");
+    tip.style.removeProperty("width");
+    host.appendChild(tip);
+  }
   function bindSearchSyntaxHelp(btn) {
     if (btn.dataset.cmSearchHelpBound === "1") return;
     btn.dataset.cmSearchHelpBound = "1";
     btn.classList.add("cm-tip-host");
     btn.removeAttribute("title");
+    btn.addEventListener("mouseenter", () => showSearchHelpTip(btn));
+    btn.addEventListener("mouseleave", () => hideSearchHelpTip(btn));
+    btn.addEventListener("focusin", () => showSearchHelpTip(btn));
+    btn.addEventListener("focusout", () => hideSearchHelpTip(btn));
+    window.addEventListener("resize", () => {
+      const tip = searchHelpTipFor(btn);
+      if (tip == null ? void 0 : tip.classList.contains("cm-ellipsis-tip--search-help-portal")) {
+        positionFixedOverlay(tip, btn, "start", true);
+      }
+    });
   }
   function refreshSearchSyntaxHelp(btn, profile) {
-    let tip = btn.querySelector(".cm-ellipsis-tip--search-help");
-    if (!(tip instanceof HTMLElement)) {
+    const host = btn.closest(".cm-toolbar-search") || btn;
+    let tip = searchHelpTipFor(btn);
+    if (!tip) {
       tip = document.createElement("span");
       tip.className = "cm-ellipsis-tip cm-ellipsis-tip--search-help";
       tip.setAttribute("role", "tooltip");
-      btn.appendChild(tip);
     }
+    if (!btn.id) {
+      searchHelpSequence += 1;
+      btn.id = `cm-search-help-${searchHelpSequence}`;
+    }
+    tip.id = `cm-search-help-tip-${btn.id}`;
+    btn.dataset.cmSearchHelpTipId = tip.id;
+    if (tip.parentElement !== host) host.appendChild(tip);
     tip.innerHTML = buildSearchSyntaxTipHtml(profile);
     bindSearchSyntaxHelp(btn);
   }
@@ -1571,12 +1646,17 @@
   }
   function initButtonEllipsisTips(scope) {
     const root = scope && "querySelectorAll" in scope ? scope : document;
-    const selector = [
-      `${BTN_TIP_SCOPE} button[title]`,
-      `${BTN_TIP_SCOPE} a[title]`,
-      `${BTN_TIP_SCOPE} button[aria-label]`,
-      `${BTN_TIP_SCOPE} a[aria-label]`
-    ].join(", ");
+    const selectors = [];
+    BTN_TIP_SCOPE.split(",").forEach((container) => {
+      const prefix = container.trim();
+      selectors.push(
+        `${prefix} button[title]`,
+        `${prefix} a[title]`,
+        `${prefix} button[aria-label]`,
+        `${prefix} a[aria-label]`
+      );
+    });
+    const selector = selectors.join(", ");
     root.querySelectorAll(selector).forEach(function(node) {
       if (!(node instanceof HTMLElement)) return;
       if (node.closest(".cm-col-resize-handle")) return;
@@ -1895,6 +1975,211 @@
     }
   };
 
+  // src/runtime/dialog.ts
+  var activeDialog = null;
+  var currentResolver = null;
+  function ensureDialogElement() {
+    if (activeDialog && document.body.contains(activeDialog)) {
+      return activeDialog;
+    }
+    const dialog = document.createElement("dialog");
+    dialog.className = "cm-dialog-root";
+    dialog.setAttribute("aria-modal", "true");
+    dialog.innerHTML = `
+    <div class="cm-dialog-panel" data-cm-dialog-panel>
+      <div class="cm-dialog-header">
+        <h3 class="cm-dialog-title" data-cm-dialog-title></h3>
+        <button type="button" class="cm-dialog-close-btn" data-cm-dialog-cancel>&times;</button>
+      </div>
+      <div class="cm-dialog-body" data-cm-dialog-body></div>
+      <div class="cm-dialog-footer">
+        <button type="button" class="cm-btn cm-dialog-btn-cancel" data-cm-dialog-cancel></button>
+        <button type="button" class="cm-btn cm-dialog-btn-confirm" data-cm-dialog-confirm></button>
+      </div>
+    </div>
+  `;
+    dialog.addEventListener("click", (e) => {
+      if (e.target === dialog) {
+        const closeOnBackdrop = dialog.dataset.cmCloseOnBackdrop !== "0";
+        if (closeOnBackdrop) {
+          closeWithResult(false);
+        }
+      }
+    });
+    dialog.addEventListener("cancel", (e) => {
+      e.preventDefault();
+      closeWithResult(false);
+    });
+    const cancelButtons = dialog.querySelectorAll("[data-cm-dialog-cancel]");
+    cancelButtons.forEach((btn) => {
+      btn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeWithResult(false);
+      });
+    });
+    const confirmBtn = dialog.querySelector("[data-cm-dialog-confirm]");
+    if (confirmBtn) {
+      confirmBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        closeWithResult(true);
+      });
+    }
+    document.body.appendChild(dialog);
+    activeDialog = dialog;
+    return dialog;
+  }
+  function closeWithResult(result) {
+    if (!activeDialog) return;
+    if (activeDialog.open) {
+      activeDialog.close();
+    }
+    if (currentResolver) {
+      const resolve = currentResolver;
+      currentResolver = null;
+      resolve(result);
+    }
+  }
+  function confirmDialog(options) {
+    var _a, _b, _c, _d, _e, _f;
+    const opts = typeof options === "string" ? { message: options } : { ...options };
+    const title = (_a = opts.title) != null ? _a : t("dialog.title", "Confirmation");
+    const message = (_b = opts.message) != null ? _b : "";
+    const tone = (_c = opts.tone) != null ? _c : "default";
+    const confirmText = (_d = opts.confirmText) != null ? _d : t("dialog.confirm", "Confirm");
+    const cancelText = (_e = opts.cancelText) != null ? _e : t("dialog.cancel", "Cancel");
+    const closeText = t("common.close", "Close");
+    const closeOnBackdrop = (_f = opts.closeOnBackdrop) != null ? _f : true;
+    if (currentResolver) {
+      closeWithResult(false);
+    }
+    const dialog = ensureDialogElement();
+    dialog.dataset.cmCloseOnBackdrop = closeOnBackdrop ? "1" : "0";
+    dialog.dataset.cmTone = tone;
+    const titleEl = dialog.querySelector("[data-cm-dialog-title]");
+    if (titleEl) titleEl.textContent = title;
+    const closeBtn = dialog.querySelector(".cm-dialog-close-btn");
+    if (closeBtn) closeBtn.setAttribute("aria-label", closeText);
+    const bodyEl = dialog.querySelector("[data-cm-dialog-body]");
+    if (bodyEl) bodyEl.textContent = message;
+    const cancelBtn = dialog.querySelector(".cm-dialog-btn-cancel");
+    if (cancelBtn) cancelBtn.textContent = cancelText;
+    const confirmBtn = dialog.querySelector(".cm-dialog-btn-confirm");
+    if (confirmBtn) {
+      confirmBtn.textContent = confirmText;
+      confirmBtn.className = "cm-btn cm-dialog-btn-confirm";
+      if (tone === "danger") {
+        confirmBtn.classList.add("cm-btn-danger");
+      } else if (tone === "primary") {
+        confirmBtn.classList.add("cm-btn-primary");
+      } else if (tone === "warning") {
+        confirmBtn.classList.add("cm-btn-warning");
+      } else {
+        confirmBtn.classList.add("cm-btn-default");
+      }
+    }
+    return new Promise((resolve) => {
+      currentResolver = resolve;
+      if (typeof dialog.showModal === "function") {
+        dialog.showModal();
+      } else {
+        dialog.setAttribute("open", "");
+      }
+      if (tone === "danger") {
+        cancelBtn == null ? void 0 : cancelBtn.focus();
+      } else {
+        confirmBtn == null ? void 0 : confirmBtn.focus();
+      }
+    });
+  }
+
+  // src/grid-view/action-confirmation.ts
+  var pendingConfirmations = /* @__PURE__ */ new WeakSet();
+  function isDisabledElement(element) {
+    return element.matches(":disabled") || element.getAttribute("aria-disabled") === "true";
+  }
+  function stringValue(record, ...keys) {
+    for (const key of keys) {
+      const value = record[key];
+      if (typeof value === "string") return value;
+    }
+    return void 0;
+  }
+  function toneValue(value) {
+    return value === "default" || value === "primary" || value === "warning" || value === "danger" ? value : void 0;
+  }
+  function booleanValue(value) {
+    return typeof value === "boolean" ? value : void 0;
+  }
+  function decodeConfirmValue(value) {
+    var _a;
+    if (typeof value === "string") return value;
+    if (!isRecord(value)) return null;
+    const options = {};
+    const title = stringValue(value, "title");
+    const message = stringValue(value, "message");
+    const tone = toneValue(value.tone);
+    const confirmText = stringValue(value, "confirmText", "confirm_text");
+    const cancelText = stringValue(value, "cancelText", "cancel_text");
+    const closeOnBackdrop = booleanValue((_a = value.closeOnBackdrop) != null ? _a : value.close_on_backdrop);
+    if (title !== void 0) options.title = title;
+    if (message !== void 0) options.message = message;
+    if (tone !== void 0) options.tone = tone;
+    if (confirmText !== void 0) options.confirmText = confirmText;
+    if (cancelText !== void 0) options.cancelText = cancelText;
+    if (closeOnBackdrop !== void 0) options.closeOnBackdrop = closeOnBackdrop;
+    return options;
+  }
+  function serializeConfirmAttribute(value) {
+    var _a, _b, _c, _d, _e, _f;
+    const decoded = decodeConfirmValue(value);
+    if (decoded === null) return "";
+    if (typeof decoded === "string") return JSON.stringify(decoded);
+    return JSON.stringify({
+      title: (_a = decoded.title) != null ? _a : "Confirmation",
+      message: (_b = decoded.message) != null ? _b : "",
+      tone: (_c = decoded.tone) != null ? _c : "default",
+      confirm_text: (_d = decoded.confirmText) != null ? _d : "Confirm",
+      cancel_text: (_e = decoded.cancelText) != null ? _e : "Cancel",
+      close_on_backdrop: (_f = decoded.closeOnBackdrop) != null ? _f : true
+    });
+  }
+  function parseConfirmAttribute(raw) {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      return decodeConfirmValue(parsed);
+    } catch (e) {
+      return null;
+    }
+  }
+  function confirmAndInvokeFromElement(element, invoke, preferredElement = null) {
+    var _a;
+    if (pendingConfirmations.has(element)) return;
+    const preferredRaw = (_a = preferredElement == null ? void 0 : preferredElement.getAttribute("data-cm-confirm")) != null ? _a : null;
+    const preferredConfirm = parseConfirmAttribute(preferredRaw);
+    if (preferredRaw !== null && preferredConfirm === null) return;
+    const raw = element.getAttribute("data-cm-confirm");
+    const confirm = preferredConfirm != null ? preferredConfirm : parseConfirmAttribute(raw);
+    if (raw !== null && confirm === null) return;
+    if (confirm === null) {
+      invoke();
+      return;
+    }
+    pendingConfirmations.add(element);
+    void confirmDialog(confirm).then(
+      (confirmed) => {
+        try {
+          if (confirmed) invoke();
+        } finally {
+          pendingConfirmations.delete(element);
+        }
+      },
+      () => {
+        pendingConfirmations.delete(element);
+      }
+    );
+  }
+
   // src/grid-view/simple-table.ts
   function isClientFilterState(value) {
     return isRecord(value) && Object.values(value).every(
@@ -2082,7 +2367,11 @@
           if (target == null ? void 0 : target.closest("a,button,[data-cm-cell-action],[data-cm-cell-edit]"))
             return;
           const url = row.dataset.cmRowUrl;
-          if (url) window.location.href = url;
+          if (url) {
+            confirmAndInvokeFromElement(row, () => {
+              window.location.href = url;
+            });
+          }
         });
       });
       this.tbody.querySelectorAll("[data-cm-row-action]").forEach((rowEl) => {
@@ -2097,10 +2386,13 @@
             return;
           const action = row.dataset.cmRowAction;
           if (!action) return;
-          invokeAction(action, {
-            rowId: row.dataset.cmRowId,
-            gridId: this.w.getAttribute("data-grid-id") || void 0,
-            event
+          confirmAndInvokeFromElement(row, () => {
+            invokeAction(action, {
+              rowId: row.dataset.cmRowId,
+              gridId: this.w.getAttribute("data-grid-id") || void 0,
+              event,
+              source: "row"
+            });
           });
         });
       });
@@ -2162,7 +2454,7 @@
       });
     }
     clearAllFilters() {
-      var _a, _b;
+      var _a;
       const toolbarSearch = (_a = this.w.closest(".cm-dashboard-page, .cm-grid-view-spec")) == null ? void 0 : _a.querySelector("[data-cm-toolbar-search]");
       if (toolbarSearch instanceof HTMLInputElement) {
         toolbarSearch.value = "";
@@ -2181,11 +2473,7 @@
       const url = new URL(window.location.href);
       ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
       window.history.replaceState({}, "", url);
-      const gridId = this.w.dataset.gridId || ((_b = this.table.closest("[data-grid-id]")) == null ? void 0 : _b.dataset.gridId) || "";
-      if (gridId) {
-        localStorage.removeItem("cmColState_" + gridId);
-        localStorage.removeItem("cmTableState_" + gridId);
-      }
+      const gridId = this._gridId();
       this.applyAllFilters();
       document.dispatchEvent(
         new CustomEvent("cm-grid-state-change", { detail: { gridId } })
@@ -2205,7 +2493,8 @@
       if (Object.keys(collectColumnFiltersFromTable(this.table)).length)
         return true;
       const params = new URLSearchParams(window.location.search);
-      if (params.has("q") || params.has("col_q")) return true;
+      if (["q", "col_q"].some((key) => (params.get(key) || "").trim().length > 0))
+        return true;
       return false;
     }
     syncFilterChrome() {
@@ -2438,8 +2727,8 @@
         }
         if (match) shown++;
       });
-      const filtered = globalActive || hasColFilters;
-      this._syncSectionVisibility(colKeys, globalActive);
+      const filtered = globalActive || hasColFilters || clientFilterKeys.length > 0;
+      this._syncSectionVisibility(colKeys, filtered);
       this._syncSectionTotals(filtered);
       this._syncTableEmptyState(shown, filtered);
       this._syncRecordCounters(shown);
@@ -2585,16 +2874,6 @@
     safe("initTableCellUi", () => initTableCellUi(scope));
     safe("applyFiltersInScope", () => applyFiltersInScope(scope));
   }
-  function attachSimpleTableGlobals() {
-    if (document.readyState === "loading") {
-      document.addEventListener(
-        "DOMContentLoaded",
-        () => initAllSimpleTables(document)
-      );
-    } else {
-      initAllSimpleTables(document);
-    }
-  }
 
   // src/grid-view/set-filter-panel.ts
   function formatValueCount(template, count) {
@@ -2624,7 +2903,7 @@
       this.loadValues = options.loadValues || (() => ({ values: [], hasEmpty: false, emptyCount: 0 }));
       const L = options.labels || {};
       this.labels = {
-        listSearchPlaceholder: L.listSearchPlaceholder || i18n.t("filter.list_search", "\u041F\u043E\u0448\u0443\u043A\u2026"),
+        listSearchPlaceholder: L.listSearchPlaceholder || i18n.t("filter.list_search", "Search\u2026"),
         valueCountLabel: L.valueCountLabel || i18n.t("filter.value_count", "%(count)s values"),
         selectAll: L.selectAll || i18n.t("filter.select_all", "All"),
         onlyEmpty: L.onlyEmpty || i18n.t("filter.only_empty", "Empty"),
@@ -3001,7 +3280,7 @@
         cb.checked = false;
       });
     }
-    /** Reflect "no filter" state — only the «Усі» checkbox is ticked. */
+    /** Reflect "no filter" state — only the "All" checkbox is ticked. */
     _syncAllChecked() {
       this.modeCheckboxes.forEach((cb) => {
         cb.checked = cb.value === "all";
@@ -3562,12 +3841,370 @@
     return fromRoot != null ? fromRoot : null;
   }
 
+  // src/page-state/page-state.ts
+  var ROOT_SELECTOR = "[data-cm-grid-view-spec]";
+  var STORAGE_PREFIX = "cmGridViewPageState:v1:";
+  var VERSION = 1;
+  var FORBIDDEN_OBJECT_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
+  var INVALID_JSON_VALUE = Symbol("invalid-json-value");
+  function isSafeKey(key) {
+    return !FORBIDDEN_OBJECT_KEYS.has(key);
+  }
+  function isRecord3(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  function isNamespace(value) {
+    return value.length > 0 && isSafeKey(value);
+  }
+  function isIdentityPart(value, required) {
+    return !required || value.length > 0;
+  }
+  function cloneJsonValue(value, seen = /* @__PURE__ */ new WeakSet()) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return value;
+    if (typeof value === "number") return Number.isFinite(value) ? value : INVALID_JSON_VALUE;
+    if (typeof value !== "object") return INVALID_JSON_VALUE;
+    if (seen.has(value)) return INVALID_JSON_VALUE;
+    seen.add(value);
+    try {
+      if (Array.isArray(value)) {
+        const result2 = [];
+        for (const item of value) {
+          const validated = cloneJsonValue(item, seen);
+          if (validated === INVALID_JSON_VALUE) return INVALID_JSON_VALUE;
+          result2.push(validated);
+        }
+        return result2;
+      }
+      const prototype = Object.getPrototypeOf(value);
+      if (prototype !== Object.prototype && prototype !== null) return INVALID_JSON_VALUE;
+      const result = /* @__PURE__ */ Object.create(null);
+      for (const [key, item] of Object.entries(value)) {
+        if (!isSafeKey(key)) return INVALID_JSON_VALUE;
+        const validated = cloneJsonValue(item, seen);
+        if (validated === INVALID_JSON_VALUE) return INVALID_JSON_VALUE;
+        result[key] = validated;
+      }
+      return result;
+    } catch (e) {
+      return INVALID_JSON_VALUE;
+    } finally {
+      seen.delete(value);
+    }
+  }
+  function emptyState() {
+    return { version: VERSION, namespaces: /* @__PURE__ */ Object.create(null) };
+  }
+  function parseStoredState(raw) {
+    if (!raw) return null;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!isRecord3(parsed)) return null;
+      const envelope = parsed;
+      if (envelope.version !== VERSION) return null;
+      const namespaces = envelope.namespaces;
+      if (!isRecord3(namespaces)) return null;
+      const validState = emptyState();
+      for (const [namespace, value] of Object.entries(namespaces)) {
+        if (!isNamespace(namespace)) return null;
+        const validated = cloneJsonValue(value);
+        if (validated === INVALID_JSON_VALUE) return null;
+        validState.namespaces[namespace] = validated;
+      }
+      return validState;
+    } catch (e) {
+      return null;
+    }
+  }
+  function browserStorage() {
+    try {
+      return typeof window === "undefined" ? null : window.localStorage;
+    } catch (e) {
+      return null;
+    }
+  }
+  function readState(storage, key) {
+    try {
+      return parseStoredState(storage.getItem(key));
+    } catch (e) {
+      return null;
+    }
+  }
+  function writeState(storage, key, state) {
+    try {
+      storage.setItem(key, JSON.stringify(state));
+    } catch (e) {
+    }
+  }
+  function removeState(storage, key) {
+    try {
+      storage.removeItem(key);
+    } catch (e) {
+    }
+  }
+  function resolveSpecRoot(root) {
+    if (!root.isConnected) return null;
+    const specRoot = root.matches(ROOT_SELECTOR) ? root : root.closest(ROOT_SELECTOR);
+    return specRoot instanceof HTMLElement ? specRoot : null;
+  }
+  function pageStateIdentity(root) {
+    var _a, _b;
+    const specId = (_a = root.getAttribute("data-spec-id")) != null ? _a : "";
+    const scope = (_b = root.getAttribute("data-cm-page-state-scope")) != null ? _b : "";
+    if (!isIdentityPart(specId, true) || !isIdentityPart(scope, false)) return null;
+    try {
+      return {
+        storageKey: `${STORAGE_PREFIX}${encodeURIComponent(specId)}:${encodeURIComponent(scope)}`
+      };
+    } catch (e) {
+      return null;
+    }
+  }
+  var LocalPageStateHandle = class {
+    constructor(root, storageKey) {
+      this.root = root;
+      this.storageKey = storageKey;
+    }
+    get(namespace) {
+      if (!this.isLive() || !isNamespace(namespace)) return void 0;
+      const storage = browserStorage();
+      const stored = storage ? readState(storage, this.storageKey) : null;
+      const value = stored == null ? void 0 : stored.namespaces[namespace];
+      if (value === void 0) return void 0;
+      const cloned = cloneJsonValue(value);
+      return cloned === INVALID_JSON_VALUE ? void 0 : cloned;
+    }
+    put(namespace, value) {
+      var _a;
+      if (!this.isLive() || !isNamespace(namespace)) return;
+      const validated = cloneJsonValue(value);
+      if (validated === INVALID_JSON_VALUE) return;
+      const storage = browserStorage();
+      if (!storage) return;
+      const state = (_a = readState(storage, this.storageKey)) != null ? _a : emptyState();
+      state.namespaces[namespace] = validated;
+      writeState(storage, this.storageKey, state);
+    }
+    remove(namespace) {
+      if (!this.isLive() || !isNamespace(namespace)) return;
+      const storage = browserStorage();
+      if (!storage) return;
+      const state = readState(storage, this.storageKey);
+      if (!state) {
+        removeState(storage, this.storageKey);
+        return;
+      }
+      if (!(namespace in state.namespaces)) return;
+      delete state.namespaces[namespace];
+      if (Object.keys(state.namespaces).length === 0) {
+        removeState(storage, this.storageKey);
+        return;
+      }
+      writeState(storage, this.storageKey, state);
+    }
+    isLive() {
+      return this.root.isConnected;
+    }
+  };
+  var PageState = {
+    forRoot(root) {
+      if (typeof Element === "undefined" || !(root instanceof Element)) return null;
+      const specRoot = resolveSpecRoot(root);
+      if (!specRoot) return null;
+      const identity = pageStateIdentity(specRoot);
+      return identity ? new LocalPageStateHandle(specRoot, identity.storageKey) : null;
+    }
+  };
+
+  // src/grid-view/filter-drawer.ts
+  function drawerState(value) {
+    if (!isRecord(value)) return null;
+    if (typeof value.collapsed !== "boolean" || typeof value.width !== "number") return null;
+    if (!Number.isFinite(value.width)) return null;
+    return {
+      collapsed: value.collapsed,
+      width: value.width,
+      activePanel: value.activePanel === "settings" ? "settings" : "filters"
+    };
+  }
+  function bindLegacyDrawerSearch(drawer) {
+    const search = drawer.querySelector("[data-cm-filter-drawer-search]");
+    search == null ? void 0 : search.addEventListener("input", () => {
+      const query = search.value.trim().toLocaleLowerCase();
+      drawer.querySelectorAll("[data-cm-filter-search-item]").forEach((item) => {
+        var _a;
+        const label = (item.dataset.placeholder || ((_a = item.querySelector(".cm-filter-field__label, .cm-filter-grouped-select__label")) == null ? void 0 : _a.textContent) || "").toLocaleLowerCase();
+        const matchesLabel = !query || label.includes(query);
+        let hasMatchingOption = false;
+        item.querySelectorAll(".cm-multiselect-option").forEach((option) => {
+          var _a2;
+          const matchesOption = !query || matchesLabel || ((_a2 = option.textContent) == null ? void 0 : _a2.toLocaleLowerCase().includes(query));
+          option.hidden = !matchesOption;
+          hasMatchingOption || (hasMatchingOption = !!matchesOption);
+        });
+        if (!hasMatchingOption) {
+          hasMatchingOption = Array.from(item.querySelectorAll("option")).some(
+            (option) => {
+              var _a2;
+              return !query || matchesLabel || ((_a2 = option.textContent) == null ? void 0 : _a2.toLocaleLowerCase().includes(query));
+            }
+          );
+        }
+        const visible = matchesLabel || hasMatchingOption;
+        item.hidden = !visible;
+        item.querySelectorAll(".cm-multiselect-panel").forEach((panel) => {
+          if (!query) {
+            panel.classList.toggle("is-open", panel.dataset.cmDrawerSearchWasOpen === "1");
+            delete panel.dataset.cmDrawerSearchWasOpen;
+            return;
+          }
+          if (panel.dataset.cmDrawerSearchWasOpen === void 0) {
+            panel.dataset.cmDrawerSearchWasOpen = panel.classList.contains("is-open") ? "1" : "0";
+          }
+          panel.classList.toggle("is-open", visible);
+        });
+      });
+    });
+  }
+  function mountDrawerSettingsForGrid(gridId) {
+    const grid = byId.get(gridId);
+    if (!grid) return;
+    document.querySelectorAll("[data-cm-filter-drawer-settings]").forEach((container) => {
+      var _a;
+      if (container.dataset.cmGridId === gridId) (_a = grid.mountColumnSettings) == null ? void 0 : _a.call(grid, container);
+    });
+  }
+  function gridIdFromReadyEvent(event) {
+    if (!(event instanceof CustomEvent)) return null;
+    const detail = event.detail;
+    if (typeof detail !== "object" || detail === null) return null;
+    const gridId = Reflect.get(detail, "gridId");
+    return typeof gridId === "string" ? gridId : null;
+  }
+  var gridReadyMountBound = false;
+  function installGridReadySettingsMount() {
+    if (gridReadyMountBound) return;
+    gridReadyMountBound = true;
+    document.addEventListener("cm-grid-ready", (event) => {
+      const gridId = gridIdFromReadyEvent(event);
+      if (gridId) mountDrawerSettingsForGrid(gridId);
+    });
+  }
+  function bindFilterDrawer(drawer) {
+    var _a, _b, _c;
+    if (drawer.dataset.cmFilterDrawerBound) return;
+    drawer.dataset.cmFilterDrawerBound = "1";
+    const drawerId = drawer.dataset.cmFilterDrawerId || drawer.id;
+    if (!drawerId) return;
+    const pageState = PageState.forRoot(drawer);
+    const namespace = `filters.${drawerId}.drawer`;
+    const restored = drawerState(pageState == null ? void 0 : pageState.get(namespace));
+    let state = {
+      collapsed: (_a = restored == null ? void 0 : restored.collapsed) != null ? _a : false,
+      width: Math.max(240, Math.min(520, Math.round((_b = restored == null ? void 0 : restored.width) != null ? _b : 320))),
+      activePanel: (_c = restored == null ? void 0 : restored.activePanel) != null ? _c : "filters"
+    };
+    const mountSettings = () => {
+      drawer.querySelectorAll("[data-cm-filter-drawer-settings]").forEach((container) => {
+        const grid = byId.get(container.dataset.cmGridId || "");
+        if (grid && typeof grid.mountColumnSettings === "function") {
+          grid.mountColumnSettings(container);
+        }
+      });
+    };
+    const persist = () => pageState == null ? void 0 : pageState.put(namespace, {
+      collapsed: state.collapsed,
+      width: state.width,
+      activePanel: state.activePanel
+    });
+    const apply = () => {
+      var _a2;
+      drawer.classList.toggle("is-collapsed", state.collapsed);
+      drawer.style.setProperty("--cm-filter-drawer-width", `${state.width}px`);
+      drawer.querySelectorAll("[data-cm-filter-drawer-open]").forEach((button) => {
+        button.setAttribute("aria-expanded", String(!state.collapsed));
+      });
+      (_a2 = drawer.querySelector("[data-cm-filter-drawer-resize]")) == null ? void 0 : _a2.setAttribute("aria-valuenow", String(state.width));
+      drawer.querySelectorAll("[data-cm-filter-drawer-tab]").forEach((tab) => {
+        const active = tab.dataset.cmFilterDrawerTab === state.activePanel;
+        tab.classList.toggle("is-active", active);
+        tab.setAttribute("aria-selected", String(active));
+      });
+      drawer.querySelectorAll("[data-cm-filter-drawer-panel]").forEach((panel) => {
+        panel.hidden = panel.dataset.cmFilterDrawerPanel !== state.activePanel;
+      });
+      if (state.activePanel === "settings") mountSettings();
+    };
+    const setCollapsed = (collapsed) => {
+      var _a2;
+      state = { ...state, collapsed };
+      apply();
+      persist();
+      (_a2 = drawer.querySelector(collapsed ? "[data-cm-filter-drawer-open]" : "[data-cm-filter-drawer-close]")) == null ? void 0 : _a2.focus();
+    };
+    drawer.querySelectorAll("[data-cm-filter-drawer-open]").forEach((button) => {
+      button.addEventListener("click", () => setCollapsed(false));
+    });
+    drawer.querySelectorAll("[data-cm-filter-drawer-close]").forEach((button) => {
+      button.addEventListener("click", () => setCollapsed(true));
+    });
+    drawer.querySelectorAll("[data-cm-filter-drawer-tab]").forEach((tab) => {
+      tab.addEventListener("click", () => {
+        const activePanel = tab.dataset.cmFilterDrawerTab === "settings" ? "settings" : "filters";
+        if (!drawer.querySelector(`[data-cm-filter-drawer-panel="${activePanel}"]`)) return;
+        state = { ...state, collapsed: false, activePanel };
+        apply();
+        persist();
+      });
+    });
+    bindLegacyDrawerSearch(drawer);
+    const resize = drawer.querySelector("[data-cm-filter-drawer-resize]");
+    const setWidth = (width) => {
+      state = { ...state, collapsed: false, width: Math.max(240, Math.min(520, Math.round(width))) };
+      apply();
+      persist();
+    };
+    resize == null ? void 0 : resize.addEventListener("pointerdown", (event) => {
+      event.preventDefault();
+      const startX = event.clientX;
+      const startWidth = state.width;
+      const onMove = (move) => setWidth(startWidth + move.clientX - startX);
+      const onEnd = () => {
+        window.removeEventListener("pointermove", onMove);
+        window.removeEventListener("pointerup", onEnd);
+        window.removeEventListener("pointercancel", onEnd);
+      };
+      window.addEventListener("pointermove", onMove);
+      window.addEventListener("pointerup", onEnd, { once: true });
+      window.addEventListener("pointercancel", onEnd, { once: true });
+    });
+    resize == null ? void 0 : resize.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowLeft") {
+        event.preventDefault();
+        setWidth(state.width - 16);
+      }
+      if (event.key === "ArrowRight") {
+        event.preventDefault();
+        setWidth(state.width + 16);
+      }
+    });
+    mountSettings();
+    apply();
+  }
+  function initFilterDrawers(scope) {
+    installGridReadySettingsMount();
+    const drawers = Array.from(scope.querySelectorAll("[data-cm-filter-drawer]"));
+    if (scope instanceof HTMLElement && scope.matches("[data-cm-filter-drawer]")) drawers.unshift(scope);
+    drawers.forEach(bindFilterDrawer);
+  }
+
   // src/grid-view/filter-bar.ts
   var MS_VALUE_CHECKBOX = 'input[type="checkbox"]:checked:not([data-ui-only])';
   var MS_COUNTABLE = 'input[type="checkbox"]:not([data-period-all]):not([data-select-all]):not([data-ui-only]):not([data-exclusive-solo])';
   var MULTISELECT_CHANGE_DEBOUNCE_MS = 650;
   var multiselectChangeTimers = /* @__PURE__ */ new WeakMap();
   var multiselectPanelToRestore = null;
+  var filterHistoryBound = false;
+  var latestFilterNavigationUrl = "";
   function setMultiselectTriggerLabel(root, text) {
     const trigger = root.querySelector(".cm-multiselect-trigger");
     if (!trigger) return;
@@ -3604,6 +4241,24 @@
       if (!(selEl instanceof HTMLSelectElement)) return;
       const param = selEl.name || selEl.dataset.filterId;
       if (param) state[param] = selEl.value;
+    });
+    const groupedValues = /* @__PURE__ */ new Map();
+    root.querySelectorAll("select[data-cm-grouped-select]").forEach((select) => {
+      var _a;
+      const param = select.name || ((_a = select.closest("[data-filter-id]")) == null ? void 0 : _a.dataset.filterParam);
+      if (!param) return;
+      const selected = groupedValues.get(param) || [];
+      if (select.value) selected.push(select.value);
+      groupedValues.set(param, selected);
+    });
+    groupedValues.forEach((values, param) => {
+      state[param] = values;
+    });
+    root.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
+      const field = asHTMLElement(input.closest("[data-filter-id]"));
+      const param = (field == null ? void 0 : field.dataset.filterParam) || (field == null ? void 0 : field.dataset.filterId) || input.name;
+      if (!param) return;
+      state[param] = input.type === "checkbox" ? input.checked ? input.value || "1" : "" : input.value;
     });
     const search = asHtmlInput(root.querySelector("[data-cm-search]"));
     if (search && search.name) state[search.name] = search.value;
@@ -3642,7 +4297,6 @@
   function applyFilterValues(root, state) {
     if (!root || !state) return;
     Object.entries(state).forEach(([param, val]) => {
-      if (val == null || val === "") return;
       const values = Array.isArray(val) ? val.map(String) : String(val).split(",").map((v) => v.trim()).filter(Boolean);
       root.querySelectorAll("[data-cm-multiselect]").forEach((msEl) => {
         const ms = asHTMLElement(msEl);
@@ -3673,6 +4327,25 @@
         if (selParam !== param) return;
         selEl.value = Array.isArray(val) ? String(val[0] || "") : String(val);
       });
+      root.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
+        const field = asHTMLElement(input.closest("[data-filter-id]"));
+        const fieldParam = (field == null ? void 0 : field.dataset.filterParam) || (field == null ? void 0 : field.dataset.filterId) || input.name;
+        if (fieldParam !== param) return;
+        if (input.type === "checkbox") input.checked = values.includes(input.value || "1");
+        else input.value = Array.isArray(val) ? String(val[0] || "") : String(val != null ? val : "");
+      });
+    });
+    root.querySelectorAll("select[data-cm-grouped-select]").forEach((select) => {
+      var _a;
+      const param = select.name || ((_a = select.closest("[data-filter-id]")) == null ? void 0 : _a.dataset.filterParam);
+      if (!param) return;
+      const rawValue = state[param];
+      const values = Array.isArray(rawValue) ? rawValue.map(String) : String(rawValue || "").split(",").map((value) => value.trim()).filter(Boolean);
+      const selected = Array.from(select.options).find(
+        (option) => !option.disabled && values.includes(option.value)
+      );
+      const fallback = Array.from(select.options).find((option) => !option.disabled);
+      select.value = (selected == null ? void 0 : selected.value) || (fallback == null ? void 0 : fallback.value) || "";
     });
   }
   function filterNavigateHref() {
@@ -3681,10 +4354,14 @@
     return url.href;
   }
   function resolveToolbarGridId(anchor) {
-    var _a, _b, _c;
+    var _a, _b, _c, _d;
     const anchorEl = asHTMLElement(anchor);
-    const root = asHTMLElement(anchorEl == null ? void 0 : anchorEl.closest("[data-cm-toolbar-search-root]")) || asHTMLElement((_a = anchorEl == null ? void 0 : anchorEl.closest(".cm-toolbar-unified")) == null ? void 0 : _a.querySelector("[data-cm-toolbar-search-root]"));
-    return ((_b = root == null ? void 0 : root.dataset) == null ? void 0 : _b.cmTableGridId) || ((_c = root == null ? void 0 : root.dataset) == null ? void 0 : _c.cmPrefGridId) || "";
+    const directGridId = anchorEl == null ? void 0 : anchorEl.getAttribute("data-cm-grid-id");
+    if (directGridId) return directGridId;
+    const drawerTarget = (_a = asHTMLElement(anchorEl == null ? void 0 : anchorEl.closest(".cm-filters"))) == null ? void 0 : _a.dataset.target;
+    if (drawerTarget) return drawerTarget;
+    const root = asHTMLElement(anchorEl == null ? void 0 : anchorEl.closest("[data-cm-toolbar-search-root]")) || asHTMLElement((_b = anchorEl == null ? void 0 : anchorEl.closest(".cm-toolbar-unified")) == null ? void 0 : _b.querySelector("[data-cm-toolbar-search-root]"));
+    return ((_c = root == null ? void 0 : root.dataset) == null ? void 0 : _c.cmTableGridId) || ((_d = root == null ? void 0 : root.dataset) == null ? void 0 : _d.cmPrefGridId) || "";
   }
   function tableFragmentConfig(gridId, bar) {
     var _a, _b, _c, _d, _e, _f, _g;
@@ -3747,7 +4424,7 @@
           target: frag.target,
           swap: frag.swap
         });
-        window.history.pushState({}, "", pageUrl);
+        pushFilterHistory(pageUrl, anchorEl || bar);
         window.setTimeout(() => syncToolbarCounterFromTable(frag.gridId), 0);
         return true;
       }
@@ -3760,12 +4437,48 @@
           swap: "innerHTML",
           select: "#" + specRoot.id
         });
-        window.history.pushState({}, "", pageUrl);
+        pushFilterHistory(pageUrl, ref);
         return true;
       }
     }
     window.location.href = pageUrl;
     return false;
+  }
+  function pushFilterHistory(pageUrl, anchor) {
+    const specRoot = anchor instanceof Element ? asHTMLElement(anchor.closest("[data-cm-grid-view-spec]")) : null;
+    const state = isRecord(window.history.state) ? { ...window.history.state } : {};
+    if (specRoot == null ? void 0 : specRoot.dataset.specId) state.cmFilterSpecId = specRoot.dataset.specId;
+    window.history.pushState(state, "", pageUrl);
+    latestFilterNavigationUrl = pageUrl;
+  }
+  function isSameFilterPage(previousUrl, nextUrl) {
+    const previous = new URL(previousUrl, window.location.origin);
+    const next = new URL(nextUrl, window.location.origin);
+    return previous.pathname === next.pathname && previous.searchParams.get("tab") === next.searchParams.get("tab");
+  }
+  function restoreFilterHistorySpec() {
+    if (filterHistoryBound) return;
+    filterHistoryBound = true;
+    window.addEventListener("popstate", () => {
+      const nextUrl = filterNavigateHref();
+      if (!isSameFilterPage(latestFilterNavigationUrl, nextUrl)) return;
+      latestFilterNavigationUrl = nextUrl;
+      window.setTimeout(() => {
+        const historyState = isRecord(window.history.state) ? window.history.state : {};
+        const specId = typeof historyState.cmFilterSpecId === "string" ? historyState.cmFilterSpecId : "";
+        const roots = Array.from(document.querySelectorAll("[data-cm-grid-view-spec]"));
+        const specRoot = specId ? asHTMLElement(document.getElementById("cm-spec-" + specId)) : roots.length === 1 ? roots[0] : null;
+        const htmx = getGlobal().htmx;
+        if (!(specRoot == null ? void 0 : specRoot.id) || !htmx || typeof htmx.ajax !== "function") return;
+        const wrapId = "cm-spec-wrap-" + specRoot.dataset.specId;
+        if (!document.getElementById(wrapId)) return;
+        htmx.ajax("GET", filterNavigateHref(), {
+          target: "#" + wrapId,
+          swap: "innerHTML",
+          select: "#" + specRoot.id
+        });
+      }, 0);
+    });
   }
   function toolbarSearchUsesFragmentNavigation(searchInput) {
     if (specWantsFacets(searchInput)) return true;
@@ -3774,7 +4487,7 @@
   function buildFilterUrl(baseUrl, state) {
     const url = new URL(baseUrl, window.location.origin);
     Object.entries(state).forEach(([key, val]) => {
-      if (val === "" || val == null) {
+      if (val === "" || val == null || Array.isArray(val) && val.length === 0) {
         url.searchParams.delete(key);
         return;
       }
@@ -3794,15 +4507,7 @@
         if (Array.isArray(ids)) return ids.map(String).join(",");
       }
     }
-    try {
-      const raw = localStorage.getItem("cmColState_" + gridId);
-      if (!raw) return "";
-      const state = JSON.parse(raw);
-      if (!Array.isArray(state)) return "";
-      return state.filter((col) => isRecord(col) && !col.hide).map((col) => String(col.colId || "")).filter(Boolean).join(",");
-    } catch (e) {
-      return "";
-    }
+    return "";
   }
   function withActiveTableColumns(urlString, scopeEl) {
     const url = new URL(urlString, window.location.origin);
@@ -3953,6 +4658,18 @@
     bar.querySelectorAll("select[data-filter-scope='server']").forEach((selEl) => {
       if (selEl instanceof HTMLSelectElement) selEl.addEventListener("change", onChange);
     });
+    bar.querySelectorAll("select[data-cm-grouped-select]").forEach((select) => {
+      select.addEventListener("change", onChange);
+    });
+    bar.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
+      input.addEventListener("change", onChange);
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          onChange();
+        }
+      });
+    });
     const search = asHtmlInput(bar.querySelector("[data-cm-search]"));
     if (search) {
       search.addEventListener("keydown", (e) => {
@@ -3976,15 +4693,26 @@
     if (!dropdown) return;
     var scopeId = dropdown.dataset.cmSavedDropdownFor || "";
     var loadBtn = scopeId ? document.getElementById("cm-saved-searches-btn-" + scopeId) : null;
-    if (open) {
+    const root = scopeId ? document.querySelector(
+      '[data-cm-toolbar-search-root][data-cm-search-scope-id="' + scopeId + '"]'
+    ) : null;
+    if (open && loadBtn instanceof HTMLElement) {
+      document.body.appendChild(dropdown);
+      dropdown.classList.add("cm-toolbar-search-saved-panel--portal");
       dropdown.classList.remove("is-hidden", "hidden");
       dropdown.classList.add("is-open");
-      if (loadBtn) loadBtn.setAttribute("aria-expanded", "true");
-    } else {
-      dropdown.classList.add("is-hidden");
-      dropdown.classList.remove("is-open");
-      if (loadBtn) loadBtn.setAttribute("aria-expanded", "false");
+      dropdown.style.right = "auto";
+      positionFixedOverlay(dropdown, loadBtn, "end");
+      loadBtn.setAttribute("aria-expanded", "true");
+      return;
     }
+    dropdown.classList.add("is-hidden");
+    dropdown.classList.remove("is-open", "cm-toolbar-search-saved-panel--portal");
+    dropdown.style.removeProperty("left");
+    dropdown.style.removeProperty("top");
+    dropdown.style.removeProperty("right");
+    if (root) root.appendChild(dropdown);
+    if (loadBtn) loadBtn.setAttribute("aria-expanded", "false");
   }
   var ToolbarSearch = {
     ctx: function(scopeId, wrap) {
@@ -4028,27 +4756,11 @@
         } catch (e) {
         }
       }
-      try {
-        var ls = localStorage.getItem("cmSavedSearches_" + ctx.prefId);
-        if (ls) {
-          var fromLs = JSON.parse(ls);
-          if (Array.isArray(fromLs)) {
-            return fromLs.filter(function(s) {
-              return typeof s === "string" && s;
-            });
-          }
-        }
-      } catch (e) {
-      }
       return [];
     },
     persist: function(ctx, items) {
       if (!ctx) return;
       ctx.root.dataset.cmSavedSearches = JSON.stringify(items);
-      try {
-        localStorage.setItem("cmSavedSearches_" + ctx.prefId, JSON.stringify(items));
-      } catch (e) {
-      }
       var host = byId.get(ctx.scopeId);
       if (host) host.savedQuickSearches = items;
       var url = getGlobal().GridView && getGlobal().GridView.preferencesUrl || "";
@@ -4087,12 +4799,15 @@
       if (!ctx || !ctx.container) return;
       const container = ctx.container;
       container.innerHTML = "";
+      const i18n2 = getGlobal().GridViewI18n;
       if (!items.length) {
-        setSavedSearchPanelOpen(ctx.dropdown, false);
+        const empty = document.createElement("div");
+        empty.className = "cm-toolbar-search-saved-empty p-2 text-slate-400 dark:text-gray-500 text-center text-[11px]";
+        empty.textContent = (i18n2 == null ? void 0 : i18n2["search.no_saved_searches"]) || "No saved searches";
+        container.appendChild(empty);
         if (ctx.input) syncToolbarSearchChrome(ctx.input);
         return;
       }
-      var self = ToolbarSearch;
       items.forEach(function(text) {
         var item = document.createElement("div");
         item.className = "cm-toolbar-search-saved-item";
@@ -4101,7 +4816,7 @@
         item.appendChild(label);
         item.addEventListener("mousedown", function(e) {
           e.preventDefault();
-          self.apply(ctx, text, onPick != null ? onPick : void 0);
+          ToolbarSearch.apply(ctx, text, onPick != null ? onPick : void 0);
         });
         var del = document.createElement("button");
         del.type = "button";
@@ -4113,8 +4828,8 @@
           var next = items.filter(function(s) {
             return s !== text;
           });
-          self.persist(ctx, next);
-          self.render(ctx, next, onPick);
+          ToolbarSearch.persist(ctx, next);
+          ToolbarSearch.render(ctx, next, onPick);
         });
         item.appendChild(del);
         container.appendChild(item);
@@ -4165,7 +4880,7 @@
             '[data-cm-toolbar-search-root][data-cm-search-scope-id="' + esc + '"]'
           );
           const target = e.target;
-          if (root instanceof HTMLElement && target instanceof Node && !root.contains(target)) {
+          if (root instanceof HTMLElement && target instanceof Node && !root.contains(target) && !dd.contains(target)) {
             setSavedSearchPanelOpen(dd, false);
           }
         });
@@ -4317,7 +5032,9 @@
     });
   }
   function initFilterBars(scope) {
+    var _a, _b, _c;
     const root = scope && "querySelectorAll" in scope ? scope : document;
+    latestFilterNavigationUrl = filterNavigateHref();
     root.querySelectorAll("[data-cm-filter-bar]").forEach((barEl) => {
       const bar = asHTMLElement(barEl);
       if (!bar) return;
@@ -4326,6 +5043,23 @@
         bindFilterBar(bar, { navigate: bar.dataset.navigateOnChange !== "0" });
       }
     });
+    initFilterDrawers(root);
+    const workspaceRoot = root.querySelector("[data-cm-filter-drawer-workspace]");
+    if (workspaceRoot) {
+      const workspace = (_a = getGlobal().GridView) == null ? void 0 : _a.FilterDrawerWorkspace;
+      if (workspace) {
+        workspace.init(root);
+      } else {
+        const ensureWorkspace = (_c = (_b = getGlobal().GridView) == null ? void 0 : _b.assets) == null ? void 0 : _c.ensureFilterDrawerWorkspace;
+        if (ensureWorkspace) {
+          void ensureWorkspace().then(() => {
+            var _a2, _b2;
+            return (_b2 = (_a2 = getGlobal().GridView) == null ? void 0 : _a2.FilterDrawerWorkspace) == null ? void 0 : _b2.init(root);
+          }).catch(() => void 0);
+        }
+      }
+    }
+    restoreFilterHistorySpec();
     initToolbarSearch(root);
   }
   function initTabGroups(scope) {
@@ -4398,13 +5132,319 @@
     matchColumnFilter
   };
 
+  // src/runtime/notifications.ts
+  var toastContainer = null;
+  var toastCount = 0;
+  var channelBound = false;
+  function ensureToastContainer() {
+    if (toastContainer && document.body.contains(toastContainer)) {
+      return toastContainer;
+    }
+    const el = document.createElement("div");
+    el.id = "cm-toast-container";
+    el.className = "cm-toast-container";
+    el.setAttribute("aria-live", "polite");
+    el.setAttribute("role", "status");
+    document.body.appendChild(el);
+    toastContainer = el;
+    return el;
+  }
+  function resolveIcon(tone) {
+    switch (tone) {
+      case "success":
+        return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>';
+      case "warning":
+        return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>';
+      case "error":
+      case "danger":
+        return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>';
+      case "info":
+      default:
+        return '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>';
+    }
+  }
+  function notify(options) {
+    var _a, _b;
+    const opts = typeof options === "string" ? { message: options } : { ...options };
+    const id = opts.id || `cm-toast-${++toastCount}`;
+    const tone = (_a = opts.tone) != null ? _a : "info";
+    const duration = (_b = opts.duration) != null ? _b : 4e3;
+    const container = ensureToastContainer();
+    const toastEl = document.createElement("div");
+    toastEl.id = id;
+    toastEl.className = `cm-toast cm-toast-${tone}`;
+    toastEl.dataset.cmToastId = id;
+    const headerHtml = opts.title ? `<div class="cm-toast-title">${escapeHtml2(opts.title)}</div>` : "";
+    const actionHtml = opts.action ? `<button type="button" class="cm-toast-action-btn" data-cm-toast-action>${escapeHtml2(opts.action.label)}</button>` : "";
+    toastEl.innerHTML = `
+    <div class="cm-toast-icon">${resolveIcon(tone)}</div>
+    <div class="cm-toast-content">
+      ${headerHtml}
+      <div class="cm-toast-message">${escapeHtml2(opts.message)}</div>
+      ${actionHtml}
+    </div>
+    <button type="button" class="cm-toast-close" data-cm-toast-close aria-label="Close">&times;</button>
+  `;
+    let timer = null;
+    let remainingMs = duration;
+    let startedAt = Date.now();
+    const dismiss = () => {
+      if (timer !== null) {
+        window.clearTimeout(timer);
+        timer = null;
+      }
+      toastEl.classList.add("is-exiting");
+      toastEl.addEventListener(
+        "animationend",
+        () => {
+          if (toastEl.parentNode) toastEl.parentNode.removeChild(toastEl);
+        },
+        { once: true }
+      );
+      window.setTimeout(() => {
+        if (toastEl.parentNode) toastEl.parentNode.removeChild(toastEl);
+      }, 300);
+    };
+    const instance = { id, element: toastEl, dismiss };
+    if (opts.action) {
+      const actionBtn = toastEl.querySelector("[data-cm-toast-action]");
+      actionBtn == null ? void 0 : actionBtn.addEventListener("click", (e) => {
+        var _a2;
+        e.stopPropagation();
+        (_a2 = opts.action) == null ? void 0 : _a2.onClick(instance);
+      });
+    }
+    const closeBtn = toastEl.querySelector("[data-cm-toast-close]");
+    closeBtn == null ? void 0 : closeBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      dismiss();
+    });
+    if (duration > 0) {
+      const startTimer = () => {
+        startedAt = Date.now();
+        timer = window.setTimeout(dismiss, remainingMs);
+      };
+      const pauseTimer = () => {
+        if (timer !== null) {
+          window.clearTimeout(timer);
+          timer = null;
+          remainingMs -= Date.now() - startedAt;
+        }
+      };
+      toastEl.addEventListener("mouseenter", pauseTimer);
+      toastEl.addEventListener("mouseleave", () => {
+        if (remainingMs > 0) startTimer();
+        else dismiss();
+      });
+      startTimer();
+    }
+    container.appendChild(toastEl);
+    return instance;
+  }
+  function escapeHtml2(str) {
+    return str.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  }
+  function bindNotificationChannel() {
+    if (channelBound || typeof window === "undefined") return;
+    channelBound = true;
+    window.addEventListener("cm:notify", ((event) => {
+      if (event.detail) {
+        notify(event.detail);
+      }
+    }));
+  }
+
+  // src/grid-view/confirmation-interceptor.ts
+  var nativeConfirm = null;
+  var nativeAlert = null;
+  var interceptorsBound = false;
+  function defaultConfirmMessage(message) {
+    return (message == null ? void 0 : message.trim()) || "Are you sure?";
+  }
+  function findDialogDescriptor(name) {
+    let owner = window;
+    while (owner) {
+      const descriptor = Object.getOwnPropertyDescriptor(owner, name);
+      if (descriptor) return descriptor;
+      owner = Object.getPrototypeOf(owner);
+    }
+    return void 0;
+  }
+  function defineDialogMethod(name, implementation) {
+    const ownDescriptor = Object.getOwnPropertyDescriptor(window, name);
+    const descriptor = ownDescriptor != null ? ownDescriptor : findDialogDescriptor(name);
+    if (!descriptor) return false;
+    if (ownDescriptor && !ownDescriptor.configurable) {
+      if (!("value" in ownDescriptor) || !ownDescriptor.writable) return false;
+      try {
+        Object.defineProperty(window, name, {
+          configurable: false,
+          enumerable: ownDescriptor.enumerable,
+          value: implementation,
+          writable: true
+        });
+        return true;
+      } catch (e) {
+        return false;
+      }
+    }
+    try {
+      Object.defineProperty(window, name, {
+        configurable: true,
+        enumerable: descriptor.enumerable === true,
+        value: implementation,
+        writable: true
+      });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+  function fallbackConfirm(message) {
+    return nativeConfirm ? nativeConfirm(defaultConfirmMessage(message)) : false;
+  }
+  function interceptedConfirm(message) {
+    const normalizedMessage = defaultConfirmMessage(message);
+    try {
+      return confirmDialog({ message: normalizedMessage, tone: "danger" }).catch(() => fallbackConfirm(normalizedMessage));
+    } catch (e) {
+      return Promise.resolve(fallbackConfirm(normalizedMessage));
+    }
+  }
+  function interceptedAlert(message) {
+    const normalizedMessage = String(message != null ? message : "");
+    try {
+      notify({ message: normalizedMessage, tone: "error" });
+    } catch (e) {
+      nativeAlert == null ? void 0 : nativeAlert(normalizedMessage);
+    }
+  }
+  function isHtmxConfirmDetail(value) {
+    if (!isRecord(value) || typeof value.issueRequest !== "function") return false;
+    return value.question === void 0 || typeof value.question === "string";
+  }
+  function continueConfirmedLink(link) {
+    const target = link.target.trim();
+    const reservedTarget = target.toLowerCase();
+    if (!target || reservedTarget === "_self") {
+      window.location.href = link.href;
+      return;
+    }
+    if (reservedTarget === "_parent" || reservedTarget === "_top") {
+      const destination = reservedTarget === "_top" ? window.top : window.parent;
+      if (destination) destination.location.href = link.href;
+      return;
+    }
+    if (reservedTarget === "_blank") {
+      window.open(link.href, "_blank", "noopener,noreferrer");
+      return;
+    }
+    if (/^[A-Za-z][A-Za-z0-9._:-]*$/.test(target)) {
+      window.open(link.href, target, "noopener,noreferrer");
+    }
+  }
+  function bindHtmxConfirmationBridge() {
+    document.addEventListener(
+      "htmx:confirm",
+      (event) => {
+        if (!(event instanceof CustomEvent) || !isHtmxConfirmDetail(event.detail)) return;
+        event.preventDefault();
+        let settled = false;
+        const issueRequestOnce = () => {
+          if (settled) return;
+          settled = true;
+          event.detail.issueRequest(true);
+        };
+        const question = defaultConfirmMessage(event.detail.question);
+        void confirmDialog({ message: question, tone: "danger" }).then(
+          (confirmed) => {
+            if (confirmed) issueRequestOnce();
+            else settled = true;
+          },
+          () => {
+            settled = true;
+          }
+        );
+      },
+      true
+    );
+  }
+  function installGlobalDialogInterceptors() {
+    if (!nativeConfirm) {
+      const currentConfirm = window.confirm;
+      if (typeof currentConfirm === "function") {
+        const originalConfirm = currentConfirm.bind(window);
+        if (defineDialogMethod("confirm", interceptedConfirm)) nativeConfirm = originalConfirm;
+      }
+    }
+    if (!nativeAlert) {
+      const currentAlert = window.alert;
+      if (typeof currentAlert === "function") {
+        const originalAlert = currentAlert.bind(window);
+        if (defineDialogMethod("alert", interceptedAlert)) nativeAlert = originalAlert;
+      }
+    }
+  }
+  function installConfirmationInterceptors() {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    installGlobalDialogInterceptors();
+    if (interceptorsBound) return;
+    interceptorsBound = true;
+    bindHtmxConfirmationBridge();
+  }
+
   // src/grid-view/actions.ts
   function cssAttr(value) {
     return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(value) : value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
   }
-  function syncClearAllButtons() {
+  function hasActiveToolbarSearch(toolbar) {
+    if (!toolbar) return false;
+    return Array.from(
+      toolbar.querySelectorAll("[data-cm-toolbar-search], [data-cm-search]")
+    ).some(
+      (input) => input.value.trim().length > 0 || (input.dataset.cmSearchCommitted || "").trim().length > 0
+    );
+  }
+  function hasActiveUrlFilterState() {
+    const params = new URLSearchParams(window.location.search);
+    return ["q", "filters", "col_q"].some(
+      (key) => (params.get(key) || "").trim().length > 0
+    );
+  }
+  function clearUrlFilterState() {
     const url = new URL(window.location.href);
-    const urlActive = url.searchParams.has("q") || url.searchParams.has("filters") || url.searchParams.has("col_q");
+    let changed = false;
+    ["q", "filters", "col_q"].forEach((key) => {
+      if (!url.searchParams.has(key)) return;
+      url.searchParams.delete(key);
+      changed = true;
+    });
+    if (changed) window.history.replaceState({}, "", url);
+  }
+  function clearToolbarSearchState(scope, gridId, filterBar) {
+    const inputs = /* @__PURE__ */ new Set();
+    const collect = (root) => {
+      root == null ? void 0 : root.querySelectorAll("[data-cm-toolbar-search], [data-cm-search]").forEach((input) => inputs.add(input));
+    };
+    collect(scope == null ? void 0 : scope.closest(".cm-toolbar-unified, [data-cm-toolbar]"));
+    collect(filterBar);
+    if (gridId) {
+      const escaped = cssAttr(gridId);
+      collect(
+        document.querySelector(
+          '[data-cm-toolbar-search-root][data-cm-table-grid-id="' + escaped + '"]'
+        )
+      );
+      collect(document.querySelector('[data-grid-id="' + escaped + '"]'));
+    }
+    inputs.forEach((input) => {
+      input.value = "";
+      delete input.dataset.cmSearchCommitted;
+      syncToolbarSearchChrome(input);
+    });
+    clearUrlFilterState();
+  }
+  function syncClearAllButtons() {
     document.querySelectorAll('[data-cm-grid-action="clearAllFilters"]').forEach((btn) => {
       var _a, _b, _c, _d, _e;
       if (btn.dataset.cmServerFilterState === "1") {
@@ -4414,8 +5454,6 @@
       const gridId = btn.getAttribute("data-cm-grid-id") || "";
       const handle = (_b = (_a = window.GridView) == null ? void 0 : _a.byId) == null ? void 0 : _b.get(gridId);
       const toolbar = btn.closest(".cm-toolbar-unified");
-      const searchInput = toolbar == null ? void 0 : toolbar.querySelector("[data-cm-toolbar-search]");
-      const searchActive = !!(searchInput == null ? void 0 : searchInput.value.trim());
       const toolbarFilterActive = !!(toolbar == null ? void 0 : toolbar.querySelector(
         '[data-cm-multiselect] input[type="checkbox"]:checked'
       ));
@@ -4424,9 +5462,10 @@
       const model = (_e = (_d = (_c = handle == null ? void 0 : handle.gridApi) == null ? void 0 : _c.getFilterModel) == null ? void 0 : _d.call(_c)) != null ? _e : {};
       const agActive = Object.keys(model).length > 0;
       const handleActive = handle && typeof handle.hasActiveFilters === "function" ? handle.hasActiveFilters() : false;
+      const toolbarSearchActive = hasActiveToolbarSearch(toolbar);
       btn.classList.toggle(
         "is-hidden",
-        !(handleActive || urlActive || searchActive || toolbarFilterActive || simpleActive || agActive)
+        !(handleActive || toolbarFilterActive || simpleActive || agActive || toolbarSearchActive || hasActiveUrlFilterState())
       );
     });
   }
@@ -4448,13 +5487,27 @@
     else if (action === "clearAllFilters") {
       const clearGridId = gridBtn.getAttribute("data-cm-grid-id") || scopeId;
       const toolbar = gridBtn.closest(".cm-toolbar-unified");
-      const filterBar = toolbar == null ? void 0 : toolbar.querySelector("[data-cm-filter-bar]");
+      const filterBar = (toolbar == null ? void 0 : toolbar.querySelector("[data-cm-filter-bar]")) || Array.from(document.querySelectorAll("[data-cm-filter-bar]")).find(
+        (bar) => {
+          var _a2;
+          return ((_a2 = asHTMLElement(bar.closest(".cm-filters"))) == null ? void 0 : _a2.dataset.target) === clearGridId;
+        }
+      );
+      clearToolbarSearchState(toolbar, clearGridId, filterBar || null);
       if (filterBar) {
         filterBar.querySelectorAll('input[type="checkbox"]').forEach((input) => {
           input.checked = false;
         });
         filterBar.querySelectorAll("[data-cm-search]").forEach((input) => {
           input.value = "";
+        });
+        filterBar.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
+          if (input.type === "checkbox") input.checked = false;
+          else input.value = "";
+        });
+        filterBar.querySelectorAll("select[data-cm-grouped-select]").forEach((select) => {
+          const defaultOption = Array.from(select.options).find((option) => !option.disabled);
+          select.value = (defaultOption == null ? void 0 : defaultOption.value) || "";
         });
         navigateFilterState(selectedFilterValues(filterBar), gridBtn, filterBar);
         return;
@@ -4479,6 +5532,7 @@
     }
   }
   function bindDelegatedGridActions() {
+    installConfirmationInterceptors();
     if (getGlobal()._cmGridActionsBound) {
       window.setTimeout(syncClearAllButtons, 0);
       return;
@@ -4490,22 +5544,73 @@
     document.addEventListener("cm-grid-state-change", () => window.setTimeout(syncClearAllButtons, 0));
     window.setTimeout(syncClearAllButtons, 0);
     document.addEventListener("click", (e) => {
-      var _a, _b;
+      var _a, _b, _c;
       const target = eventTargetElement(e.target);
       if (!target) return;
       const cellBtn = target.closest("[data-cm-cell-action]");
       if (cellBtn) {
         e.preventDefault();
         e.stopPropagation();
+        if (isDisabledElement(cellBtn)) return;
         const cellAction = cellBtn.getAttribute("data-cm-cell-action");
         if (cellAction) {
-          invokeAction(cellAction, {
-            rowId: cellBtn.getAttribute("data-cm-row-id") || void 0,
-            gridId: ((_a = cellBtn.closest("[data-grid-id]")) == null ? void 0 : _a.getAttribute("data-grid-id")) || void 0,
-            event: e
+          confirmAndInvokeFromElement(cellBtn, () => {
+            var _a2;
+            invokeAction(cellAction, {
+              rowId: cellBtn.getAttribute("data-cm-row-id") || void 0,
+              gridId: ((_a2 = cellBtn.closest("[data-grid-id]")) == null ? void 0 : _a2.getAttribute("data-grid-id")) || void 0,
+              event: e,
+              source: "cell"
+            });
           });
         }
         return;
+      }
+      const confirmedLink = target.closest("a[data-cm-confirm]");
+      if (confirmedLink) {
+        if (isDisabledElement(confirmedLink)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        e.preventDefault();
+        e.stopPropagation();
+        confirmAndInvokeFromElement(confirmedLink, () => {
+          continueConfirmedLink(confirmedLink);
+        });
+        return;
+      }
+      const actBtn = target.closest("[data-cm-action]");
+      if (actBtn) {
+        if (isDisabledElement(actBtn)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+        const actionName = actBtn.getAttribute("data-cm-action");
+        if (actionName && actionName !== "show_content") {
+          e.preventDefault();
+          e.stopPropagation();
+          const toolbar = actBtn.closest(".cm-toolbar-unified, [data-cm-toolbar]");
+          const targetTableId = actBtn.getAttribute("data-cm-action-target") || (toolbar == null ? void 0 : toolbar.getAttribute("data-cm-toolbar-target")) || ((_a = actBtn.closest("[data-grid-id]")) == null ? void 0 : _a.getAttribute("data-grid-id")) || void 0;
+          const selectRef = actBtn.getAttribute("data-cm-action-select-ref");
+          let selectedValue = void 0;
+          if (selectRef) {
+            const selectEl = (_b = actBtn.parentElement) == null ? void 0 : _b.querySelector(
+              `[data-cm-action-select="${selectRef}"]`
+            );
+            selectedValue = selectEl == null ? void 0 : selectEl.value;
+          }
+          confirmAndInvokeFromElement(actBtn, () => {
+            invokeAction(actionName, {
+              gridId: targetTableId,
+              selectedValue,
+              event: e,
+              source: "batch"
+            });
+          });
+          return;
+        }
       }
       const colBtn = target.closest("[data-cm-col-action]");
       if (colBtn) {
@@ -4529,7 +5634,7 @@
       const filtersToggle = target.closest("[data-cm-filters-toggle]");
       if (filtersToggle) {
         const targetId = filtersToggle.dataset.cmTarget;
-        const center = targetId ? document.getElementById(targetId) : (_b = filtersToggle.closest(".cm-toolbar-unified")) == null ? void 0 : _b.querySelector(".cm-toolbar-center");
+        const center = targetId ? document.getElementById(targetId) : (_c = filtersToggle.closest(".cm-toolbar-unified")) == null ? void 0 : _c.querySelector(".cm-toolbar-center");
         if (center) {
           const isOpen = center.classList.contains("is-open");
           document.querySelectorAll(".cm-toolbar-center.is-open").forEach((el) => el.classList.remove("is-open"));
@@ -4912,7 +6017,11 @@
       }
       if (!ok) {
         select.value = prev;
-        window.alert("\u041D\u0435 \u0432\u0434\u0430\u043B\u043E\u0441\u044F \u0437\u0431\u0435\u0440\u0435\u0433\u0442\u0438 \u0437\u043C\u0456\u043D\u0438");
+        const i18n2 = window.GridViewI18n;
+        notify({
+          message: (i18n2 == null ? void 0 : i18n2["table.save_error"]) || "Failed to save changes",
+          tone: "error"
+        });
         return false;
       }
       select.dataset.cmEditPrev = value;
@@ -4923,7 +6032,11 @@
       return true;
     } catch (e) {
       select.value = prev;
-      window.alert("\u041F\u043E\u043C\u0438\u043B\u043A\u0430 \u043C\u0435\u0440\u0435\u0436\u0456");
+      const i18n2 = window.GridViewI18n;
+      notify({
+        message: (i18n2 == null ? void 0 : i18n2["table.network_error"]) || "Network error",
+        tone: "error"
+      });
       return false;
     } finally {
       select.disabled = false;
@@ -5163,14 +6276,20 @@
         if (blockParams.startRow === 0) {
           (_a = handle.showLoading) == null ? void 0 : _a.call(handle);
         }
-        fetch(url + "?" + params.toString()).then(function(response) {
+        const requestUrl = new URL(url, window.location.origin);
+        params.forEach((value, key) => requestUrl.searchParams.set(key, value));
+        fetch(requestUrl.toString()).then(function(response) {
           if (!response.ok) throw new Error("HTTP " + response.status);
           return response.json();
         }).then(function(data) {
           var _a2, _b;
+          const lastRow = typeof data.lastRow === "number" && Number.isSafeInteger(data.lastRow) && data.lastRow >= 0 ? data.lastRow : void 0;
+          const totalCount = typeof data.totalCount === "number" && Number.isSafeInteger(data.totalCount) && data.totalCount >= 0 ? data.totalCount : void 0;
           (_a2 = handle.hideOverlay) == null ? void 0 : _a2.call(handle);
-          blockParams.successCallback(data.data, data.lastRow);
-          (_b = options.onLastRow) == null ? void 0 : _b.call(options, data.lastRow);
+          blockParams.successCallback(data.data, lastRow);
+          if (gridId && totalCount !== void 0) updateRecordCounters(gridId, totalCount);
+          else if (gridId && lastRow !== void 0) updateRecordCounters(gridId, lastRow);
+          if (lastRow !== void 0) (_b = options.onLastRow) == null ? void 0 : _b.call(options, lastRow);
         }).catch(function(error) {
           var _a2;
           console.error("[GridView.AgGrid] infinite fetch failed:", error);
@@ -5316,14 +6435,16 @@
       if (trigger.dataset.cmOverlayInit) return;
       trigger.dataset.cmOverlayInit = "1";
       trigger.addEventListener("click", () => {
-        var _a, _b;
-        const overlayId = (_a = trigger.getAttribute("data-overlay-id")) != null ? _a : "";
-        const overlay2 = resolveOverlay(overlayId);
-        if (!overlay2) return;
-        if (!trigger.id) trigger.id = `cm-overlay-trigger-${overlayId}`;
-        overlay2.dataset.cmOverlayTrigger = trigger.id;
-        overlay2.hidden = false;
-        (_b = overlay2.querySelector("[data-cm-overlay-close]")) == null ? void 0 : _b.focus();
+        confirmAndInvokeFromElement(trigger, () => {
+          var _a, _b;
+          const overlayId = (_a = trigger.getAttribute("data-overlay-id")) != null ? _a : "";
+          const overlay2 = resolveOverlay(overlayId);
+          if (!overlay2) return;
+          if (!trigger.id) trigger.id = `cm-overlay-trigger-${overlayId}`;
+          overlay2.dataset.cmOverlayTrigger = trigger.id;
+          overlay2.hidden = false;
+          (_b = overlay2.querySelector("[data-cm-overlay-close]")) == null ? void 0 : _b.focus();
+        });
       });
     });
     scope.querySelectorAll("[data-cm-overlay]").forEach((overlay2) => {
@@ -5366,13 +6487,422 @@
       if (btn.dataset.cmShowContentInit) return;
       btn.dataset.cmShowContentInit = "1";
       btn.addEventListener("click", () => {
-        var _a;
-        const targetId = (_a = btn.getAttribute("data-cm-action-target")) != null ? _a : "";
-        if (!targetId) return;
-        const autoHideRaw = btn.getAttribute("data-cm-auto-hide-ms");
-        const autoHideMs = autoHideRaw ? parseInt(autoHideRaw, 10) : void 0;
-        showContentBlock(targetId, Number.isFinite(autoHideMs) ? autoHideMs : void 0);
+        confirmAndInvokeFromElement(btn, () => {
+          var _a;
+          const targetId = (_a = btn.getAttribute("data-cm-action-target")) != null ? _a : "";
+          if (!targetId) return;
+          const autoHideRaw = btn.getAttribute("data-cm-auto-hide-ms");
+          const autoHideMs = autoHideRaw ? parseInt(autoHideRaw, 10) : void 0;
+          showContentBlock(targetId, Number.isFinite(autoHideMs) ? autoHideMs : void 0);
+        });
       });
+    });
+  }
+
+  // src/runtime/nav.ts
+  function matchQuery(haystack, query) {
+    if (!query || !query.trim()) return true;
+    const gv2 = window.GridView;
+    if (gv2 && typeof gv2.matchToolbarQuery === "function") {
+      return gv2.matchToolbarQuery(haystack, query);
+    }
+    return haystack.toLowerCase().includes(query.trim().toLowerCase());
+  }
+  var _outsideClickBound = false;
+  function bindOutsideClick() {
+    if (_outsideClickBound || typeof document === "undefined") return;
+    _outsideClickBound = true;
+    document.addEventListener("click", (e) => {
+      const target = e.target;
+      if (!(target == null ? void 0 : target.closest("[data-cm-tree-create-container]"))) {
+        document.querySelectorAll("[data-cm-tree-create-menu]").forEach((menu) => {
+          var _a;
+          menu.classList.add("hidden");
+          const trigger = (_a = menu.parentElement) == null ? void 0 : _a.querySelector("[data-cm-tree-create-trigger]");
+          const arrow = trigger == null ? void 0 : trigger.querySelector(".cm-nav-tree-create-arrow");
+          if (arrow) arrow.classList.remove("rotate-180");
+        });
+      }
+      if (!(target == null ? void 0 : target.closest("[data-cm-tree-saved-container]"))) {
+        document.querySelectorAll("[data-cm-tree-saved-menu]").forEach((menu) => {
+          menu.classList.add("hidden");
+        });
+      }
+    });
+  }
+  function initNavTrees(scope) {
+    const root = scope && "querySelectorAll" in scope ? scope : document;
+    const trees = [];
+    if ("nodeType" in root && root.nodeType === 1) {
+      const el = root;
+      if (el.hasAttribute("data-cm-nav-tree")) {
+        trees.push(el);
+      }
+    }
+    root.querySelectorAll("[data-cm-nav-tree]").forEach((t3) => {
+      if (!trees.includes(t3)) trees.push(t3);
+    });
+    bindOutsideClick();
+    trees.forEach((tree) => {
+      const treeEl = tree;
+      if (treeEl.__cmTreeInit) return;
+      treeEl.__cmTreeInit = true;
+      tree.addEventListener("click", (e) => {
+        var _a;
+        const target = e.target;
+        if (!target) return;
+        const toggle = target.closest('[data-tree-toggle="1"]');
+        if (toggle) {
+          e.stopPropagation();
+          const node = toggle.closest(".cm-nav-tree-node");
+          const children = node == null ? void 0 : node.querySelector(".cm-nav-tree-children");
+          if (children) {
+            const isHidden = children.style.display === "none";
+            children.style.display = isHidden ? "" : "none";
+            const svg = toggle.querySelector("svg");
+            if (svg) {
+              svg.style.transform = isHidden ? "" : "rotate(-90deg)";
+            }
+          }
+          return;
+        }
+        const createTrigger = target.closest("[data-cm-tree-create-trigger]");
+        if (createTrigger) {
+          const container = createTrigger.closest("[data-cm-tree-create-container]");
+          const menu = container == null ? void 0 : container.querySelector("[data-cm-tree-create-menu]");
+          const arrow = createTrigger.querySelector(".cm-nav-tree-create-arrow");
+          if (menu) {
+            const isHidden = menu.classList.contains("hidden");
+            if (isHidden) {
+              menu.classList.remove("hidden");
+              if (arrow) arrow.classList.add("rotate-180");
+            } else {
+              menu.classList.add("hidden");
+              if (arrow) arrow.classList.remove("rotate-180");
+            }
+          }
+          return;
+        }
+        const createOption = target.closest("[data-cm-tree-create-menu] button");
+        if (createOption) {
+          const menu = createOption.closest("[data-cm-tree-create-menu]");
+          if (menu) {
+            menu.classList.add("hidden");
+            const trigger = (_a = menu.parentElement) == null ? void 0 : _a.querySelector("[data-cm-tree-create-trigger]");
+            const arrow = trigger == null ? void 0 : trigger.querySelector(".cm-nav-tree-create-arrow");
+            if (arrow) arrow.classList.remove("rotate-180");
+          }
+        }
+        const row = target.closest(".cm-nav-tree-row");
+        if (row && !target.closest(".cm-nav-tree-action")) {
+          tree.querySelectorAll(".cm-nav-tree-row.is-active").forEach((r) => {
+            r.classList.remove(
+              "is-active",
+              "font-semibold",
+              "text-indigo-600",
+              "dark:text-indigo-400",
+              "bg-indigo-50/70",
+              "dark:bg-indigo-950/40"
+            );
+          });
+          row.classList.add(
+            "is-active",
+            "font-semibold",
+            "text-indigo-600",
+            "dark:text-indigo-400",
+            "bg-indigo-50/70",
+            "dark:bg-indigo-950/40"
+          );
+        }
+      });
+      const searchInput = tree.querySelector('[data-cm-tree-search="1"]');
+      const clearBtn = tree.querySelector('[data-cm-tree-search-clear="1"]');
+      if (searchInput) {
+        const applySearch = () => {
+          const q = (searchInput.value || "").trim();
+          if (clearBtn) clearBtn.classList.toggle("hidden", !q);
+          const nodes = tree.querySelectorAll(".cm-nav-tree-node");
+          if (!q) {
+            nodes.forEach((n) => {
+              n.style.display = "";
+              const ch = n.querySelector(".cm-nav-tree-children");
+              if (ch) ch.style.display = "";
+            });
+            return;
+          }
+          nodes.forEach((n) => {
+            var _a, _b, _c;
+            const label = ((_a = n.querySelector(".cm-nav-tree-label")) == null ? void 0 : _a.textContent) || "";
+            const hasMatch = matchQuery(label, q);
+            n.style.display = hasMatch ? "" : "none";
+            if (hasMatch) {
+              let parent = (_b = n.parentElement) == null ? void 0 : _b.closest(".cm-nav-tree-node");
+              while (parent) {
+                parent.style.display = "";
+                const ch = parent.querySelector(".cm-nav-tree-children");
+                if (ch) ch.style.display = "";
+                parent = (_c = parent.parentElement) == null ? void 0 : _c.closest(".cm-nav-tree-node");
+              }
+            }
+          });
+        };
+        searchInput.addEventListener("input", applySearch);
+        if (clearBtn && !clearBtn._cmBound) {
+          clearBtn._cmBound = true;
+          clearBtn.addEventListener("click", (e) => {
+            e.preventDefault();
+            searchInput.value = "";
+            applySearch();
+            searchInput.focus();
+          });
+        }
+        const savedContainer = tree.querySelector("[data-cm-tree-saved-container]");
+        const savedTrigger = tree.querySelector("[data-cm-tree-saved-trigger]");
+        const savedMenu = tree.querySelector("[data-cm-tree-saved-menu]");
+        const savedList = tree.querySelector("[data-cm-tree-saved-list]");
+        const saveCurrentBtn = tree.querySelector("[data-cm-tree-save-current]");
+        if (savedContainer && savedTrigger && savedMenu && savedList) {
+          const treeId = tree.getAttribute("data-cm-nav-tree") || "default";
+          const storageKey = `gvs_tree_saved_searches_${treeId}`;
+          const loadSaved = () => {
+            try {
+              const raw = localStorage.getItem(storageKey);
+              return raw ? JSON.parse(raw) : [];
+            } catch (e) {
+              return [];
+            }
+          };
+          const persistSaved = (items) => {
+            try {
+              localStorage.setItem(storageKey, JSON.stringify(items));
+            } catch (e) {
+            }
+          };
+          const renderSaved = () => {
+            var _a;
+            const items = loadSaved();
+            savedList.innerHTML = "";
+            if (!items.length) {
+              const empty = document.createElement("div");
+              empty.className = "p-2 text-slate-400 dark:text-gray-500 text-center text-[11px]";
+              empty.textContent = savedList.getAttribute("data-empty-label") || ((_a = window.GridViewI18n) == null ? void 0 : _a["search.no_saved_searches"]) || "No saved searches";
+              savedList.appendChild(empty);
+              return;
+            }
+            items.forEach((query) => {
+              var _a2;
+              const row = document.createElement("div");
+              row.className = "flex items-center justify-between gap-1.5 px-2 py-1 rounded-lg hover:bg-slate-100 dark:hover:bg-[#202b48] cursor-pointer group";
+              const label = document.createElement("span");
+              label.className = "truncate flex-1 font-mono text-[11px] text-slate-700 dark:text-gray-200";
+              label.textContent = query;
+              label.title = query;
+              label.addEventListener("click", () => {
+                searchInput.value = query;
+                applySearch();
+                savedMenu.classList.add("hidden");
+              });
+              const delBtn = document.createElement("button");
+              delBtn.type = "button";
+              delBtn.className = "text-slate-400 hover:text-rose-500 text-xs px-1 opacity-0 group-hover:opacity-100 transition-opacity cursor-pointer";
+              delBtn.title = savedList.getAttribute("data-delete-title") || ((_a2 = window.GridViewI18n) == null ? void 0 : _a2["common.delete"]) || "Delete";
+              delBtn.textContent = "\xD7";
+              delBtn.addEventListener("click", (e) => {
+                e.stopPropagation();
+                const current = loadSaved();
+                const updated = current.filter((q) => q !== query);
+                persistSaved(updated);
+                renderSaved();
+              });
+              row.appendChild(label);
+              row.appendChild(delBtn);
+              savedList.appendChild(row);
+            });
+          };
+          savedTrigger.addEventListener("click", (e) => {
+            e.stopPropagation();
+            const isHidden = savedMenu.classList.contains("hidden");
+            document.querySelectorAll("[data-cm-tree-saved-menu]").forEach((m) => m.classList.add("hidden"));
+            if (isHidden) {
+              savedMenu.classList.remove("hidden");
+              renderSaved();
+            }
+          });
+          if (saveCurrentBtn) {
+            saveCurrentBtn.addEventListener("click", (e) => {
+              e.stopPropagation();
+              const q = (searchInput.value || "").trim();
+              if (!q) return;
+              const current = loadSaved();
+              if (!current.includes(q)) {
+                current.unshift(q);
+                if (current.length > 20) current.pop();
+                persistSaved(current);
+                renderSaved();
+              }
+            });
+          }
+        }
+      }
+      const isDraggable = tree.hasAttribute("data-cm-nav-draggable") || tree.getAttribute("data-cm-nav-tree") === "categories_page_nav";
+      if (isDraggable) {
+        let draggedNode = null;
+        let isDraggingTree = false;
+        let dragEndTime = 0;
+        const itemsContainer = tree.querySelector(".cm-nav-tree-items");
+        let rootDropZone = tree.querySelector(".cm-root-drop-zone");
+        const rootDropLabel = tree.getAttribute("data-cm-root-drop-label") || null;
+        if (!rootDropZone && itemsContainer && rootDropLabel) {
+          rootDropZone = document.createElement("div");
+          rootDropZone.className = "cm-root-drop-zone hidden p-2 mb-1.5 rounded-lg border-2 border-dashed border-indigo-400 dark:border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/40 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-all cursor-pointer";
+          rootDropZone.textContent = rootDropLabel;
+          itemsContainer.insertBefore(rootDropZone, itemsContainer.firstChild);
+          rootDropZone.addEventListener("dragover", (e) => {
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+            rootDropZone == null ? void 0 : rootDropZone.classList.add(
+              "ring-2",
+              "ring-indigo-600",
+              "bg-indigo-100/80",
+              "dark:bg-indigo-900/60"
+            );
+          });
+          rootDropZone.addEventListener("dragleave", () => {
+            rootDropZone == null ? void 0 : rootDropZone.classList.remove(
+              "ring-2",
+              "ring-indigo-600",
+              "bg-indigo-100/80",
+              "dark:bg-indigo-900/60"
+            );
+          });
+          rootDropZone.addEventListener("drop", (e) => {
+            e.preventDefault();
+            rootDropZone == null ? void 0 : rootDropZone.classList.remove(
+              "ring-2",
+              "ring-indigo-600",
+              "bg-indigo-100/80",
+              "dark:bg-indigo-900/60"
+            );
+            if (!draggedNode) return;
+            const sourceId = draggedNode.getAttribute("data-node-id");
+            if (!sourceId) return;
+            const dropEvent = new CustomEvent("cm:nav-item-drop", {
+              bubbles: true,
+              cancelable: true,
+              detail: {
+                treeId: tree.getAttribute("data-cm-nav-tree") || "",
+                sourceId,
+                targetId: "root",
+                position: "inside",
+                sourceNode: draggedNode,
+                targetNode: rootDropZone,
+                originalEvent: e
+              }
+            });
+            tree.dispatchEvent(dropEvent);
+          });
+        }
+        tree.querySelectorAll(".cm-nav-tree-row").forEach((row) => {
+          row.setAttribute("draggable", "true");
+          row.addEventListener("dragstart", (e) => {
+            const node = row.closest(".cm-nav-tree-node");
+            draggedNode = node;
+            isDraggingTree = true;
+            if (e.dataTransfer) {
+              e.dataTransfer.setData("text/plain", (node == null ? void 0 : node.getAttribute("data-node-id")) || "");
+              e.dataTransfer.effectAllowed = "move";
+            }
+            row.classList.add("opacity-50");
+            if (rootDropZone && (draggedNode == null ? void 0 : draggedNode.getAttribute("data-parent-id"))) {
+              rootDropZone.classList.remove("hidden");
+            }
+          });
+          row.addEventListener("dragend", () => {
+            row.classList.remove("opacity-50");
+            if (rootDropZone) rootDropZone.classList.add("hidden");
+            tree.querySelectorAll(".cm-drop-target").forEach((el) => {
+              el.classList.remove(
+                "cm-drop-target",
+                "ring-2",
+                "ring-indigo-500",
+                "bg-indigo-50/70",
+                "dark:bg-indigo-950/50"
+              );
+            });
+            dragEndTime = Date.now();
+            setTimeout(() => {
+              isDraggingTree = false;
+              draggedNode = null;
+            }, 100);
+          });
+          row.addEventListener("dragover", (e) => {
+            const node = row.closest(".cm-nav-tree-node");
+            if (!draggedNode || draggedNode === node || node && draggedNode.contains(node)) return;
+            e.preventDefault();
+            if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+            row.classList.add(
+              "cm-drop-target",
+              "ring-2",
+              "ring-indigo-500",
+              "bg-indigo-50/70",
+              "dark:bg-indigo-950/50"
+            );
+          });
+          row.addEventListener("dragleave", (e) => {
+            if (!row.contains(e.relatedTarget)) {
+              row.classList.remove(
+                "cm-drop-target",
+                "ring-2",
+                "ring-indigo-500",
+                "bg-indigo-50/70",
+                "dark:bg-indigo-950/50"
+              );
+            }
+          });
+          row.addEventListener("drop", (e) => {
+            e.preventDefault();
+            row.classList.remove(
+              "cm-drop-target",
+              "ring-2",
+              "ring-indigo-500",
+              "bg-indigo-50/70",
+              "dark:bg-indigo-950/50"
+            );
+            const targetNode = row.closest(".cm-nav-tree-node");
+            if (!draggedNode || draggedNode === targetNode || targetNode && draggedNode.contains(targetNode)) {
+              return;
+            }
+            const sourceId = draggedNode.getAttribute("data-node-id");
+            const targetId = targetNode == null ? void 0 : targetNode.getAttribute("data-node-id");
+            if (!sourceId || !targetId) return;
+            const dropEvent = new CustomEvent("cm:nav-item-drop", {
+              bubbles: true,
+              cancelable: true,
+              detail: {
+                treeId: tree.getAttribute("data-cm-nav-tree") || "",
+                sourceId,
+                targetId,
+                position: "inside",
+                sourceNode: draggedNode,
+                targetNode,
+                originalEvent: e
+              }
+            });
+            tree.dispatchEvent(dropEvent);
+          });
+          row.addEventListener(
+            "click",
+            (e) => {
+              if (isDraggingTree || Date.now() - dragEndTime < 250) {
+                e.preventDefault();
+                e.stopPropagation();
+                e.stopImmediatePropagation();
+              }
+            },
+            true
+          );
+        });
+      }
     });
   }
 
@@ -5632,12 +7162,14 @@
     const recordKey = String(extra.record_key || "id");
     const rowId = (_e = params.data) == null ? void 0 : _e[recordKey];
     const rowAttr = rowId != null ? ` data-cm-row-id="${escHtml(rowId)}"` : "";
+    const confirm = serializeConfirmAttribute(extra.confirm);
+    const confirmAttr = confirm ? ` data-cm-confirm="${escHtml(confirm)}"` : "";
     if (typeof url === "string" && url) {
       const actionAttr = action ? ` data-cm-cell-action="${escHtml(action)}"` : "";
-      return `<a href="${escHtml(url)}" class="cm-grid-link cm-link"${actionAttr}${rowAttr} style="font-weight:500;color:#818cf8">${escHtml(text)}</a>`;
+      return `<a href="${escHtml(url)}" class="cm-grid-link cm-link"${actionAttr}${rowAttr}${confirmAttr} style="font-weight:500;color:#818cf8">${escHtml(text)}</a>`;
     }
     if (action) {
-      return `<span class="cm-grid-link cm-link" role="button" tabindex="0" data-cm-cell-action="${escHtml(action)}"${rowAttr} style="font-weight:500;cursor:pointer;color:#818cf8">${escHtml(text)}</span>`;
+      return `<span class="cm-grid-link cm-link" role="button" tabindex="0" data-cm-cell-action="${escHtml(action)}"${rowAttr}${confirmAttr} style="font-weight:500;cursor:pointer;color:#818cf8">${escHtml(text)}</span>`;
     }
     return escHtml(text);
   }
@@ -5673,7 +7205,19 @@
     const btnClass = String(extra.button_class || "cm-record-detail-btn");
     const recordKey = String(extra.record_key || "id");
     const rowId = (_d = params.data) == null ? void 0 : _d[recordKey];
-    return `<button type="button" class="${escHtml(btnClass)}" data-cm-cell-action="${escHtml(action)}" data-cm-row-id="${escHtml(rowId != null ? rowId : "")}">${escHtml(label)}</button>`;
+    const confirm = serializeConfirmAttribute(extra.confirm);
+    const confirmAttr = confirm ? ` data-cm-confirm="${escHtml(confirm)}"` : "";
+    return `<button type="button" class="${escHtml(btnClass)}" data-cm-cell-action="${escHtml(action)}" data-cm-row-id="${escHtml(rowId != null ? rowId : "")}"${confirmAttr}>${escHtml(label)}</button>`;
+  }
+  function imageRenderer(params) {
+    const value = params.value;
+    if (!value || typeof value !== "string") {
+      return '<div class="cm-grid-img-cell flex items-center justify-center text-slate-400 text-xs">\u{1F4E6}</div>';
+    }
+    return `<div class="cm-grid-img-cell flex items-center justify-center" style="width:36px;height:36px;margin:auto"><img src="${escHtml(value)}" alt="" style="width:36px;height:36px;object-fit:contain;border-radius:4px" loading="lazy" onerror="this.style.display='none';this.nextElementSibling&&(this.nextElementSibling.style.display='inline')" /><span class="text-xs text-slate-400" style="display:none">\u{1F4E6}</span></div>`;
+  }
+  function thumbnailRenderer(params) {
+    return imageRenderer(params);
   }
   var _registered = false;
   function initBuiltinRenderers() {
@@ -5684,6 +7228,8 @@
     registerRenderer("badge", badgeRenderer);
     registerRenderer("date", dateRenderer);
     registerRenderer("button", buttonRenderer);
+    registerRenderer("image", imageRenderer);
+    registerRenderer("thumbnail", thumbnailRenderer);
   }
 
   // src/runtime/renderers/image.ts
@@ -5792,38 +7338,64 @@
     });
     return chartsLoadPromise;
   }
+  var filterWorkspaceLoadPromise = null;
+  function ensureFilterDrawerWorkspaceAssetsLoaded() {
+    var _a;
+    const cfg = manifest();
+    if (cfg.filterWorkspaceCss) loadStylesheet(cfg.filterWorkspaceCss);
+    const gv2 = getGlobal().GridView;
+    if (gv2 == null ? void 0 : gv2.FilterDrawerWorkspace) return Promise.resolve();
+    if (filterWorkspaceLoadPromise) return filterWorkspaceLoadPromise;
+    filterWorkspaceLoadPromise = loadScript(
+      (_a = cfg.filterWorkspacePlugin) != null ? _a : "",
+      () => {
+        var _a2;
+        return !!((_a2 = getGlobal().GridView) == null ? void 0 : _a2.FilterDrawerWorkspace);
+      }
+    ).catch((error) => {
+      filterWorkspaceLoadPromise = null;
+      throw error;
+    });
+    return filterWorkspaceLoadPromise;
+  }
   function installAssetLoader(gv2) {
     var _a;
     gv2.assets = (_a = gv2.assets) != null ? _a : {};
     gv2.assets.ensureAgGrid = ensureAgGridAssetsLoaded;
     gv2.assets.ensureCharts = ensureChartsAssetsLoaded;
+    gv2.assets.ensureFilterDrawerWorkspace = ensureFilterDrawerWorkspaceAssetsLoaded;
   }
 
   // src/runtime/table-ag-grid.ts
+  var specGridStates = /* @__PURE__ */ new Map();
   var specFilterListeners = /* @__PURE__ */ new Set();
-  function resolvePresets(gridId, fromConfig) {
-    if (fromConfig && typeof fromConfig === "object") return fromConfig;
-    try {
-      const stored = localStorage.getItem(`agGridPresets_${gridId}`);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-    }
-    return {};
+  function isRecord4(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
   }
-  function resolveSearches(gridId, fromConfig) {
-    if (Array.isArray(fromConfig)) return fromConfig;
-    if (fromConfig) {
-      try {
-        const parsed = JSON.parse(String(fromConfig));
-        if (Array.isArray(parsed)) return parsed;
-      } catch (e) {
-      }
+  function isColumnStateItem(value) {
+    if (!isRecord4(value) || typeof value.colId !== "string" || typeof value.hide !== "boolean") {
+      return false;
     }
-    try {
-      const stored = localStorage.getItem(`cmSavedSearches_${gridId}`);
-      if (stored) return JSON.parse(stored);
-    } catch (e) {
-    }
+    if (value.pinned !== null && typeof value.pinned !== "string") return false;
+    return value.width === void 0 || value.width === null || typeof value.width === "string" || typeof value.width === "number";
+  }
+  function isColumnState(value) {
+    return Array.isArray(value) && value.every(isColumnStateItem);
+  }
+  function isStoredColumnPreset(value) {
+    if (isColumnState(value)) return true;
+    return isRecord4(value) && isColumnState(value.columns) && (value.pageState === void 0 || isRecord4(value.pageState));
+  }
+  function resolvePresets(fromConfig) {
+    if (!fromConfig) return {};
+    const presets = {};
+    Object.entries(fromConfig).forEach(([name, preset]) => {
+      if (isStoredColumnPreset(preset)) presets[name] = preset;
+    });
+    return presets;
+  }
+  function resolveSearches(fromConfig) {
+    if (fromConfig) return fromConfig;
     return [];
   }
   function resolveAgColumnFilter(col) {
@@ -5842,13 +7414,16 @@
   function wrapRegisteredRenderer(rendererId) {
     return (params) => {
       const regFn = getRegisteredRenderer(rendererId);
-      if (!regFn) return "";
+      if (!regFn) {
+        const value = typeof params === "object" && params !== null && "value" in params ? params.value : params;
+        return value === void 0 || value === null ? "" : String(value);
+      }
       return regFn(params);
     };
   }
   function buildColumnDefsFromSpec(columns) {
     return columns.map((col) => {
-      var _a;
+      var _a, _b, _c, _d, _e, _f, _g, _h, _i;
       const field = col.field || col.id;
       const rendererId = resolveRendererId(col);
       const agFilter = resolveAgColumnFilter(col);
@@ -5858,15 +7433,25 @@
         headerName: col.label,
         hide: (_a = col.hidden) != null ? _a : false,
         filter: agFilter,
+        suppressMenu: agFilter === false,
+        suppressHeaderFilterButton: agFilter === false,
         sortable: col.sortable !== false,
-        resizable: true,
+        resizable: ((_b = col.extra) == null ? void 0 : _b.resizable) !== false,
+        suppressSizeToFit: ((_c = col.extra) == null ? void 0 : _c.suppress_size_to_fit) === true,
         enableCellTextSelection: true,
         tooltipField: field
       };
       if (agFilter === "customExprFilter") def.columnFilter = exprColumnFilterKind(col);
       if (col.pinned === "left" || col.pinned === "right") def.pinned = col.pinned;
       if (col.menuGroup) def.menuGroup = col.menuGroup;
-      if (col.checkboxSelection) def.checkboxSelection = true;
+      if (col.checkboxSelection || ((_d = col.extra) == null ? void 0 : _d.checkbox_selection)) {
+        def.checkboxSelection = true;
+        if ((_g = (_f = col.headerCheckboxSelection) != null ? _f : (_e = col.extra) == null ? void 0 : _e.header_checkbox_selection) != null ? _g : true) {
+          def.headerCheckboxSelection = true;
+        }
+      }
+      if (col.dndSource || ((_h = col.extra) == null ? void 0 : _h.dnd_source)) def.dndSource = true;
+      if (col.rowDrag || ((_i = col.extra) == null ? void 0 : _i.row_drag)) def.rowDrag = true;
       if (col.editable) def.editable = true;
       if (col.width) {
         const width = Number.parseInt(col.width, 10);
@@ -5917,20 +7502,13 @@
     const data = await response.json();
     return data.columns || [];
   }
-  function mergeColumnDefsAtAnchor(base, dynamic, anchor, merge) {
+  function mergeColumnDefsAtAnchor(base, dynamic, anchor) {
     const dynamicIds = new Set(dynamic.map((col) => String(col.colId || col.field)));
-    let result = merge === "replace" ? base.filter((col) => !dynamicIds.has(String(col.colId || col.field))) : base.filter((col) => !dynamicIds.has(String(col.colId || col.field)));
+    const result = base.filter((col) => !dynamicIds.has(String(col.colId || col.field)));
     if (!anchor) return [...result, ...dynamic];
     const idx = result.findIndex((col) => String(col.colId || col.field) === anchor);
     if (idx < 0) return [...result, ...dynamic];
     return [...result.slice(0, idx + 1), ...dynamic, ...result.slice(idx + 1)];
-  }
-  function mergeSpecOnlyColumns(base, specColumns, anchor) {
-    if (!(specColumns == null ? void 0 : specColumns.length)) return base;
-    const existingIds = new Set(base.map((col) => String(col.colId || col.field)));
-    const extra = specColumns.filter((col) => !existingIds.has(col.id));
-    if (!extra.length) return base;
-    return mergeColumnDefsAtAnchor(base, buildColumnDefsFromSpec(extra), anchor, "append");
   }
   async function resolveColumnDefs(config, getPageState) {
     var _a, _b;
@@ -5951,29 +7529,29 @@
     const anchor = ((_b = config.columnSource) == null ? void 0 : _b.anchor) || "";
     if (config.columnSource) {
       const dynamicCols = await fetchColumnSourceColumns(config.columnSource, pageState);
-      columnDefs = mergeColumnDefsAtAnchor(
-        columnDefs,
-        buildColumnDefsFromSpec(dynamicCols),
-        anchor,
-        config.columnSource.merge || "append"
-      );
-    } else {
-      columnDefs = mergeSpecOnlyColumns(columnDefs, config.columns, anchor);
+      columnDefs = mergeColumnDefsAtAnchor(columnDefs, buildColumnDefsFromSpec(dynamicCols), anchor);
     }
     return columnDefs;
   }
   function bootFromSpecConfig(config) {
-    var _a;
+    var _a, _b;
     const gv2 = getGlobal().GridView;
     if (!gv2 || !config.gridId) return;
     const gridId = config.gridId;
+    const generation = (((_a = specGridStates.get(gridId)) == null ? void 0 : _a.generation) || 0) + 1;
+    specGridStates.set(gridId, { generation, config });
+    const isCurrent = () => {
+      var _a2;
+      return ((_a2 = specGridStates.get(gridId)) == null ? void 0 : _a2.generation) === generation;
+    };
     const containerId = config.containerId || `cm-ag-grid-container-${gridId}`;
     const groupsOrder = config.groupsOrder || [];
-    const presets = resolvePresets(gridId, void 0);
-    const searches = resolveSearches(gridId, void 0);
+    const presets = resolvePresets(config.presets);
+    const searches = resolveSearches(config.searches);
     const startUp = async () => {
-      var _a2, _b, _c, _d, _e;
+      var _a2, _b2, _c, _d;
       await ensureAgGridAssetsLoaded();
+      if (!isCurrent()) return;
       const g = getGlobal();
       const agModule = gv2.AgGrid;
       const HostCtor = agModule == null ? void 0 : agModule.Host;
@@ -5984,22 +7562,27 @@
       const registry = gv2.byId;
       if (!registry) return;
       function getPageState() {
-        if (config.filtersSelector) {
-          const root = document.querySelector(config.filtersSelector);
-          const bar = (root == null ? void 0 : root.querySelector("[data-cm-filter-bar]")) || root;
-          if (bar && gv2.FilterBar) {
-            return gv2.FilterBar.selectedFilterValues(bar);
-          }
-        }
+        var _a3;
+        const currentConfig = ((_a3 = specGridStates.get(gridId)) == null ? void 0 : _a3.config) || config;
         const url = new URL(window.location.href);
         const state = {};
-        (config.urlPageStateKeys || []).forEach((key) => {
+        (currentConfig.urlPageStateKeys || []).forEach((key) => {
           const val = url.searchParams.get(key);
           if (val) state[key] = val;
         });
+        if (currentConfig.filtersSelector) {
+          const root = document.querySelector(currentConfig.filtersSelector);
+          const filterBar = gv2.FilterBar;
+          if (root && filterBar) {
+            root.querySelectorAll("[data-cm-filter-bar]").forEach((bar) => {
+              Object.assign(state, filterBar.selectedFilterValues(bar));
+            });
+          }
+        }
         return state;
       }
       const columnDefs = await resolveColumnDefs(config, getPageState);
+      if (!isCurrent()) return;
       const optionsObj = {
         columnDefs,
         rowModelType: config.datasourceUrl ? "infinite" : "clientSide",
@@ -6009,16 +7592,23 @@
           return ((_a3 = params.data) == null ? void 0 : _a3.is_child) ? "cm-child-variant-row" : "";
         },
         ...config.rowSelection ? { rowSelection: config.rowSelection } : {},
+        ...config.rowClickSelection === "toggle" ? {
+          rowMultiSelectWithClick: true,
+          suppressCellFocus: true
+        } : {},
+        ...config.rowDragEntireRow ? { rowDragEntireRow: true } : {},
+        ...config.rowDragMultiRow ? { rowDragMultiRow: true } : {},
         // fitColumns: fill the grid width and shrink columns to fit (no horizontal
-        // scroll) as columns are added or the viewport resizes.
         ...config.fitColumns ? {
-          autoSizeStrategy: { type: "fitGridWidth" },
+          autoSizeStrategy: {
+            type: "fitGridWidth",
+            defaultMinWidth: 40
+          },
           onGridSizeChanged: (p) => {
-            var _a3, _b2;
-            return (_b2 = (_a3 = p.api) == null ? void 0 : _a3.sizeColumnsToFit) == null ? void 0 : _b2.call(_a3);
+            var _a3, _b3;
+            return (_b3 = (_a3 = p.api) == null ? void 0 : _a3.sizeColumnsToFit) == null ? void 0 : _b3.call(_a3);
           }
         } : {},
-        cacheBlockSize: (_a2 = config.cacheBlockSize) != null ? _a2 : 100,
         maxBlocksInCache: 10,
         rowBuffer: 20,
         suppressPropertyNamesCheck: true,
@@ -6055,8 +7645,7 @@
         },
         context: {
           gridId,
-          legacyStorageScope: config.legacyStorageScope || config.storageScope || gridId,
-          syncUrlState: (_b = config.syncUrlState) != null ? _b : true,
+          syncUrlState: (_a2 = config.syncUrlState) != null ? _a2 : true,
           urlPageStateKeys: config.urlPageStateKeys || [],
           getPageState,
           dictionaryUrl: config.dictionaryUrl || ""
@@ -6071,7 +7660,7 @@
           onLastRow: (count) => {
             if (config.rowCountSelector) {
               const el = document.querySelector(config.rowCountSelector);
-              if (el) el.textContent = String(count >= 0 ? count : 0);
+              if (el) el.textContent = String(count);
             }
             if (config.xlsxExportSelector && typeof (agModule == null ? void 0 : agModule.syncExportHref) === "function") {
               const exportEl = document.querySelector(config.xlsxExportSelector);
@@ -6091,7 +7680,7 @@
         host.savedQuickSearches = searches || [];
         if (host.gridApi) {
           try {
-            (_d = (_c = host.gridApi).destroy) == null ? void 0 : _d.call(_c);
+            (_c = (_b2 = host.gridApi).destroy) == null ? void 0 : _c.call(_b2);
           } catch (error) {
             console.warn(
               "[GridView.AgGrid] Clean destruction of old grid failed. Proceeding with DOM swap. Error:",
@@ -6103,7 +7692,7 @@
       }
       if (!host.gridApi) {
         if (typeof getGlobal().agGrid !== "undefined") {
-          (_e = host.initGrid) == null ? void 0 : _e.call(host);
+          (_d = host.initGrid) == null ? void 0 : _d.call(host);
         } else {
           const poll = window.setInterval(() => {
             var _a3;
@@ -6119,25 +7708,30 @@
         specFilterListeners.add(gridId);
         document.addEventListener("cm-filter-change", (e) => {
           void (async () => {
-            var _a3, _b2, _c2, _d2, _e2;
+            var _a3, _b3, _c2, _d2, _e, _f, _g;
+            const state = specGridStates.get(gridId);
+            if (!state) return;
+            const currentConfig = state.config;
             const detail = e.detail;
             const bar = detail == null ? void 0 : detail.bar;
             if (!bar) return;
-            if (config.filtersSelector && !bar.closest(config.filtersSelector)) return;
+            if (currentConfig.filtersSelector && !bar.closest(currentConfig.filtersSelector)) return;
             const filterBar = bar.closest("[data-cm-filter-bar]");
             const navigates = ((_a3 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _a3.navigateOnChange) !== "0";
-            if (((_b2 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _b2.autoApply) === "1" && navigates) return;
+            if (((_b3 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _b3.autoApply) === "1" && navigates) return;
             const current = registry.get(gridId);
             if (!current) return;
-            if (config.columnSource && current.gridApi) {
+            if (currentConfig.columnSource && current.gridApi) {
               try {
-                const nextDefs = await resolveColumnDefs(config, getPageState);
-                (_d2 = (_c2 = current.gridApi).setGridOption) == null ? void 0 : _d2.call(_c2, "columnDefs", nextDefs);
+                const nextDefs = await resolveColumnDefs(currentConfig, getPageState);
+                if (((_c2 = specGridStates.get(gridId)) == null ? void 0 : _c2.generation) !== state.generation) return;
+                (_e = (_d2 = current.gridApi).setGridOption) == null ? void 0 : _e.call(_d2, "columnDefs", nextDefs);
               } catch (error) {
                 console.error("[GridView.AgGrid] column_source refresh failed:", error);
               }
             }
-            (_e2 = current.reloadData) == null ? void 0 : _e2.call(current);
+            if (((_f = specGridStates.get(gridId)) == null ? void 0 : _f.generation) !== state.generation) return;
+            (_g = current.reloadData) == null ? void 0 : _g.call(current);
             const syncExportLinks2 = agModule == null ? void 0 : agModule.syncExportLinks;
             syncExportLinks2 == null ? void 0 : syncExportLinks2(gridId, { getExtraParams: getPageState, exportColumns: true });
           })();
@@ -6149,7 +7743,7 @@
     } else {
       startUp();
     }
-    (_a = gv2.byId) == null ? void 0 : _a.registerBoot(gridId, startUp);
+    (_b = gv2.byId) == null ? void 0 : _b.registerBoot(gridId, startUp);
   }
   function queryRoot(root) {
     if (root && typeof root === "object" && "querySelectorAll" in root) {
@@ -6237,7 +7831,8 @@
     return document;
   }
   function hasWidgetMarkers(root) {
-    return !!(root.querySelector("[data-cm-table]") || root.querySelector("[data-cm-filter-bar]") || root.querySelector("[data-cm-chart-config]") || root.querySelector("[data-cm-kpi-root]") || root.querySelector("[data-cm-tab-group]") || root.querySelector('[data-cm-action="show_content"]') || root.querySelector("[data-cm-content-dismissible]") || root.querySelector("[data-cm-grid-view-spec]") || root.querySelector("[data-cm-grid-artifact-boot]") || root.querySelector("script.cm-ag-grid-spec-config") || root.querySelector(LAZY_SEL));
+    const hasMarker = (selector) => root instanceof Element && root.matches(selector) || !!root.querySelector(selector);
+    return !!(hasMarker("[data-cm-table]") || hasMarker("[data-cm-filter-bar]") || hasMarker("[data-cm-chart-config]") || hasMarker("[data-cm-kpi-root]") || hasMarker("[data-cm-tab-group]") || hasMarker("[data-cm-nav-tree]") || hasMarker('[data-cm-action="show_content"]') || hasMarker("[data-cm-content-dismissible]") || hasMarker("[data-cm-grid-view-spec]") || hasMarker("script.cm-ag-grid-spec-config") || hasMarker(LAZY_SEL));
   }
   function bootAgGridInScope(root, gridView2) {
     var _a;
@@ -6273,41 +7868,13 @@
     };
     tryInit();
   }
-  function bootSingleArtifactRoot(root, gv2) {
-    if (root.dataset.cmGridViewSpecBooted) return;
-    root.dataset.cmGridViewSpecBooted = "1";
-    let attempts = 0;
-    const tryInit = () => {
-      const g = window;
-      if (gv2 && (typeof g.echarts !== "undefined" || !root.querySelector("[data-cm-chart-config]"))) {
-        gv2.init({ root });
-        return;
-      }
-      attempts += 1;
-      if (attempts >= MAX_CHART_BOOT_ATTEMPTS) return;
-      window.setTimeout(tryInit, CHART_BOOT_INTERVAL_MS);
-    };
-    tryInit();
-  }
-  function bootArtifactRoots(scope, gv2) {
-    scope.querySelectorAll("[data-cm-grid-artifact-boot]").forEach((root) => {
-      bootSingleArtifactRoot(root, gv2);
-    });
-  }
-  function bootSpecRoots(scope, gv2) {
-    scope.querySelectorAll("[data-cm-grid-view-spec]").forEach((specRoot) => {
-      const el = specRoot;
-      if (el.dataset.cmGridViewSpecBooted) return;
-      el.dataset.cmGridViewSpecBooted = "1";
-      bootScope(el, gv2);
-    });
-  }
   function syncAgGridStyles() {
     if (!document.querySelector("script.cm-ag-grid-spec-config")) {
       unloadAgGridStyles();
     }
   }
   function bootScope(scope, gv2) {
+    installConfirmationInterceptors();
     syncAgGridStyles();
     const gridView2 = gv2 != null ? gv2 : window.GridView;
     if (!gridView2) return;
@@ -6327,14 +7894,13 @@
     safe("initFilterBars", () => initFilterBars(root));
     safe("initButtonEllipsisTips", () => initButtonEllipsisTips(root));
     safe("initTabGroups", () => initTabGroups(root));
+    safe("initNavTrees", () => initNavTrees(root));
     safe("initContentActions", () => initContentActions(root));
     safe("bindDelegatedGridActions", () => bindDelegatedGridActions());
     safe("initGalleryBlocks", () => initGalleryBlocks(root));
     safe("initImageRenderers", () => initImageRenderers(root));
     safe("initAllKpi", () => gridView2.initAllKpi(root));
     safe("bootChartsWhenReady", () => bootChartsWhenReady(root, gridView2));
-    safe("bootArtifactRoots", () => bootArtifactRoots(root, gridView2));
-    safe("bootSpecRoots", () => bootSpecRoots(root, gridView2));
     safe("bootAgGridInScope", () => bootAgGridInScope(root, gridView2));
   }
   function boot(root, gv2) {
@@ -6348,12 +7914,6 @@
       return;
     }
     const el = root;
-    if (el.matches("[data-cm-grid-artifact-boot]")) {
-      const host = el;
-      delete host.dataset.cmGridViewSpecBooted;
-      bootSingleArtifactRoot(host, gridView2);
-      return;
-    }
     if (el.matches("[data-cm-grid-view-spec]")) {
       const host = el;
       delete host.dataset.cmGridViewSpecBooted;
@@ -6365,17 +7925,13 @@
   var _htmxBound = false;
   function installRuntimeBoot(gv2) {
     initBuiltinRenderers();
+    installConfirmationInterceptors();
     if (_htmxBound || typeof document === "undefined") return;
     _htmxBound = true;
     document.addEventListener("htmx:afterSwap", (event) => {
-      var _a;
       const detail = event.detail;
       const target = detail == null ? void 0 : detail.target;
       if (!target) return;
-      if ((_a = target.matches) == null ? void 0 : _a.call(target, "[data-cm-grid-artifact-boot]")) {
-        boot(target, gv2);
-        return;
-      }
       bootScope(target, gv2);
     });
     document.addEventListener("htmx:oobAfterSwap", (event) => {
@@ -6385,180 +7941,6 @@
       if (scope) bootScope(scope, gv2);
     });
   }
-
-  // src/page-state/page-state.ts
-  var ROOT_SELECTOR = "[data-cm-grid-view-spec]";
-  var STORAGE_PREFIX = "cmGridViewPageState:v1:";
-  var VERSION = 1;
-  var FORBIDDEN_OBJECT_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
-  var INVALID_JSON_VALUE = Symbol("invalid-json-value");
-  function isSafeKey(key) {
-    return !FORBIDDEN_OBJECT_KEYS.has(key);
-  }
-  function isRecord3(value) {
-    return value !== null && typeof value === "object" && !Array.isArray(value);
-  }
-  function isNamespace(value) {
-    return value.length > 0 && isSafeKey(value);
-  }
-  function isIdentityPart(value, required) {
-    return !required || value.length > 0;
-  }
-  function cloneJsonValue(value, seen = /* @__PURE__ */ new WeakSet()) {
-    if (value === null || typeof value === "string" || typeof value === "boolean") return value;
-    if (typeof value === "number") return Number.isFinite(value) ? value : INVALID_JSON_VALUE;
-    if (typeof value !== "object") return INVALID_JSON_VALUE;
-    if (seen.has(value)) return INVALID_JSON_VALUE;
-    seen.add(value);
-    try {
-      if (Array.isArray(value)) {
-        const result2 = [];
-        for (const item of value) {
-          const validated = cloneJsonValue(item, seen);
-          if (validated === INVALID_JSON_VALUE) return INVALID_JSON_VALUE;
-          result2.push(validated);
-        }
-        return result2;
-      }
-      const prototype = Object.getPrototypeOf(value);
-      if (prototype !== Object.prototype && prototype !== null) return INVALID_JSON_VALUE;
-      const result = /* @__PURE__ */ Object.create(null);
-      for (const [key, item] of Object.entries(value)) {
-        if (!isSafeKey(key)) return INVALID_JSON_VALUE;
-        const validated = cloneJsonValue(item, seen);
-        if (validated === INVALID_JSON_VALUE) return INVALID_JSON_VALUE;
-        result[key] = validated;
-      }
-      return result;
-    } catch (e) {
-      return INVALID_JSON_VALUE;
-    } finally {
-      seen.delete(value);
-    }
-  }
-  function emptyState() {
-    return { version: VERSION, namespaces: /* @__PURE__ */ Object.create(null) };
-  }
-  function parseStoredState(raw) {
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw);
-      if (!isRecord3(parsed)) return null;
-      const envelope = parsed;
-      if (envelope.version !== VERSION) return null;
-      const namespaces = envelope.namespaces;
-      if (!isRecord3(namespaces)) return null;
-      const validState = emptyState();
-      for (const [namespace, value] of Object.entries(namespaces)) {
-        if (!isNamespace(namespace)) return null;
-        const validated = cloneJsonValue(value);
-        if (validated === INVALID_JSON_VALUE) return null;
-        validState.namespaces[namespace] = validated;
-      }
-      return validState;
-    } catch (e) {
-      return null;
-    }
-  }
-  function browserStorage() {
-    try {
-      return typeof window === "undefined" ? null : window.localStorage;
-    } catch (e) {
-      return null;
-    }
-  }
-  function readState(storage, key) {
-    try {
-      return parseStoredState(storage.getItem(key));
-    } catch (e) {
-      return null;
-    }
-  }
-  function writeState(storage, key, state) {
-    try {
-      storage.setItem(key, JSON.stringify(state));
-    } catch (e) {
-    }
-  }
-  function removeState(storage, key) {
-    try {
-      storage.removeItem(key);
-    } catch (e) {
-    }
-  }
-  function resolveSpecRoot(root) {
-    if (!root.isConnected) return null;
-    const specRoot = root.matches(ROOT_SELECTOR) ? root : root.closest(ROOT_SELECTOR);
-    return specRoot instanceof HTMLElement ? specRoot : null;
-  }
-  function pageStateIdentity(root) {
-    var _a, _b;
-    const specId = (_a = root.getAttribute("data-spec-id")) != null ? _a : "";
-    const scope = (_b = root.getAttribute("data-cm-page-state-scope")) != null ? _b : "";
-    if (!isIdentityPart(specId, true) || !isIdentityPart(scope, false)) return null;
-    try {
-      return {
-        storageKey: `${STORAGE_PREFIX}${encodeURIComponent(specId)}:${encodeURIComponent(scope)}`
-      };
-    } catch (e) {
-      return null;
-    }
-  }
-  var LocalPageStateHandle = class {
-    constructor(root, storageKey) {
-      this.root = root;
-      this.storageKey = storageKey;
-    }
-    get(namespace) {
-      if (!this.isLive() || !isNamespace(namespace)) return void 0;
-      const storage = browserStorage();
-      const stored = storage ? readState(storage, this.storageKey) : null;
-      const value = stored == null ? void 0 : stored.namespaces[namespace];
-      if (value === void 0) return void 0;
-      const cloned = cloneJsonValue(value);
-      return cloned === INVALID_JSON_VALUE ? void 0 : cloned;
-    }
-    put(namespace, value) {
-      var _a;
-      if (!this.isLive() || !isNamespace(namespace)) return;
-      const validated = cloneJsonValue(value);
-      if (validated === INVALID_JSON_VALUE) return;
-      const storage = browserStorage();
-      if (!storage) return;
-      const state = (_a = readState(storage, this.storageKey)) != null ? _a : emptyState();
-      state.namespaces[namespace] = validated;
-      writeState(storage, this.storageKey, state);
-    }
-    remove(namespace) {
-      if (!this.isLive() || !isNamespace(namespace)) return;
-      const storage = browserStorage();
-      if (!storage) return;
-      const state = readState(storage, this.storageKey);
-      if (!state) {
-        removeState(storage, this.storageKey);
-        return;
-      }
-      if (!(namespace in state.namespaces)) return;
-      delete state.namespaces[namespace];
-      if (Object.keys(state.namespaces).length === 0) {
-        removeState(storage, this.storageKey);
-        return;
-      }
-      writeState(storage, this.storageKey, state);
-    }
-    isLive() {
-      return this.root.isConnected;
-    }
-  };
-  var PageState = {
-    forRoot(root) {
-      if (typeof Element === "undefined" || !(root instanceof Element)) return null;
-      const specRoot = resolveSpecRoot(root);
-      if (!specRoot) return null;
-      const identity = pageStateIdentity(specRoot);
-      return identity ? new LocalPageStateHandle(specRoot, identity.storageKey) : null;
-    }
-  };
 
   // src/grid-view/create-grid-view.ts
   function mergePluginExports(base, prior) {
@@ -6609,7 +7991,9 @@
       invokeCommit,
       invokeAction,
       openGallery: openGalleryLightbox,
-      closeGallery: closeGalleryLightbox
+      closeGallery: closeGalleryLightbox,
+      confirm: confirmDialog,
+      notify
     };
   }
   function bootstrapGridView() {
@@ -6617,6 +8001,7 @@
     const g = getGlobal();
     const prior = (_a = g.GridView) != null ? _a : {};
     const GridView = createGridView();
+    bindNotificationChannel();
     GridView.AgGrid = mergePluginExports(
       GridView.AgGrid,
       prior.AgGrid
@@ -6625,6 +8010,9 @@
       GridView.Charts,
       prior.Charts
     );
+    if (prior.FilterDrawerWorkspace) {
+      GridView.FilterDrawerWorkspace = prior.FilterDrawerWorkspace;
+    }
     if (prior.assets && typeof prior.assets === "object") {
       GridView.assets = { ...prior.assets, ...(_b = GridView.assets) != null ? _b : {} };
     }
@@ -6646,7 +8034,6 @@
     if (g.GridViewI18n) {
       i18n.initI18n(g.GridViewI18n);
     }
-    attachSimpleTableGlobals();
     bindDelegatedGridActions();
     getGlobal().GridView = GridView;
     return GridView;
@@ -6655,17 +8042,28 @@
   // src/column-settings/ag-grid-adapter.ts
   function createAgGridColumnAdapter(gridApi, columnMeta) {
     const meta = columnMeta || {};
-    let initialState = gridApi.getColumnState ? gridApi.getColumnState() : [];
+    const getDefaultColumnState = () => {
+      if (!gridApi || !gridApi.getColumns) return [];
+      return gridApi.getColumns().map((col) => {
+        const colDef = col.getColDef();
+        const colId = col.getColId();
+        return {
+          colId,
+          hide: colDef.hide === true,
+          pinned: colDef.pinned === "left" || colDef.pinned === "right" ? colDef.pinned : null,
+          ...colDef.width !== void 0 ? { width: colDef.width } : {}
+        };
+      });
+    };
     return {
       hasGroupedHeaders() {
         return false;
       },
       getDescriptors() {
         if (!gridApi || !gridApi.getColumns) return [];
-        if (!initialState.length && gridApi.getColumnState) initialState = gridApi.getColumnState();
         return gridApi.getColumns().map((col) => {
           const colDef = col.getColDef();
-          const colId = colDef.field || col.getColId();
+          const colId = col.getColId();
           const saved = meta[colId] || {};
           return {
             colId,
@@ -6676,6 +8074,13 @@
             _col: col
           };
         });
+      },
+      getLeafLabel(colId) {
+        var _a;
+        if (!gridApi || !gridApi.getColumn) return colId;
+        const col = gridApi.getColumn(colId);
+        const colDef = col == null ? void 0 : col.getColDef();
+        return (colDef == null ? void 0 : colDef.headerName) || ((_a = meta[colId]) == null ? void 0 : _a.label) || colId;
       },
       isVisible(colId) {
         const col = gridApi.getColumn(colId);
@@ -6689,7 +8094,9 @@
         return col ? col.getPinned() : null;
       },
       setPinned(colId, pinned) {
-        gridApi.applyColumnState({ state: [{ colId, pinned, hide: false }] });
+        var _a;
+        const hide = ((_a = gridApi.getColumn(colId)) == null ? void 0 : _a.isVisible()) === false;
+        gridApi.applyColumnState({ state: [{ colId, pinned, hide }] });
       },
       getColumnState() {
         return gridApi.getColumnState();
@@ -6698,8 +8105,9 @@
         gridApi.applyColumnState({ state, applyOrder: !!applyOrder });
       },
       resetColumnState() {
-        if (initialState.length) {
-          gridApi.applyColumnState({ state: initialState, applyOrder: true });
+        const defaultState = getDefaultColumnState();
+        if (defaultState.length) {
+          gridApi.applyColumnState({ state: defaultState, applyOrder: true });
         }
       },
       getDisplayedColumnIds() {
@@ -7119,10 +8527,93 @@
     return null;
   }
 
+  // src/grid-view/drag-drop.ts
+  function enableDragReorder(options) {
+    const {
+      container,
+      itemSelector,
+      handleSelector,
+      draggingClass = "is-dragging",
+      dataKey = "cmDragItem",
+      onReorder
+    } = options;
+    let draggedEl = null;
+    let canDrag = !handleSelector;
+    if (handleSelector) {
+      container.addEventListener("mousedown", (e) => {
+        const target = e.target;
+        canDrag = Boolean(target && target.closest(handleSelector));
+      });
+      container.addEventListener("mouseup", () => {
+        canDrag = false;
+      });
+    }
+    const onDragStart = (e) => {
+      var _a;
+      if (handleSelector && !canDrag) {
+        e.preventDefault();
+        return;
+      }
+      const target = (_a = e.target) == null ? void 0 : _a.closest(itemSelector);
+      if (!target || !container.contains(target)) {
+        e.preventDefault();
+        return;
+      }
+      draggedEl = target;
+      if (e.dataTransfer) {
+        e.dataTransfer.setData("text/plain", target.dataset[dataKey] || target.id || "");
+        e.dataTransfer.effectAllowed = "move";
+      }
+      target.classList.add(draggingClass);
+    };
+    const onDragEnd = () => {
+      if (draggedEl) {
+        draggedEl.classList.remove(draggingClass);
+        draggedEl = null;
+      }
+    };
+    const onDragOver = (e) => {
+      var _a;
+      e.preventDefault();
+      if (e.dataTransfer) {
+        e.dataTransfer.dropEffect = "move";
+      }
+      const overTarget = (_a = e.target) == null ? void 0 : _a.closest(itemSelector);
+      if (!overTarget || overTarget === draggedEl || !container.contains(overTarget)) return;
+      const rect = overTarget.getBoundingClientRect();
+      const isVertical = rect.height >= rect.width;
+      const offset = isVertical ? e.clientY - rect.top : e.clientX - rect.left;
+      const threshold = isVertical ? rect.height / 2 : rect.width / 2;
+      if (offset < threshold) {
+        container.insertBefore(draggedEl, overTarget);
+      } else {
+        container.insertBefore(draggedEl, overTarget.nextSibling);
+      }
+    };
+    const onDrop = (e) => {
+      e.preventDefault();
+      if (!draggedEl) return;
+      const items = Array.from(container.querySelectorAll(itemSelector));
+      onReorder(items);
+    };
+    container.addEventListener("dragstart", onDragStart);
+    container.addEventListener("dragend", onDragEnd);
+    container.addEventListener("dragover", onDragOver);
+    container.addEventListener("drop", onDrop);
+    return {
+      destroy: () => {
+        container.removeEventListener("dragstart", onDragStart);
+        container.removeEventListener("dragend", onDragEnd);
+        container.removeEventListener("dragover", onDragOver);
+        container.removeEventListener("drop", onDrop);
+      }
+    };
+  }
+
   // src/column-settings/page-state.ts
   var WIDTH_PATTERN = /^\d+(?:\.\d+)?(?:px|%|rem|em|vw|vh)?$/i;
   var FORBIDDEN_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
-  function isRecord4(value) {
+  function isRecord5(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function isSafeKey2(key) {
@@ -7145,7 +8636,7 @@
     }
   }
   function isJsonRecord(value) {
-    return isRecord4(value) && isJsonValue(value);
+    return isRecord5(value) && isJsonValue(value);
   }
   function normalizeWidth(value) {
     if (value == null) return null;
@@ -7159,7 +8650,7 @@
     const seen = /* @__PURE__ */ new Set();
     const normalized = [];
     for (const raw of value) {
-      if (!isRecord4(raw) || typeof raw.colId !== "string") return null;
+      if (!isRecord5(raw) || typeof raw.colId !== "string") return null;
       const colId = raw.colId.trim();
       if (!colId || colId.length > 256 || seen.has(colId)) return null;
       seen.add(colId);
@@ -7207,6 +8698,7 @@
     return {
       handle,
       columnsNamespace: `grid.${gridId}.columns`,
+      presetsNamespace: `grid.${gridId}.presets`,
       agGridNamespace: `grid.${gridId}.ag_grid`
     };
   }
@@ -7231,40 +8723,209 @@
     const persisted = readPageColumns(store);
     return persisted !== null && statesEqual(persisted, normalized);
   }
-  function browserStorage2() {
-    try {
-      return typeof window === "undefined" ? null : window.localStorage;
-    } catch (e) {
-      return null;
-    }
-  }
-  function readLegacyJson(key) {
-    const storage = browserStorage2();
-    if (!storage) return null;
-    try {
-      const value = JSON.parse(storage.getItem(key) || "null");
-      return isJsonValue(value) ? value : null;
-    } catch (e) {
-      return null;
-    }
-  }
-  function removeLegacyKeys(keys) {
-    const storage = browserStorage2();
-    if (!storage) return;
-    keys.forEach((key) => {
-      try {
-        storage.removeItem(key);
-      } catch (e) {
+  function readPageColumnPresets(store) {
+    const value = store.handle.get(store.presetsNamespace);
+    if (!isJsonRecord(value)) return {};
+    const presets = {};
+    for (const [name, rawPreset] of Object.entries(value)) {
+      if (!isSafeKey2(name)) continue;
+      const columns = Array.isArray(rawPreset) ? normalizePageColumnState(rawPreset) : isJsonRecord(rawPreset) ? normalizePageColumnState(rawPreset.columns) : null;
+      if (!columns) continue;
+      if (!Array.isArray(rawPreset) && isJsonRecord(rawPreset) && rawPreset.pageState !== void 0) {
+        if (!isJsonRecord(rawPreset.pageState)) continue;
+        presets[name] = { columns, pageState: rawPreset.pageState };
+      } else {
+        presets[name] = columns;
       }
-    });
+    }
+    return presets;
   }
-  function mergeLegacyWidths(state, legacyWidths) {
-    if (!isJsonRecord(legacyWidths)) return state;
-    return state.map((column) => {
-      if (column.width != null) return column;
-      const width = normalizeWidth(legacyWidths[column.colId]);
-      return width == null ? column : { ...column, width };
+  function putPageColumnPresets(store, presets) {
+    const serializable = {};
+    for (const [name, preset] of Object.entries(presets)) {
+      if (!isSafeKey2(name)) continue;
+      const columns = normalizeColumnState(Array.isArray(preset) ? preset : preset.columns);
+      if (!columns) continue;
+      const value = { columns: serializeColumnState(columns) };
+      if (Array.isArray(preset)) {
+        serializable[name] = value.columns;
+      } else if (preset.pageState === void 0 || isJsonRecord(preset.pageState)) {
+        if (preset.pageState !== void 0) value.pageState = preset.pageState;
+        serializable[name] = value;
+      }
+    }
+    store.handle.put(store.presetsNamespace, serializable);
+  }
+
+  // src/column-settings/drawer-settings.ts
+  function dragHandle() {
+    const handle = document.createElement("span");
+    handle.className = "cm-col-settings-drag-handle";
+    handle.dataset.cmColDragHandle = "1";
+    handle.setAttribute("aria-label", colT("column_settings.reorder", "Reorder column"));
+    handle.textContent = "\u283F";
+    return handle;
+  }
+  function columnRow(actions, state) {
+    var _a, _b;
+    const visible = !state.hide;
+    const row = document.createElement("div");
+    row.className = `cm-col-settings-chip cm-col-settings-chip--drawer ${visible ? "is-on" : "is-off"}`;
+    row.dataset.cmColumnKey = state.colId;
+    row.draggable = true;
+    row.appendChild(dragHandle());
+    const dot = document.createElement("span");
+    dot.className = "cm-col-settings-state-dot";
+    dot.setAttribute("aria-hidden", "true");
+    row.appendChild(dot);
+    const toggleVisibility = () => {
+      actions.adapter.setVisible(state.colId, !visible);
+      actions.refresh();
+      actions.saveColumns();
+    };
+    row.addEventListener("click", (event) => {
+      const target = event.target;
+      if ((target == null ? void 0 : target.closest("[data-cm-col-drag-handle]")) || (target == null ? void 0 : target.closest(".cm-col-settings-pin-btn"))) {
+        return;
+      }
+      toggleVisibility();
     });
+    const label = document.createElement("button");
+    label.type = "button";
+    label.className = "cm-col-settings-chip-label";
+    label.textContent = ((_b = (_a = actions.adapter).getLeafLabel) == null ? void 0 : _b.call(_a, state.colId)) || state.colId;
+    row.appendChild(label);
+    const pins = document.createElement("div");
+    pins.className = `cm-col-settings-chip-pins${visible ? "" : " is-dimmed"}`;
+    ["left", "right"].forEach((direction) => {
+      const pin = document.createElement("button");
+      pin.type = "button";
+      pin.className = "cm-col-settings-pin-btn";
+      pin.textContent = direction === "left" ? "L" : "R";
+      pin.setAttribute("aria-pressed", String(state.pinned === direction));
+      pin.addEventListener("click", () => {
+        actions.adapter.setPinned(state.colId, state.pinned === direction ? null : direction);
+        actions.refresh();
+        actions.saveColumns();
+      });
+      pins.appendChild(pin);
+    });
+    row.appendChild(pins);
+    return row;
+  }
+  function renderPresetList(actions) {
+    const section = document.createElement("section");
+    section.className = "cm-filter-drawer-card cm-filter-drawer-presets";
+    const header = document.createElement("header");
+    header.className = "cm-filter-drawer-card-header";
+    const heading = document.createElement("div");
+    heading.className = "cm-filter-drawer-card-heading";
+    const title = document.createElement("h3");
+    title.textContent = colT("column_settings.presets", "Saved presets");
+    const count = document.createElement("span");
+    count.className = "cm-filter-drawer-card-count";
+    count.textContent = String(Object.keys(actions.savedPresets).length);
+    heading.append(title, count);
+    header.append(heading);
+    section.appendChild(header);
+    const inputRow = document.createElement("div");
+    inputRow.className = "cm-filter-drawer-preset-input";
+    const input = document.createElement("input");
+    input.type = "text";
+    input.placeholder = colT("column_settings.preset_placeholder", "Preset name");
+    const save = document.createElement("button");
+    save.type = "button";
+    save.textContent = colT("column_settings.save", "Save");
+    const saveCurrent = () => {
+      if (!actions.savePreset(input.value)) return;
+      input.value = "";
+      actions.refresh();
+    };
+    save.addEventListener("click", saveCurrent);
+    input.addEventListener("keydown", (event) => {
+      if (event.key !== "Enter") return;
+      event.preventDefault();
+      saveCurrent();
+    });
+    inputRow.append(input, save);
+    section.appendChild(inputRow);
+    const list = document.createElement("div");
+    list.className = "cm-filter-drawer-presets-list";
+    Object.keys(actions.savedPresets).forEach((name) => {
+      const item = document.createElement("div");
+      item.className = "cm-filter-drawer-preset";
+      if (name === actions.activePresetName) item.classList.add("is-active");
+      const apply = document.createElement("button");
+      apply.type = "button";
+      apply.className = "cm-filter-drawer-preset-apply";
+      apply.textContent = name;
+      apply.addEventListener("click", () => actions.applyPreset(name));
+      const remove = document.createElement("button");
+      remove.type = "button";
+      remove.className = "cm-filter-drawer-preset-delete";
+      remove.setAttribute("aria-label", colT("column_settings.delete", "Delete preset"));
+      remove.textContent = "\xD7";
+      remove.addEventListener("click", () => {
+        actions.deletePreset(name);
+        actions.refresh();
+      });
+      item.append(apply, remove);
+      list.appendChild(item);
+    });
+    if (!list.childElementCount) {
+      const empty = document.createElement("p");
+      empty.className = "cm-filter-drawer-presets-empty";
+      empty.textContent = colT("column_settings.no_presets_hint", "No saved presets yet.");
+      list.appendChild(empty);
+    }
+    section.appendChild(list);
+    const resetLink = document.createElement("button");
+    resetLink.type = "button";
+    resetLink.className = "cm-filter-drawer-settings-reset-link";
+    resetLink.textContent = colT("column_settings.reset", "Reset to default");
+    resetLink.addEventListener("click", actions.resetColumns);
+    section.appendChild(resetLink);
+    return section;
+  }
+  function saveOrder(actions, list) {
+    const stateById = new Map(actions.getColumnState().map((state) => [state.colId, state]));
+    const ordered = Array.from(list.children).map((element) => element instanceof HTMLElement ? element.dataset.cmColumnKey || "" : "").map((columnId) => stateById.get(columnId)).filter((state) => state !== void 0);
+    if (ordered.length !== stateById.size) return;
+    actions.adapter.applyColumnState(ordered, true);
+    actions.refresh();
+    actions.saveColumns();
+  }
+  function renderDrawerColumnSettings(container, actions) {
+    var _a;
+    const header = document.createElement("header");
+    header.className = "cm-filter-drawer-card-header";
+    const heading = document.createElement("div");
+    heading.className = "cm-filter-drawer-card-heading";
+    const title = document.createElement("h3");
+    title.textContent = colT("column_settings.title", "\u041D\u0430\u043B\u0430\u0448\u0442\u0443\u0432\u0430\u043D\u043D\u044F \u043A\u043E\u043B\u043E\u043D\u043E\u043A");
+    heading.append(title);
+    header.append(heading);
+    const list = document.createElement("div");
+    list.className = "cm-col-checkboxes cm-col-checkboxes--drawer";
+    list.dataset.cmColSettingsDrawerList = actions.gridId;
+    actions.getColumnState().forEach((state) => list.appendChild(columnRow(actions, state)));
+    const externalPresetsContainer = (_a = container.parentElement) == null ? void 0 : _a.querySelector(
+      `[data-cm-filter-drawer-presets][data-cm-grid-id="${actions.gridId}"]`
+    );
+    if (externalPresetsContainer) {
+      container.replaceChildren(header, list);
+      externalPresetsContainer.replaceChildren(renderPresetList(actions));
+    } else {
+      container.replaceChildren(header, list, renderPresetList(actions));
+    }
+    const dragHandle2 = enableDragReorder({
+      container: list,
+      itemSelector: ".cm-col-settings-chip--drawer",
+      handleSelector: "[data-cm-col-drag-handle]",
+      draggingClass: "is-dragging",
+      onReorder: () => saveOrder(actions, list)
+    });
+    return dragHandle2;
   }
 
   // src/column-settings/host.ts
@@ -7274,38 +8935,21 @@
   var ColumnSettingsHost = class {
     constructor(gridId, adapter, options) {
       this.activePresetName = null;
+      this.drawerSettingsContainers = /* @__PURE__ */ new Set();
+      this.drawerOrderSortables = /* @__PURE__ */ new Map();
       const opts = options || {};
       this.gridId = gridId;
       this.adapter = adapter;
       this.groupsOrder = opts.groupsOrder || [];
       this.savedColPresets = opts.initialPresets || {};
       this.pageStateHooks = opts.pageStateHooks || {};
-      try {
-        const stored = localStorage.getItem("agGridPresets_" + this.gridId) || localStorage.getItem("cmColPresets_" + this.gridId);
-        if (stored) {
-          const parsed = JSON.parse(stored);
-          if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
-            this.savedColPresets = {
-              ...parsed,
-              ...this.savedColPresets
-            };
-          }
-        }
-      } catch (e) {
-      }
       this.preferencesUrl = opts.preferencesUrl || "";
-      this.storageScope = opts.legacyStorageScope || opts.storageScope || "";
       this.pageColumnStore = pageColumnStoreForRoot(opts.pageStateRoot, this.gridId);
-      this.persistLocalState = opts.persistLocalState !== false;
+      if (Object.keys(this.savedColPresets).length === 0 && this.pageColumnStore) {
+        this.savedColPresets = readPageColumnPresets(this.pageColumnStore);
+      }
       this.onStateChange = opts.onStateChange || null;
       this.colOrderSortable = null;
-      try {
-        const active = localStorage.getItem("cmActivePreset_" + this.gridId);
-        if (active && this.savedColPresets[active]) {
-          this.activePresetName = active;
-        }
-      } catch (e) {
-      }
       this._bindModalDismiss();
       this._applyInitialState(opts.initialState);
       this.renderSavedPresets();
@@ -7320,18 +8964,10 @@
         this.pageStateHooks.applyPageState(preset.pageState);
       }
       this.activePresetName = name;
-      try {
-        localStorage.setItem("cmActivePreset_" + this.gridId, name);
-      } catch (e) {
-      }
       this.saveState();
       this.syncExportLinks();
-      this.buildColCheckboxes();
+      this.refreshColumnSettings();
       this.renderSavedPresets();
-    }
-    _storageKey() {
-      if (this.storageScope) return "cmColState_" + this.gridId + "__" + this.storageScope;
-      return "cmColState_" + this.gridId;
     }
     _bindModalDismiss() {
       if (window._cmColSettingsEscBound) return;
@@ -7364,44 +9000,8 @@
       });
     }
     _applyInitialState(initialState) {
-      var _a, _b;
-      let state = initialState;
-      if (!state && this.pageColumnStore) {
-        state = (_a = readPageColumns(this.pageColumnStore)) != null ? _a : void 0;
-        if (!state) {
-          const legacyState = normalizeColumnState(readLegacyJson(this._storageKey()));
-          const legacyWidthKey = "cmColWidths_" + this.gridId;
-          const legacyWidths = readLegacyJson(legacyWidthKey);
-          const hasLegacyWidths = isJsonRecord(legacyWidths) && Object.keys(legacyWidths).length > 0;
-          let migrationBase = legacyState;
-          if (!migrationBase && hasLegacyWidths) {
-            try {
-              const currentState = normalizeColumnState(this.adapter.getColumnState());
-              migrationBase = currentState && currentState.length > 0 ? currentState : null;
-            } catch (e) {
-              migrationBase = null;
-            }
-          }
-          if (migrationBase) {
-            const migrated = mergeLegacyWidths(
-              migrationBase,
-              legacyWidths
-            );
-            if (putPageColumns(this.pageColumnStore, migrated)) {
-              const migratedKeys = [legacyWidthKey];
-              if (legacyState) migratedKeys.unshift(this._storageKey());
-              removeLegacyKeys(migratedKeys);
-            }
-            state = migrated;
-          }
-        }
-      } else if (!state) {
-        try {
-          const raw = localStorage.getItem(this._storageKey());
-          if (raw) state = (_b = normalizeColumnState(JSON.parse(raw))) != null ? _b : void 0;
-        } catch (e) {
-        }
-      }
+      var _a;
+      const state = initialState != null ? initialState : this.pageColumnStore ? (_a = readPageColumns(this.pageColumnStore)) != null ? _a : void 0 : void 0;
       if (state && Array.isArray(state)) {
         this.adapter.applyColumnState(state, true);
       }
@@ -7416,11 +9016,6 @@
       const state = this.getColumnState();
       if (this.pageColumnStore) {
         putPageColumns(this.pageColumnStore, state);
-      } else if (this.persistLocalState) {
-        try {
-          localStorage.setItem(this._storageKey(), JSON.stringify(state));
-        } catch (e) {
-        }
       }
       this.syncExportLinks();
       if (typeof this.onStateChange === "function") this.onStateChange(state);
@@ -7430,7 +9025,7 @@
       const panel = getColSelectorPanel(this.gridId);
       if (!panel) return;
       setColPanelHidden(panel, false);
-      this.buildColCheckboxes();
+      this.refreshColumnSettings();
     }
     closeColSelectorModal() {
       this.closePresetsDropdown();
@@ -7453,7 +9048,7 @@
         this.closePresetsDropdown();
         if (!panel) return;
         setColPanelHidden(panel, false);
-        this.buildColCheckboxes();
+        this.refreshColumnSettings();
         return;
       }
       this.togglePresetsDropdown();
@@ -7514,9 +9109,11 @@
         }
         item.innerHTML = `
         <svg class="cm-col-preset-dropdown-item-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-        <span class="cm-col-preset-dropdown-item-name" style="flex: 1;">${name}</span>
+        <span class="cm-col-preset-dropdown-item-name" style="flex: 1;"></span>
         ${isActive ? '<svg class="cm-col-preset-active-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : ""}
       `;
+        const nameSpan = item.querySelector(".cm-col-preset-dropdown-item-name");
+        if (nameSpan) nameSpan.textContent = name;
         item.onclick = (e) => {
           e.stopPropagation();
           this.applyPreset(name);
@@ -7544,19 +9141,51 @@
     resetColumnsToDefault() {
       this.adapter.resetColumnState();
       this.activePresetName = null;
-      try {
-        localStorage.removeItem("cmActivePreset_" + this.gridId);
-      } catch (e) {
-      }
-      this.buildColCheckboxes();
+      this.refreshColumnSettings();
       this.saveState();
       this.syncExportLinks();
       this.renderSavedPresets();
     }
-    buildColCheckboxes() {
-      const container = document.getElementById("col-checkboxes-" + this.gridId);
-      if (!container) return;
-      container.innerHTML = "";
+    mountColumnSettings(container) {
+      this.drawerSettingsContainers.add(container);
+      this.renderDrawerSettings(container);
+    }
+    refreshColumnSettings() {
+      this.buildColCheckboxes();
+      this.drawerSettingsContainers.forEach((container) => {
+        var _a;
+        if (!container.isConnected) {
+          this.drawerSettingsContainers.delete(container);
+          (_a = this.drawerOrderSortables.get(container)) == null ? void 0 : _a.destroy();
+          this.drawerOrderSortables.delete(container);
+          return;
+        }
+        this.renderDrawerSettings(container);
+      });
+    }
+    renderDrawerSettings(container) {
+      var _a;
+      (_a = this.drawerOrderSortables.get(container)) == null ? void 0 : _a.destroy();
+      const sortable = renderDrawerColumnSettings(container, {
+        gridId: this.gridId,
+        adapter: this.adapter,
+        savedPresets: this.savedColPresets,
+        activePresetName: this.activePresetName,
+        getColumnState: () => this.getColumnState(),
+        resetColumns: () => this.resetColumnsToDefault(),
+        applyPreset: (name) => this.applyPreset(name),
+        savePreset: (name) => this.savePreset(name),
+        deletePreset: (name) => this.deletePreset(name),
+        saveColumns: () => this.saveState(),
+        refresh: () => this.refreshColumnSettings()
+      });
+      if (sortable) this.drawerOrderSortables.set(container, sortable);
+      else this.drawerOrderSortables.delete(container);
+    }
+    buildColCheckboxes(container) {
+      const target = container || document.getElementById("col-checkboxes-" + this.gridId);
+      if (!target) return;
+      target.innerHTML = "";
       const descriptors = this.adapter.getDescriptors();
       const groups = {};
       const mainLabel = colT("column_settings.main_group", "Main");
@@ -7580,13 +9209,14 @@
         const visible = this.adapter.isVisible(leafKey);
         const chip = document.createElement("div");
         chip.className = "cm-col-settings-chip " + (visible ? "is-on" : "is-off");
+        chip.dataset.cmColumnKey = leafKey;
         const textWrap = document.createElement("div");
         textWrap.className = "cm-col-settings-chip-label";
         textWrap.textContent = typeof this.adapter.getLeafLabel === "function" ? this.adapter.getLeafLabel(leafKey) : leafKey;
         textWrap.onclick = (e) => {
           e.stopPropagation();
           this.adapter.setVisible(leafKey, !visible);
-          this.buildColCheckboxes();
+          this.refreshColumnSettings();
           this.saveState();
         };
         chip.appendChild(textWrap);
@@ -7604,7 +9234,7 @@
               e.stopPropagation();
               const next = pinnedState === dir ? null : dir;
               this.adapter.setPinned(leafKey, next);
-              this.buildColCheckboxes();
+              this.refreshColumnSettings();
               this.saveState();
             };
             pins.appendChild(btn);
@@ -7651,7 +9281,7 @@
               else if (kind === "None") this.adapter.setVisible(desc.colId, false);
               else this.adapter.setVisible(desc.colId, !desc.defaultHide);
             });
-            this.buildColCheckboxes();
+            this.refreshColumnSettings();
             this.saveState();
           };
           rightControls.appendChild(btn);
@@ -7671,12 +9301,11 @@
           appendLeafChip(itemsCont, desc.colId, desc);
         });
         groupColDiv.appendChild(itemsCont);
-        container.appendChild(groupColDiv);
+        target.appendChild(groupColDiv);
       });
-      this.buildColOrderList();
+      if (!container) this.buildColOrderList();
     }
     buildColOrderList() {
-      var _a;
       const listContainer = document.getElementById("col-order-list-" + this.gridId);
       if (!listContainer) return;
       listContainer.innerHTML = "";
@@ -7707,40 +9336,32 @@
         pill.textContent = label;
         listContainer.appendChild(pill);
       });
-      if (this.colOrderSortable) this.colOrderSortable.destroy();
-      const SortableCtor = typeof window !== "undefined" ? ((_a = window.Sortable) == null ? void 0 : _a.default) || window.Sortable : void 0;
-      if (typeof SortableCtor !== "undefined") {
-        const host = this;
-        this.colOrderSortable = new SortableCtor(listContainer, {
-          animation: 150,
-          delay: 50,
-          delayOnTouchOnly: true,
-          touchStartThreshold: 3,
-          fallbackTolerance: 3,
-          ghostClass: "sortable-ghost",
-          chosenClass: "sortable-chosen",
-          onEnd() {
-            const newState = [];
-            for (let i = 0; i < listContainer.children.length; i++) {
-              const child = listContainer.children[i];
-              if (!(child instanceof HTMLElement)) continue;
-              const colId = child.dataset.colid;
-              if (!colId) continue;
-              const prev = host.getColumnState().find((c) => c.colId === colId) || { colId, hide: false, pinned: null };
-              newState.push({
-                colId,
-                hide: !!prev.hide,
-                pinned: prev.pinned || null
-              });
-            }
-            host.getColumnState().filter((c) => c.hide).forEach((c) => {
-              newState.push(c);
+      const host = this;
+      this.colOrderSortable = enableDragReorder({
+        container: listContainer,
+        itemSelector: ".cm-col-order-pill",
+        draggingClass: "sortable-chosen",
+        onReorder() {
+          const newState = [];
+          for (let i = 0; i < listContainer.children.length; i++) {
+            const child = listContainer.children[i];
+            if (!(child instanceof HTMLElement)) continue;
+            const colId = child.dataset.colid;
+            if (!colId) continue;
+            const prev = host.getColumnState().find((c) => c.colId === colId) || { colId, hide: false, pinned: null };
+            newState.push({
+              colId,
+              hide: !!prev.hide,
+              pinned: prev.pinned || null
             });
-            host.adapter.applyColumnState(newState, true);
-            host.saveState();
           }
-        });
-      }
+          host.getColumnState().filter((c) => c.hide).forEach((c) => {
+            newState.push(c);
+          });
+          host.adapter.applyColumnState(newState, true);
+          host.saveState();
+        }
+      });
     }
     renderSavedPresets() {
       const container = document.getElementById("presets-container-" + this.gridId);
@@ -7769,7 +9390,7 @@
           const applyBtn = document.createElement("button");
           applyBtn.type = "button";
           applyBtn.className = "cm-col-preset-apply-btn";
-          applyBtn.textContent = colT("column_settings.load", colT("column_settings.apply", "\u0417\u0430\u0432\u0430\u043D\u0442\u0430\u0436\u0438\u0442\u0438"));
+          applyBtn.textContent = colT("column_settings.load", colT("column_settings.apply", "Load"));
           applyBtn.onclick = (e) => {
             e.stopPropagation();
             this.applyPreset(name);
@@ -7780,16 +9401,7 @@
           delBtn.innerHTML = "&times;";
           delBtn.onclick = (e) => {
             e.stopPropagation();
-            delete this.savedColPresets[name];
-            if (this.activePresetName === name) {
-              this.activePresetName = null;
-              try {
-                localStorage.removeItem("cmActivePreset_" + this.gridId);
-              } catch (e2) {
-              }
-            }
-            this.saveColPresetsToServer();
-            this.renderSavedPresets();
+            this.deletePreset(name);
           };
           chip.appendChild(text);
           chip.appendChild(applyBtn);
@@ -7847,9 +9459,11 @@
             item.role = "menuitem";
             item.innerHTML = `
             <svg class="cm-toolbar-more-icon cm-toolbar-more-icon--preset" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
-            <span style="flex: 1; text-align: left;">${name}</span>
+            <span style="flex: 1; text-align: left;"></span>
             ${isActive ? '<svg class="cm-col-preset-active-check" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6 9 17l-5-5"/></svg>' : ""}
           `;
+            const nameSpan = item.querySelector("span");
+            if (nameSpan) nameSpan.textContent = name;
             item.onclick = (e) => {
               e.stopPropagation();
               this.applyPreset(name);
@@ -7864,25 +9478,31 @@
         }
       }
     }
-    saveCurrentPreset() {
+    savePreset(name) {
       var _a, _b, _c;
-      const nameInput = document.getElementById("preset-name-" + this.gridId);
-      const name = nameInput instanceof HTMLInputElement ? nameInput.value.trim() : "";
-      if (!name) return;
+      const normalizedName = name.trim();
+      if (!normalizedName) return false;
       const pageState = (_c = (_b = (_a = this.pageStateHooks).getPageState) == null ? void 0 : _b.call(_a)) != null ? _c : {};
-      this.savedColPresets[name] = Object.keys(pageState).length ? { columns: this.getColumnState(), pageState } : this.getColumnState();
-      if (nameInput instanceof HTMLInputElement) nameInput.value = "";
+      this.savedColPresets[normalizedName] = Object.keys(pageState).length ? { columns: this.getColumnState(), pageState } : this.getColumnState();
       this.renderSavedPresets();
       this.saveColPresetsToServer();
+      return true;
+    }
+    deletePreset(name) {
+      delete this.savedColPresets[name];
+      if (this.activePresetName === name) {
+        this.activePresetName = null;
+      }
+      this.saveColPresetsToServer();
+      this.renderSavedPresets();
+    }
+    saveCurrentPreset() {
+      const nameInput = document.getElementById("preset-name-" + this.gridId);
+      if (!(nameInput instanceof HTMLInputElement) || !this.savePreset(nameInput.value)) return;
+      nameInput.value = "";
     }
     saveColPresetsToServer() {
-      try {
-        localStorage.setItem(
-          "agGridPresets_" + this.gridId,
-          JSON.stringify(this.savedColPresets)
-        );
-      } catch (e) {
-      }
+      if (this.pageColumnStore) putPageColumnPresets(this.pageColumnStore, this.savedColPresets);
       if (!this.preferencesUrl) return;
       fetch(this.preferencesUrl, {
         method: "POST",
@@ -7940,11 +9560,11 @@
       return [];
     }
   }
-  function isColumnStateItem(value) {
+  function isColumnStateItem2(value) {
     return typeof value === "object" && value !== null && "colId" in value && typeof value.colId === "string";
   }
   function isSavedColumnPreset2(value) {
-    return typeof value === "object" && value !== null && !Array.isArray(value) && "columns" in value && Array.isArray(value.columns) && value.columns.every(isColumnStateItem);
+    return typeof value === "object" && value !== null && !Array.isArray(value) && "columns" in value && Array.isArray(value.columns) && value.columns.every(isColumnStateItem2);
   }
   function parsePresets(raw) {
     try {
@@ -7952,7 +9572,7 @@
       if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
       const out = {};
       for (const [name, state] of Object.entries(parsed)) {
-        if (Array.isArray(state) && state.every(isColumnStateItem)) {
+        if (Array.isArray(state) && state.every(isColumnStateItem2)) {
           out[name] = state;
         } else if (isSavedColumnPreset2(state)) {
           out[name] = state;

@@ -262,6 +262,7 @@
     return {
       handle,
       columnsNamespace: `grid.${gridId}.columns`,
+      presetsNamespace: `grid.${gridId}.presets`,
       agGridNamespace: `grid.${gridId}.ag_grid`
     };
   }
@@ -294,44 +295,6 @@
     if (!isJsonRecord(state)) return false;
     store.handle.put(store.agGridNamespace, state);
     return readPageAgGridState(store) !== null;
-  }
-  function browserStorage2() {
-    try {
-      return typeof window === "undefined" ? null : window.localStorage;
-    } catch (e) {
-      return null;
-    }
-  }
-  function readLegacyJson(key) {
-    const storage = browserStorage2();
-    if (!storage) return null;
-    try {
-      const value = JSON.parse(storage.getItem(key) || "null");
-      return isJsonValue(value) ? value : null;
-    } catch (e) {
-      return null;
-    }
-  }
-  function removeLegacyKeys(keys) {
-    const storage = browserStorage2();
-    if (!storage) return;
-    keys.forEach((key) => {
-      try {
-        storage.removeItem(key);
-      } catch (e) {
-      }
-    });
-  }
-  function legacyScopedKey(prefix, gridId, scope) {
-    return scope ? `${prefix}${gridId}__${scope}` : `${prefix}${gridId}`;
-  }
-  function mergeLegacyWidths(state, legacyWidths) {
-    if (!isJsonRecord(legacyWidths)) return state;
-    return state.map((column) => {
-      if (column.width != null) return column;
-      const width = normalizeWidth(legacyWidths[column.colId]);
-      return width == null ? column : { ...column, width };
-    });
   }
 
   // src/ag-grid/page-state.ts
@@ -497,61 +460,12 @@
       columnSizing: { columnSizingModel: sizingModel }
     };
   }
-  function legacyAgGridStateKey(gridId, scope) {
-    return legacyScopedKey("agGridState_", gridId, scope);
-  }
-  function legacyColumnStateKey(gridId, scope) {
-    return legacyScopedKey("cmColState_", gridId, scope);
-  }
-  function readLegacyAgGridState(gridId, scope) {
-    const stored = readLegacyJson(legacyAgGridStateKey(gridId, scope));
-    return isJsonRecord(stored) ? stateFromRecord(stored) : {};
-  }
-  function prepareAgGridPageState(root, gridId, legacyScope, configuredInitialState) {
-    var _a, _b;
+  function prepareAgGridPageState(root, gridId, configuredInitialState) {
     const store = pageColumnStoreForRoot(root, gridId);
     if (!store) return null;
-    const agKey = legacyAgGridStateKey(gridId, legacyScope);
-    const columnKey = legacyColumnStateKey(gridId, legacyScope);
-    const widthKey = "cmColWidths_" + gridId;
-    let columns = readPageColumns(store);
-    const legacyAgRaw = readLegacyJson(agKey);
-    const hasLegacyAgState = isJsonRecord(legacyAgRaw);
-    const legacyAgState = hasLegacyAgState ? stateFromRecord(legacyAgRaw) : {};
-    const legacyColumns = normalizeColumnState(readLegacyJson(columnKey));
-    const legacyWidths = readLegacyJson(widthKey);
-    let persistedColumns = columns !== null;
-    if (!columns) {
-      const source = (_a = legacyAgState.colState) != null ? _a : legacyColumns;
-      if (source) {
-        const migrated = mergeLegacyWidths(source, legacyWidths);
-        if (putPageColumns(store, migrated)) {
-          columns = (_b = readPageColumns(store)) != null ? _b : migrated;
-          persistedColumns = true;
-          if (!legacyAgState.colState) removeLegacyKeys([columnKey, widthKey]);
-        } else {
-          columns = migrated;
-        }
-      }
-    }
-    if (persistedColumns && legacyColumns) removeLegacyKeys([columnKey, widthKey]);
-    let storedAgState = readPageAgGridState(store);
-    let persistedAgState = storedAgState !== null;
-    if (!persistedAgState) {
-      const migratedAgState = agOnlyState(legacyAgState);
-      if (!Object.keys(migratedAgState).length) {
-        persistedAgState = true;
-      } else if (putPageAgGridState(store, migratedAgState)) {
-        persistedAgState = true;
-        storedAgState = readPageAgGridState(store);
-      }
-    }
-    const legacyColumnsHandled = legacyAgState.colState === void 0 || persistedColumns;
-    if (hasLegacyAgState && legacyColumnsHandled && persistedAgState) {
-      removeLegacyKeys([agKey]);
-      if (legacyAgState.colState !== void 0) removeLegacyKeys([widthKey]);
-    }
-    const initialAgState = storedAgState ? stateFromRecord(storedAgState) : legacyAgState;
+    const columns = readPageColumns(store);
+    const storedAgState = readPageAgGridState(store);
+    const initialAgState = storedAgState ? stateFromRecord(storedAgState) : {};
     const hasRestoredInitialState = columns !== null || initialAgState.sort !== void 0 || initialAgState.columnSizing !== void 0;
     const nativeInitialState = withFlexSizing(
       {
@@ -603,28 +517,6 @@
     return gridApi.getGridOption("rowModelType") === "infinite";
   }
 
-  // src/grid-view/toolbar-search-input.ts
-  function cssEscapeId(id) {
-    return typeof CSS !== "undefined" && CSS.escape ? CSS.escape(id) : id.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
-  }
-  function toolbarSearchScopeForTable(tableGridId) {
-    if (!tableGridId) return null;
-    const esc = cssEscapeId(tableGridId);
-    const boundRoot = document.querySelector(
-      '[data-cm-toolbar-search-root][data-cm-table-grid-id="' + esc + '"]'
-    );
-    if (boundRoot instanceof HTMLElement) {
-      return boundRoot.dataset.cmSearchScopeId || tableGridId;
-    }
-    const scopeRoot = document.querySelector(
-      '[data-cm-toolbar-search-root][data-cm-search-scope-id="' + esc + '"]'
-    );
-    if (scopeRoot instanceof HTMLElement) {
-      return scopeRoot.dataset.cmSearchScopeId || tableGridId;
-    }
-    return null;
-  }
-
   // src/ag-grid/host.ts
   function isColumnSettingsHandle(value) {
     if (!value || typeof value !== "object") return false;
@@ -635,25 +527,6 @@
     if (!value || typeof value !== "object") return false;
     const api = value;
     return typeof api.getFilterModel === "function" && typeof api.addEventListener === "function";
-  }
-  function withAgGridState(columns, sort, columnSizing) {
-    const sortIndexById = new Map(
-      sort == null ? void 0 : sort.sortModel.map(({ colId, sort: sort2 }, index) => [colId, { sort: sort2, index }])
-    );
-    const flexById = new Map(
-      columnSizing == null ? void 0 : columnSizing.columnSizingModel.map(({ colId, flex }) => [colId, flex])
-    );
-    return columns.map((column) => {
-      var _a, _b, _c;
-      const entry = sortIndexById.get(column.colId);
-      const sortable = {
-        ...column,
-        flex: (_a = flexById.get(column.colId)) != null ? _a : null,
-        sort: (_b = entry == null ? void 0 : entry.sort) != null ? _b : null,
-        sortIndex: (_c = entry == null ? void 0 : entry.index) != null ? _c : null
-      };
-      return sortable;
-    });
   }
   var AgGridHost = class {
     constructor(gridId, containerId, optionsVar, initialPresets, initialSearches, groupsOrder) {
@@ -687,8 +560,6 @@
       this._searchText = "";
       this._columnMeta = {};
       this._pageStateAdapter = null;
-      this._storageSyncBound = false;
-      this._deferredColStateScheduled = false;
       if ((_a = window.GridView) == null ? void 0 : _a.byId) {
         window.GridView.byId.register(this.gridId, this);
       }
@@ -827,69 +698,31 @@
         window.history.replaceState(null, "", next);
       }
     }
-    _bindStorageSync() {
-      if (this._pageStateAdapter) return;
-      if (this._storageSyncBound) return;
-      this._storageSyncBound = true;
-      window.addEventListener("storage", (event) => {
-        if (event.key !== this._storageKey() || !event.newValue || !this.gridApi) return;
-        this.loadState({ reloadInfinite: true, fromStorageEvent: true });
-      });
-    }
-    _storageKey() {
-      return legacyAgGridStateKey(this.gridId, this._legacyStorageScope());
-    }
-    _legacyStorageScope() {
-      var _a, _b, _c;
-      const ctx = (_a = this.gridOptions.context) != null ? _a : {};
-      return (_c = (_b = ctx.legacyStorageScope) != null ? _b : ctx.storageScope) != null ? _c : "";
-    }
-    _readLegacyGridState() {
-      return readLegacyAgGridState(this.gridId, this._legacyStorageScope());
-    }
     _readStoredGridState() {
       var _a, _b;
-      return (_b = (_a = this._pageStateAdapter) == null ? void 0 : _a.read()) != null ? _b : this._readLegacyGridState();
+      return (_b = (_a = this._pageStateAdapter) == null ? void 0 : _a.read()) != null ? _b : {};
     }
     _preparePageState(gridDiv) {
       var _a;
       this._pageStateAdapter = prepareAgGridPageState(
         gridDiv,
         this.gridId,
-        this._legacyStorageScope(),
         this.gridOptions.initialState
       );
       if ((_a = this._pageStateAdapter) == null ? void 0 : _a.initialState) {
         this.gridOptions.initialState = this._pageStateAdapter.initialState;
       }
     }
-    _gridColumnsReady() {
-      const api = this.gridApi;
-      if (!api) return false;
-      const columns = api.getColumns();
-      return columns.length > 0;
-    }
-    _scheduleDeferredColumnState() {
-      const api = this.gridApi;
-      if (this._deferredColStateScheduled || !api) return;
-      const state = this._readLegacyGridState();
-      if (!state.colState) return;
-      this._deferredColStateScheduled = true;
-      const tryApply = () => {
-        if (!this.gridApi || !this._gridColumnsReady()) return false;
-        this.loadState({ deferColumnState: false });
-        return true;
+    _prepareUrlInitialState() {
+      var _a;
+      const urlParams = this._readUrlGridParams();
+      if (!urlParams.hasFilterState) return;
+      this.gridOptions.initialState = {
+        ...this.gridOptions.initialState,
+        filter: { filterModel: (_a = urlParams.filterState) != null ? _a : {} }
       };
-      if (tryApply()) return;
-      const onColumnsChanged = () => {
-        if (tryApply() && this.gridApi) {
-          this.gridApi.removeEventListener("columnEverythingChanged", onColumnsChanged);
-        }
-      };
-      api.addEventListener("columnEverythingChanged", onColumnsChanged);
     }
     initGrid() {
-      var _a, _b, _c;
       const gridDiv = document.getElementById(this.containerId);
       if (!gridDiv) return;
       const applyTheme = () => {
@@ -912,6 +745,7 @@
       this._extractColumnMeta();
       this._colSettings = null;
       this._preparePageState(gridDiv);
+      this._prepareUrlInitialState();
       const agGridLib = window.agGrid;
       if (!agGridLib) throw new Error("AG Grid is not loaded");
       const created = agGridLib.createGrid(gridDiv, this.gridOptions);
@@ -919,8 +753,8 @@
         throw new Error("AG Grid createGrid returned an invalid API");
       }
       this.gridApi = created;
-      this.loadState({ deferColumnState: !this._pageStateAdapter });
-      if (!this._pageStateAdapter) this._scheduleDeferredColumnState();
+      this.loadState();
+      document.dispatchEvent(new CustomEvent("cm-grid-ready", { detail: { gridId: this.gridId } }));
       window.setTimeout(() => {
         gridDiv.classList.add("cm-ag-grid-root--ready");
       }, 50);
@@ -938,7 +772,9 @@
         this.saveGridState();
         this.syncFilterChrome();
         const ctx = this._getContextHooks();
-        if (typeof ctx.onFilterChanged === "function") {
+        if (typeof ctx.onFilterChange === "function") {
+          ctx.onFilterChange(this);
+        } else if (typeof ctx.onFilterChanged === "function") {
           ctx.onFilterChanged(this);
         }
       });
@@ -948,12 +784,52 @@
           countEl.textContent = gridViewT("grid.records_label", "Records:") + " " + this.gridApi.getDisplayedRowCount();
         }
       });
-      const toolbarScopeId = (_a = toolbarSearchScopeForTable(this.gridId)) != null ? _a : this.gridId;
-      (_c = (_b = window.GridView) == null ? void 0 : _b.ToolbarSearch) == null ? void 0 : _c.mount(toolbarScopeId, this.savedQuickSearches);
-      this._initColSettings();
-      this.renderSavedPresets();
-      this._bindStorageSync();
-      this.syncFilterChrome();
+      this._bindInfiniteHeaderCheckbox();
+    }
+    _bindInfiniteHeaderCheckbox() {
+      const gridDiv = document.getElementById(this.containerId);
+      if (!gridDiv || !this.gridApi) return;
+      const api = this.gridApi;
+      const colDefs = api.getColumnDefs();
+      const hasCheckbox = colDefs == null ? void 0 : colDefs.some(
+        (c) => "checkboxSelection" in c && c.checkboxSelection === true
+      );
+      if (!hasCheckbox) return;
+      const syncHeaderCheckbox = () => {
+        const wrapper = gridDiv.querySelector(".ag-header-cell[col-id] .ag-header-select-all");
+        if (!wrapper) return;
+        wrapper.classList.remove("ag-hidden");
+        wrapper.removeAttribute("aria-hidden");
+        const input = wrapper.querySelector("input[type='checkbox']");
+        if (!input || input.dataset.cmInfiniteBound) return;
+        input.dataset.cmInfiniteBound = "1";
+        wrapper.addEventListener("click", (e) => {
+          e.stopPropagation();
+          const selected = api.getSelectedRows().length;
+          const nextState = selected === 0;
+          api.forEachNode((node) => {
+            node.setSelected(nextState);
+          });
+        });
+      };
+      const updateHeaderCheckboxState = () => {
+        const selected = api.getSelectedRows().length;
+        const wrapper = gridDiv.querySelector(".ag-header-cell[col-id] .ag-header-select-all");
+        const input = wrapper == null ? void 0 : wrapper.querySelector("input[type='checkbox']");
+        if (!wrapper || !input) return;
+        if (selected === 0) {
+          input.checked = false;
+          input.indeterminate = false;
+          wrapper.classList.remove("ag-checked");
+        } else {
+          input.checked = true;
+          input.indeterminate = false;
+          wrapper.classList.add("ag-checked");
+        }
+      };
+      api.addEventListener("selectionChanged", updateHeaderCheckboxState);
+      window.setTimeout(syncHeaderCheckbox, 100);
+      api.addEventListener("modelUpdated", syncHeaderCheckbox);
     }
     loadState(options = {}) {
       var _a, _b, _c;
@@ -962,13 +838,6 @@
       const state = this._readStoredGridState();
       const urlParams = this._readUrlGridParams();
       const urlPageState = this._pageStateFromUrl();
-      const hasColumns = this._gridColumnsReady();
-      if (state.colState && hasColumns && !options.deferColumnState && !this._pageStateAdapter) {
-        api.applyColumnState({
-          state: withAgGridState(state.colState, state.sort, state.columnSizing),
-          applyOrder: true
-        });
-      }
       const filterState = urlParams.hasFilterState ? urlParams.filterState : state.filterState;
       api.setFilterModel(filterState != null ? filterState : null);
       const qsInput = this._resolveSearchInput();
@@ -982,14 +851,10 @@
       }
       const pageState = Object.keys(urlPageState).length ? { ...(_b = state.pageState) != null ? _b : {}, ...urlPageState } : (_c = state.pageState) != null ? _c : {};
       this._applyPageState(pageState, {
-        fromUrl: Object.keys(urlPageState).length > 0,
-        fromStorageEvent: !!options.fromStorageEvent
+        fromUrl: Object.keys(urlPageState).length > 0
       });
       if (options.reloadInfinite && isInfiniteRowModel(api)) {
         api.purgeInfiniteCache();
-      }
-      if (options.fromStorageEvent) {
-        this.syncBrowserUrl();
       }
     }
     reapplyPersistedState() {
@@ -1008,17 +873,12 @@
       };
       if (this._pageStateAdapter) {
         this._pageStateAdapter.save(state);
-      } else {
-        try {
-          localStorage.setItem(this._storageKey(), JSON.stringify(state));
-        } catch (e) {
-        }
       }
       this.syncBrowserUrl();
       document.dispatchEvent(new CustomEvent("cm-grid-state-change", { detail: { gridId: this.gridId } }));
     }
     _initColSettings() {
-      var _a, _b, _c;
+      var _a;
       if (this._colSettings) return;
       const api = this.gridApi;
       const gridView = window.GridView;
@@ -1032,10 +892,8 @@
           groupsOrder: this.groupsOrder,
           initialPresets: this.savedColPresets,
           preferencesUrl,
-          legacyStorageScope: (_c = (_b = ctx.legacyStorageScope) != null ? _b : ctx.storageScope) != null ? _c : "",
           pageStateRoot: document.getElementById(this.containerId),
           initialState: api.getColumnState(),
-          persistLocalState: false,
           onStateChange: () => {
             this.saveGridState();
           }
@@ -1067,6 +925,11 @@
     }
     buildColCheckboxes() {
       this._colOp("buildColCheckboxes");
+    }
+    mountColumnSettings(container) {
+      var _a;
+      this._initColSettings();
+      (_a = this._colSettings) == null ? void 0 : _a.mountColumnSettings(container);
     }
     buildColOrderList() {
       this._colOp("buildColOrderList");
@@ -1178,11 +1041,6 @@
       window.history.replaceState({}, "", url);
       if (this._pageStateAdapter) {
         this._pageStateAdapter.clear();
-      } else {
-        try {
-          localStorage.removeItem(this._storageKey());
-        } catch (e) {
-        }
       }
       this.syncSearchToolbarUi();
       document.dispatchEvent(new CustomEvent("cm-grid-state-change", { detail: { gridId: this.gridId } }));
@@ -1192,14 +1050,13 @@
     }
     hasActiveFilters() {
       var _a, _b;
-      const el = this._resolveSearchInput();
-      if (el && readSearchInputTrimmed(el)) return true;
-      if (this._searchText.trim()) return true;
       const model = (_b = (_a = this.gridApi) == null ? void 0 : _a.getFilterModel()) != null ? _b : {};
       if (Object.keys(model).length) return true;
+      if (this._searchText.trim().length > 0) return true;
       const params = new URLSearchParams(window.location.search);
-      if (params.has("q") || params.has("filters")) return true;
-      return false;
+      return ["q", "filters", "col_q"].some(
+        (key) => (params.get(key) || "").trim().length > 0
+      );
     }
     syncFilterChrome() {
       this.syncSearchToolbarUi();
@@ -1906,7 +1763,7 @@
       this.loadValues = options.loadValues || (() => ({ values: [], hasEmpty: false, emptyCount: 0 }));
       const L = options.labels || {};
       this.labels = {
-        listSearchPlaceholder: L.listSearchPlaceholder || i18n.t("filter.list_search", "\u041F\u043E\u0448\u0443\u043A\u2026"),
+        listSearchPlaceholder: L.listSearchPlaceholder || i18n.t("filter.list_search", "Search\u2026"),
         valueCountLabel: L.valueCountLabel || i18n.t("filter.value_count", "%(count)s values"),
         selectAll: L.selectAll || i18n.t("filter.select_all", "All"),
         onlyEmpty: L.onlyEmpty || i18n.t("filter.only_empty", "Empty"),
@@ -2438,7 +2295,7 @@
         cb.checked = false;
       });
     }
-    /** Reflect "no filter" state — only the «Усі» checkbox is ticked. */
+    /** Reflect "no filter" state — only the "All" checkbox is ticked. */
     _syncAllChecked() {
       this.modeCheckboxes.forEach((cb) => {
         cb.checked = cb.value === "all";
