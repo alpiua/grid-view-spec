@@ -698,7 +698,8 @@
   border-color: var(--cm-primary);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--cm-primary) 35%, transparent);
 }
-.cm-toolbar-search-field:has(.cm-toolbar-search-clear.is-visible) .cm-toolbar-search-input {
+.cm-toolbar-search-field:has(.cm-toolbar-search-clear.is-visible) .cm-toolbar-search-input,
+.cm-toolbar-search-field:has(input[data-cm-search-backend=client]:not(:placeholder-shown)) .cm-toolbar-search-input {
   padding-right: 54px;
 }
 .cm-search-help-btn {
@@ -718,7 +719,8 @@
   flex: 0 0 auto;
   overflow: visible;
 }
-.cm-toolbar-search-field:has(.cm-toolbar-search-clear.is-visible) .cm-search-help-btn {
+.cm-toolbar-search-field:has(.cm-toolbar-search-clear.is-visible) .cm-search-help-btn,
+.cm-toolbar-search-field:has(input[data-cm-search-backend=client]:not(:placeholder-shown)) .cm-search-help-btn {
   right: 28px;
 }
 .cm-search-help-btn:hover,
@@ -750,7 +752,8 @@
   opacity: 0;
   pointer-events: none;
 }
-.cm-toolbar-search-clear.is-visible {
+.cm-toolbar-search-clear.is-visible,
+.cm-toolbar-search-field:has(input[data-cm-search-backend=client]:not(:placeholder-shown)) .cm-toolbar-search-clear {
   opacity: 1;
   color: var(--cm-text);
   pointer-events: auto;
@@ -820,6 +823,9 @@
   text-transform: uppercase;
   color: var(--cm-muted);
   border-bottom: 1px solid var(--cm-border);
+}
+.cm-toolbar-search-saved-empty {
+  font-size: 0.6875rem;
 }
 .cm-toolbar-search-saved-item {
   display: flex;

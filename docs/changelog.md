@@ -1,5 +1,35 @@
 # Changelog
 
+## 2.1.0
+
+### Added
+
+- `CurrencyFormatter` configures locale-aware currency formatting for both table
+  backends. Per-row currency metadata, currency-specific precision, optional
+  symbol colors, strict parsing, and empty-value handling are supported.
+- Browser-local `GridView.PageState` namespaces persist page layout and table
+  state by `GridViewSpec.id`, with optional `GridViewConfig.page_state_scope`.
+- `GridViewGallery` adds a package-owned lightbox with thumbnails, overlay,
+  keyboard controls, and optional datasource loading.
+- Named view presets can store host-owned `pageState` through `PageStateHooks`;
+  existing column-only presets remain supported.
+
+### Changed
+
+- Table adapters migrate supported legacy browser grid keys once, clear the old
+  keys, and then persist table state through `GridView.PageState`. Existing
+  `GridPreference` data and its server API remain unchanged.
+- Charts adapt to light and dark themes and use compact layouts on narrow
+  screens.
+
+### Fixed
+
+- Column settings use a viewport-limited dialog width, and toolbar stacking
+  keeps idle search below filter panels while focused search and menus remain
+  accessible above them.
+- Chart renderers handle empty, missing, and custom-bound data without replacing
+  valid chart state.
+
 ## 2.0.4 — 2026-09-03
 
 ### Added & Improved

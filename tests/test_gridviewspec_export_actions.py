@@ -26,7 +26,9 @@ from grid_view_spec.types.table_v2 import GridViewColumn, GridViewTable
 pytest.importorskip("jinja2")
 
 
-def _actions_spec(*actions: GridViewExportAction | GridViewLinkAction) -> GridViewSpec:
+def _actions_spec(
+    *actions: GridViewExportAction | GridViewLinkAction | GridViewMenuAction,
+) -> GridViewSpec:
     return GridViewSpec(
         id="page_export",
         blocks=(
@@ -150,6 +152,7 @@ def test_actions_html_renders_export_links() -> None:
             label="PDF",
             format="pdf",
             target="records",
+            icon="download",
             params={"builder": "records"},
         ),
         GridViewExportAction(
@@ -159,11 +162,28 @@ def test_actions_html_renders_export_links() -> None:
             target="records",
             params={"builder": "records"},
         ),
+        GridViewMenuAction(
+            id="more",
+            label="More",
+            items=(
+                GridViewExportAction(
+                    id="menu_xlsx",
+                    label="Menu XLSX",
+                    format="xlsx",
+                    icon="download",
+                ),
+            ),
+        ),
     )
     host = InMemoryHost(filter_state={"q": "Alpha"})
     html = render_grid_view_spec(spec, (), host=host, backend="html")
     assert isinstance(html, str)
     assert 'class="cm-action cm-action-export cm-action-pdf"' in html
+    assert 'aria-label="PDF"' in html
+    assert 'title="PDF"' in html
+    assert '<svg class="cm-btn-icon cm-export-btn-icon"' in html
+    assert 'aria-label="Menu XLSX"' in html
+    assert 'title="Menu XLSX"' in html
     assert 'class="cm-action cm-action-export cm-action-xlsx"' in html
     assert 'href="/export_pdf?builder=records&amp;q=Alpha"' in html
     assert 'href="/export_xlsx?builder=records&amp;q=Alpha"' in html

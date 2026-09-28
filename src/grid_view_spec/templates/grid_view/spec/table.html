@@ -180,8 +180,9 @@
                 </div>
               </div>
             {% elif col.type == 'currency' and col.currency_formatter %}
+              {% set currency_parts = format_currency_parts(val, col.currency_formatter, row.get(field ~ '_currency')) %}
               <span class="cm-currency{% if css %} {{ css | e }}{% endif %}{% if val_css %} {{ val_css }}{% endif %}">
-                {{ format_currency(val, col.currency_formatter) }}
+                {{ currency_parts[0] }}{% if currency_parts[1] %}{% if currency_parts[3] %}<span style="color:{{ currency_parts[3] | e }}">{% endif %}{{ currency_parts[1] }}{% if currency_parts[3] %}</span>{% endif %}{% endif %}{{ currency_parts[2] }}
               </span>
             {% elif val is none or val == '' or (val is iterable and val is not string and val | list | length == 0) %}
             <span class="cm-muted">—</span>
@@ -309,8 +310,9 @@
           {% elif fvc and (fval_f != 0 if col.type in ('number', 'currency') else (fval is not none and fval != '' and fval != '0')) %}{% set fval_css = 'cm-val-' + fvc %}{% endif %}
           <td data-cm-col-key="{{ col.id | e }}" data-cm-align="{{ col.align | e }}" class="{{ fcss | e }}">
             {% if col.type == 'currency' and col.currency_formatter %}
+            {% set currency_parts = format_currency_parts(fval, col.currency_formatter, footer_row.get(field ~ '_currency')) %}
             <span class="cm-currency{% if fval_css %} {{ fval_css }}{% endif %}">
-              {{ format_currency(fval, col.currency_formatter) }}
+              {{ currency_parts[0] }}{% if currency_parts[1] %}{% if currency_parts[3] %}<span style="color:{{ currency_parts[3] | e }}">{% endif %}{{ currency_parts[1] }}{% if currency_parts[3] %}</span>{% endif %}{% endif %}{{ currency_parts[2] }}
             </span>
             {% elif fval is none or fval == '' %}
             <span class="cm-muted">—</span>

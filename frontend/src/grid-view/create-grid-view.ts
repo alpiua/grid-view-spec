@@ -42,6 +42,7 @@ import { closeGalleryLightbox, openGalleryLightbox } from "../runtime/gallery";
 import { PageState } from "../page-state/page-state";
 import { confirmDialog } from "../runtime/dialog";
 import { notify, bindNotificationChannel } from "../runtime/notifications";
+import { formatCurrencyParts } from "../runtime/renderers/builtins";
 
 function mergePluginExports<T extends Record<string, unknown>>(
   base: T,
@@ -91,6 +92,7 @@ export function createGridView(): GridViewPublic {
     initButtonEllipsisTips,
     initTableEdit,
     registerRenderer,
+    formatCurrencyParts,
     registerCommit,
     registerAction,
     invokeCommit,

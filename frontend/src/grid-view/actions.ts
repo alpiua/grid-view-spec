@@ -164,6 +164,7 @@ export function handleToolbarSavedSearchClick(e: Event): void {
     );
     if (clearInput) {
       clearInput.value = "";
+      clearInput.dispatchEvent(new Event("input", { bubbles: true }));
       syncToolbarSearchChrome(clearInput);
     }
     // The grid host is registered under the bound table id, not the toolbar scope id.

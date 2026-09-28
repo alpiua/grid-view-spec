@@ -10,8 +10,26 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 
-from grid_view_spec.types.json import JsonValue
+from grid_view_spec.types.formatters import CurrencyFormatter
+from grid_view_spec.types.json import JsonObject, JsonValue
 from grid_view_spec.types.table_v2 import GridViewTable
+
+
+def currency_formatter_config(formatter: CurrencyFormatter) -> JsonObject:
+    """Serialize one currency policy for static and dynamic AG Grid columns."""
+    config: JsonObject = {
+        "currency": formatter.currency,
+        "locale": formatter.locale,
+        "precision": formatter.precision,
+        "showSymbol": formatter.show_symbol,
+        "emptyValue": formatter.empty_value,
+        "strict": formatter.strict,
+    }
+    if formatter.symbol_colors:
+        config["symbolColors"] = dict(formatter.symbol_colors)
+    if formatter.precision_by_currency:
+        config["precisionByCurrency"] = dict(formatter.precision_by_currency)
+    return config
 
 
 def ag_grid_spec_config(
@@ -51,16 +69,7 @@ def ag_grid_spec_config(
                 "checkboxSelection": bool(col.extra.get("checkbox_selection")),
                 "extra": dict(col.extra),
                 **(
-                    {
-                        "currencyFormatter": {
-                            "currency": col.currency_formatter.currency,
-                            "locale": col.currency_formatter.locale,
-                            "precision": col.currency_formatter.precision,
-                            "showSymbol": col.currency_formatter.show_symbol,
-                            "emptyValue": col.currency_formatter.empty_value,
-                            "strict": col.currency_formatter.strict,
-                        }
-                    }
+                    {"currencyFormatter": currency_formatter_config(col.currency_formatter)}
                     if col.currency_formatter is not None
                     else {}
                 ),

@@ -5,7 +5,7 @@ Import from **`grid_view_spec`** at host boundaries. Do not copy type trees loca
 ## Core spec
 
 ```python
-from grid_view_spec import GridViewSpec, validate_spec
+from grid_view_spec import CurrencyFormatter, GridViewSpec, validate_spec
 from grid_view_spec.types import (
     GridViewActions,
     GridViewArea,
@@ -86,6 +86,33 @@ from grid_view_spec.render import render_grid_view_spec, build_render_context
 ```
 
 Strict typing: package ships `py.typed`; run `basedpyright --warnings` on host code that constructs specs.
+
+## Currency formatting
+
+Set a `CurrencyFormatter` on a currency column to share locale, precision, and
+symbol rules across the Simple Table and AG Grid renderers:
+
+```python
+from grid_view_spec import CurrencyFormatter
+from grid_view_spec.types import GridViewColumn
+
+total_column = GridViewColumn(
+    id="total",
+    label="Total",
+    field="amount",
+    type="currency",
+    currency_formatter=CurrencyFormatter(
+        currency="UAH",
+        locale="uk-UA",
+        precision=2,
+        precision_by_currency={"JPY": 0},
+        symbol_colors={"USD": "#2563eb"},
+    ),
+)
+```
+
+Rows can provide `<field>_currency` (for example, `amount_currency: "USD"`) to
+select a currency per cell. See [Columns and renderers](../tables/columns.md).
 
 ## Page-state identity
 

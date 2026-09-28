@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import pytest
+
 from grid_view_spec.render.block_registry import blocks_require_charts
+from grid_view_spec.render.chart_spec import grid_view_chart_to_chart_spec
 from grid_view_spec.render.charts_bind import build_chart_runtime, resolve_chart_data
 from grid_view_spec.types.chart_server import ChartSpec, ChartType
-from grid_view_spec.types.content import GridViewCharts, GridViewTemplate
+from grid_view_spec.types.content import GridViewChart, GridViewCharts, GridViewTemplate
 from grid_view_spec.types.spec import GridViewSpec
 
 
@@ -98,3 +101,34 @@ def test_donut_group_by_uses_its_group_key_not_the_display_label() -> None:
         {"label": "shipped", "value": 8.0, "color": "#22c55e"},
         {"label": "pending", "value": 2.0, "color": "#f59e0b"},
     ]
+
+
+def test_donut_palette_has_eight_distinct_colors_and_preserves_first_three() -> None:
+    spec = ChartSpec(
+        id="collections",
+        chart_type=ChartType.DONUT,
+        value_key="stock",
+        group_by="collection",
+    )
+    rows = tuple({"collection": f"Collection {index}", "stock": index + 1} for index in range(8))
+
+    slices = resolve_chart_data(spec, rows).get("slices")
+    assert slices is not None
+    colors = [item.get("color") for item in slices]
+    assert colors[:3] == ["#22c55e", "#f59e0b", "#ef4444"]
+    assert len(set(colors)) == 8
+
+
+@pytest.mark.parametrize("theme", ["auto", "registered-site-theme"])
+def test_chart_runtime_carries_theme_from_chart_options(theme: str) -> None:
+    chart = GridViewChart(
+        id="collections",
+        type="donut",
+        options={"echarts_theme": theme},
+    )
+
+    spec = grid_view_chart_to_chart_spec(chart)
+    runtime = build_chart_runtime(spec, ()).to_dict()
+
+    assert spec.echarts_theme == theme
+    assert runtime.get("echartsTheme") == theme

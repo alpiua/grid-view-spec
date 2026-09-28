@@ -717,6 +717,8 @@ export const ToolbarSearch = {
           host.onQuickFilterChanged();
         }
       }
+    } else if (ctx.backend === "client") {
+      ctx.input.dispatchEvent(new Event("input", { bubbles: true }));
     } else if (typeof onPick === "function") {
       onPick(text);
     }
@@ -1013,6 +1015,18 @@ export function initFilterBars(scope: Document | Element | null | undefined): vo
     if (!bar.dataset.cmFbBound) {
       bar.dataset.cmFbBound = "1";
       bindFilterBar(bar, { navigate: bar.dataset.navigateOnChange !== "0" });
+    }
+    const clientParams = Array.from(
+      bar.querySelectorAll<HTMLElement>('[data-filter-scope="client"]'),
+    ).map((filter) => filter.dataset.filterParam || filter.dataset.filterId || "");
+    const target = asHTMLElement(bar.closest(".cm-filters, .cm-toolbar-unified"))?.dataset.target;
+    if (target && clientParams.length) {
+      const selected = selectedFilterValues(bar);
+      const clientState: FilterState = {};
+      clientParams.forEach((param) => {
+        if (param in selected) clientState[param] = selected[param];
+      });
+      applyClientFilterState(document.getElementById("cm-table-" + target), clientState);
     }
   });
   initFilterDrawers(root);

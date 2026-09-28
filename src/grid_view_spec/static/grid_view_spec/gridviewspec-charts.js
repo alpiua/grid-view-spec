@@ -20,7 +20,7 @@
   var i18n = { initI18n, t };
 
   // src/grid-view/resolve-chart.ts
-  var PALETTE = ["#22c55e", "#f59e0b", "#ef4444"];
+  var PALETTE = ["#22c55e", "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"];
   function parseNumber(value) {
     if (value === null || value === void 0 || value === "") return null;
     if (typeof value === "boolean") return value ? 1 : 0;
@@ -205,11 +205,30 @@
         };
       })
     };
-    const dataRows = bind.rows && bind.rows.length ? bind.rows : rows;
-    return resolveChartData(spec, dataRows);
+    return resolveChartData(spec, rows);
   }
 
   // src/grid-view/charts.ts
+  var autoThemeCharts = /* @__PURE__ */ new WeakMap();
+  var autoThemeObserver = null;
+  function currentChartTheme(theme) {
+    if (theme === "light") return "light";
+    if (theme === "auto" && typeof document !== "undefined") {
+      return document.documentElement.dataset.theme === "dark" ? "dark" : "light";
+    }
+    return "dark";
+  }
+  function observeAutomaticChartThemes() {
+    if (autoThemeObserver || typeof document === "undefined" || typeof MutationObserver === "undefined") return;
+    autoThemeObserver = new MutationObserver(() => {
+      document.querySelectorAll("[data-cm-chart-root]").forEach((root) => {
+        const entry = autoThemeCharts.get(root);
+        if (!root._cmChartInstance || !entry) return;
+        initChart(root, entry.config, entry.rows);
+      });
+    });
+    autoThemeObserver.observe(document.documentElement, { attributes: true, attributeFilter: ["data-theme"] });
+  }
   function chartRowsHaveData(rows) {
     if (!Array.isArray(rows) || !rows.length) return false;
     return rows.some(function(row) {
@@ -276,7 +295,7 @@
     }
     return tip;
   }
-  function buildPieOption(config, resolved, bind, chartType) {
+  function buildPieOption(config, resolved, bind, chartType, isDark, isNarrow) {
     var _a;
     const data = resolved.slices.map((slice) => {
       const item = {
@@ -288,9 +307,12 @@
     });
     const total = data.reduce((sum, item) => sum + (item.value || 0), 0);
     const overlay = (_a = resolved.overlay) != null ? _a : config.overlay;
-    const title = config.title ? { text: config.title, left: 12, top: 8, textStyle: { color: "#94a3b8", fontSize: 12, fontWeight: "600" } } : void 0;
+    const textColor = isDark ? "#cbd5e1" : "#475569";
+    const mutedColor = isDark ? "#94a3b8" : "#64748b";
+    const surfaceColor = isDark ? "#1e293b" : "#ffffff";
+    const title = config.title ? { text: config.title, left: 12, top: 8, textStyle: { color: mutedColor, fontSize: 12, fontWeight: "600" } } : void 0;
     if (bind.pieVariant === "center-total") {
-      const overlayColor = overlay ? overlay.tone === "purple" ? "#9333ea" : overlay.tone === "red" ? "#ef4444" : overlay.tone === "green" ? "#10b981" : "#94a3b8" : "#e2e8f0";
+      const overlayColor = overlay ? overlay.tone === "purple" ? "#9333ea" : overlay.tone === "red" ? "#ef4444" : overlay.tone === "green" ? "#10b981" : "#94a3b8" : isDark ? "#e2e8f0" : "#1e293b";
       const centerValue = overlay ? overlay.value : String(total);
       const centerLabel = overlay ? overlay.title : "";
       return {
@@ -298,9 +320,9 @@
         title,
         tooltip: {
           trigger: "item",
-          backgroundColor: "rgba(30,41,59,.95)",
-          borderColor: "rgba(51,65,85,.6)",
-          textStyle: { color: "#e2e8f0", fontSize: 11 },
+          backgroundColor: isDark ? "rgba(30,41,59,.95)" : "rgba(255,255,255,.98)",
+          borderColor: isDark ? "rgba(51,65,85,.6)" : "#cbd5e1",
+          textStyle: { color: textColor, fontSize: 11 },
           confine: true,
           formatter: (params) => `${params.name}: ${params.value} (${params.percent.toFixed(1)}%)`
         },
@@ -309,7 +331,7 @@
             type: "text",
             left: "center",
             top: "42%",
-            style: { text: centerLabel, fill: "#94a3b8", fontSize: 10, textAlign: "center" }
+            style: { text: centerLabel, fill: mutedColor, fontSize: 10, textAlign: "center" }
           }] : [],
           {
             type: "text",
@@ -323,6 +345,7 @@
             type: "pie",
             radius: ["53%", "88%"],
             center: ["50%", "50%"],
+            itemStyle: { borderColor: surfaceColor, borderWidth: 2 },
             data,
             label: {
               show: true,
@@ -344,10 +367,19 @@
       type: "pie",
       radius: chartType === "donut" ? ["48%", "70%"] : "65%",
       center: ["50%", "48%"],
-      avoidLabelOverlap: false,
-      itemStyle: { borderRadius: 4, borderColor: "#1e293b", borderWidth: 2 },
-      labelLine: { show: false },
-      data
+      avoidLabelOverlap: true,
+      itemStyle: { borderRadius: 4, borderColor: surfaceColor, borderWidth: 2 },
+      labelLine: { show: !isNarrow },
+      data,
+      label: {
+        show: !isNarrow,
+        position: "outside",
+        formatter: "{b}",
+        fontSize: 11,
+        fontWeight: "normal",
+        lineHeight: 14,
+        color: textColor
+      }
     };
     if (overlay) {
       const tone = overlay.tone === "green" ? "#10b981" : overlay.tone === "red" ? "#ef4444" : "#94a3b8";
@@ -369,11 +401,11 @@ ${overlay.value}`,
       tooltip: {
         trigger: "item",
         formatter: "{b}: <b>{c}</b> ({d}%)",
-        backgroundColor: "rgba(30, 41, 59, 0.9)",
-        borderColor: "#475569",
-        textStyle: { color: "#f8fafc" }
+        backgroundColor: isDark ? "rgba(30, 41, 59, 0.9)" : "rgba(255,255,255,.98)",
+        borderColor: isDark ? "#475569" : "#cbd5e1",
+        textStyle: { color: textColor }
       },
-      legend: { bottom: "0%", left: "center", textStyle: { color: "#94a3b8", fontSize: 11 } },
+      legend: { bottom: "0%", left: "center", textStyle: { color: mutedColor, fontSize: 11 } },
       series: [pieSeries]
     };
   }
@@ -487,18 +519,17 @@ ${overlay.value}`,
       series
     };
   }
-  function buildEchartsOption(config, rows) {
-    var _a, _b;
+  function buildEchartsOption(config, rows, isNarrow = false) {
+    var _a;
     const bind = (_a = config.bind) != null ? _a : {};
     const chartType = config.chartType;
-    const theme = (_b = config.echartsTheme) != null ? _b : "dark";
+    const theme = currentChartTheme(config.echartsTheme);
     const isDark = theme === "dark";
-    const dataRows = bind.rows && bind.rows.length ? bind.rows : rows;
-    const resolved = resolveChartDataFromRuntime(config, dataRows);
+    const resolved = resolveChartDataFromRuntime(config, rows);
     if (chartType === "pie" || chartType === "donut") {
-      return buildPieOption(config, resolved, bind, chartType);
+      return buildPieOption(config, resolved, bind, chartType, isDark, isNarrow);
     }
-    return buildBarOptionFromResolved(config, resolved, bind, chartType, isDark, dataRows);
+    return buildBarOptionFromResolved(config, resolved, bind, chartType, isDark, rows);
   }
   function initChart(root, config, rows) {
     var _a;
@@ -519,9 +550,19 @@ ${overlay.value}`,
       }
       chartRoot._cmChartInstance = null;
     }
-    const chart = window.echarts.init(root, (_a = config.echartsTheme) != null ? _a : "dark");
-    chart.setOption(buildEchartsOption(config, rowList), true);
+    const theme = currentChartTheme(config.echartsTheme);
+    chartRoot._cmChartInstance = null;
+    const isNarrow = chartRoot.clientWidth < 420;
+    const initTheme = config.echartsTheme === "auto" ? theme === "dark" ? "dark" : void 0 : (_a = config.echartsTheme) != null ? _a : "dark";
+    const chart = window.echarts.init(root, initTheme);
+    chart.setOption(buildEchartsOption(config, rowList, isNarrow), true);
     chartRoot._cmChartInstance = chart;
+    if (config.echartsTheme === "auto") {
+      autoThemeCharts.set(chartRoot, { config, rows: rowList });
+      observeAutomaticChartThemes();
+    } else {
+      autoThemeCharts.delete(chartRoot);
+    }
     if (wrap) wrap._cmChartInstance = chart;
     return chart;
   }
@@ -548,7 +589,7 @@ ${overlay.value}`,
   function initAllCharts(scope) {
     const root = scope != null ? scope : document;
     root.querySelectorAll("[data-cm-chart-config]").forEach((node) => {
-      var _a, _b, _c, _d;
+      var _a, _b, _c, _d, _e, _f;
       if (node.dataset.cmChartInteractive) return;
       if (node.dataset.cmChartReady && node._cmChartInstance) {
         (_a = node._cmChartInstance) == null ? void 0 : _a.resize();
@@ -557,15 +598,22 @@ ${overlay.value}`,
       if (node.dataset.cmChartReady) return;
       const config = JSON.parse((_b = node.dataset.cmChartConfig) != null ? _b : "{}");
       if (config.dataSource === "grid_filtered") return;
-      const rows = JSON.parse((_c = node.dataset.cmChartRows) != null ? _c : "[]");
-      const chartRoot = (_d = node.querySelector("[data-cm-chart-root]")) != null ? _d : node;
+      const rows = node.hasAttribute("data-cm-chart-rows") ? JSON.parse((_c = node.dataset.cmChartRows) != null ? _c : "[]") : (_e = (_d = config.bind) == null ? void 0 : _d.rows) != null ? _e : [];
+      const chartRoot = (_f = node.querySelector("[data-cm-chart-root]")) != null ? _f : node;
       const instance = initChart(chartRoot, config, rows);
       if (!instance) return;
       node.dataset.cmChartReady = "1";
       node._cmChartInstance = instance;
       if (typeof ResizeObserver !== "undefined") {
+        let narrow = chartRoot.clientWidth < 420;
         const ro = new ResizeObserver(() => {
-          instance.resize();
+          const activeInstance = chartRoot._cmChartInstance;
+          activeInstance == null ? void 0 : activeInstance.resize();
+          const nextNarrow = chartRoot.clientWidth < 420;
+          if (nextNarrow !== narrow) {
+            narrow = nextNarrow;
+            activeInstance == null ? void 0 : activeInstance.setOption(buildEchartsOption(config, rows, narrow), true);
+          }
         });
         ro.observe(chartRoot);
       }

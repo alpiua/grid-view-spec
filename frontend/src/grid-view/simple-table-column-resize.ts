@@ -76,16 +76,9 @@ function isColumnHidden(table: HTMLTableElement, colKey: string): boolean {
 function applyHiddenColumnWidth(table: HTMLTableElement, colKey: string) {
   const col = colElementForKey(table, colKey);
   if (col) {
-    col.style.width = "0";
-    col.style.minWidth = "0";
-    col.style.maxWidth = "0";
-    col.dataset.cmColZero = "1";
-  }
-  const th = leafHeaderCell(table, colKey);
-  if (th) {
-    th.style.width = "0";
-    th.style.minWidth = "0";
-    th.dataset.cmColWidth = "0";
+    // display:none removes the column from the table grid while retaining its
+    // logical width for a later show/reorder operation.
+    col.style.display = "none";
   }
 }
 
@@ -119,7 +112,7 @@ function syncHiddenColumnWidths(table: HTMLTableElement) {
       applyHiddenColumnWidth(table, key);
     } else {
       const col = colElementForKey(table, key);
-      if (col) delete col.dataset.cmColZero;
+      if (col) col.style.display = "";
     }
   });
 }

@@ -10,13 +10,15 @@ type AgCellParams = Record<string, unknown> & {
   colDef?: { field?: string; cellRendererParams?: Record<string, unknown> };
 };
 
-type CurrencyFormatterConfig = {
+export type CurrencyFormatterConfig = {
   currency: string;
   locale: string;
   precision: number;
   showSymbol: boolean;
   emptyValue?: string;
   strict?: boolean;
+  symbolColors?: Record<string, string>;
+  precisionByCurrency?: Record<string, number>;
 };
 
 function isCurrencyFormatterConfig(value: unknown): value is CurrencyFormatterConfig {
@@ -183,56 +185,59 @@ function parseFormattedNumber(value: unknown, locale: string): number | string |
   return normalized;
 }
 
+export type CurrencyParts = readonly [prefix: string, symbol: string, suffix: string, color: string];
+
+export function formatCurrencyParts(
+  value: unknown, formatter: unknown, currencyOverride: unknown = null,
+): CurrencyParts {
+  if (!isCurrencyFormatterConfig(formatter)) return ["", "", "", ""];
+  const fallback: CurrencyParts = [formatter.emptyValue ?? "", "", "", ""];
+  try {
+    if (value === undefined || value === null || (typeof value === "string" && !value.trim()) ||
+        typeof value === "boolean" || (formatter.strict && typeof value === "string")) return fallback;
+    const currency = currencyOverride === null || currencyOverride === undefined || currencyOverride === ""
+      ? formatter.currency : currencyOverride;
+    if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency.toUpperCase())) return fallback;
+    const code = currency.toUpperCase();
+    const precision = formatter.precisionByCurrency?.[code] ?? formatter.precision;
+    if (!Number.isInteger(precision) || precision < 0 || precision > 6) return fallback;
+    const color = formatter.symbolColors?.[code] ?? "";
+    if (typeof color !== "string" || (color && !/^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(color))) return fallback;
+    const number = parseFormattedNumber(value, formatter.locale);
+    if (number === null) return fallback;
+    const formatted = new Intl.NumberFormat(
+      formatter.locale,
+      formatter.showSymbol
+        ? { style: "currency", currency: code, minimumFractionDigits: precision, maximumFractionDigits: precision }
+        : { minimumFractionDigits: precision, maximumFractionDigits: precision },
+    ).formatToParts(number as number);
+    const index = formatted.findIndex((part) => part.type === "currency");
+    if (index < 0) return [formatted.map((part) => part.value).join(""), "", "", ""];
+    return [
+      formatted.slice(0, index).map((part) => part.value).join(""),
+      formatted[index].value,
+      formatted.slice(index + 1).map((part) => part.value).join(""),
+      color,
+    ];
+  } catch {
+    return fallback;
+  }
+}
+
 function moneyRenderer(params: AgCellParams): string {
   try {
     const value = params.value;
     const formatter = params.colDef?.cellRendererParams?.currencyFormatter;
     if (formatter !== undefined && formatter !== null) {
-      if (!isCurrencyFormatterConfig(formatter)) return "";
-      const config = formatter;
-      const fallback = config.emptyValue !== undefined ? escHtml(config.emptyValue) : "";
-      try {
-        if (
-          value === undefined ||
-          value === null ||
-          (typeof value === "string" && value.trim() === "") ||
-          typeof value === "boolean"
-        ) return fallback;
-        if (config.strict && typeof value === "string") return fallback;
-
-        const precision = config.precision;
-        const currency = config.currency;
-        const locale = config.locale;
-        const showSymbol = config.showSymbol;
-        const number = parseFormattedNumber(value, locale);
-        if (
-          number === null ||
-          typeof precision !== "number" ||
-          !Number.isInteger(precision) ||
-          precision < 0 ||
-          precision > 6 ||
-          typeof currency !== "string" ||
-          typeof locale !== "string" ||
-          typeof showSymbol !== "boolean"
-        ) return fallback;
-
-        const displayValue = new Intl.NumberFormat(
-          locale,
-          showSymbol
-            ? {
-                style: "currency",
-                currency,
-                minimumFractionDigits: precision,
-                maximumFractionDigits: precision,
-              }
-            : { minimumFractionDigits: precision, maximumFractionDigits: precision },
-        ).format(number as unknown as number);
-        const cssClass = String(params.colDef?.cellRendererParams?.css_class || "");
-        const safeValue = escHtml(displayValue);
-        return cssClass ? `<span class="${escHtml(cssClass)}">${safeValue}</span>` : safeValue;
-      } catch {
-        return fallback;
-      }
+      const field = params.colDef?.field || "";
+      const [prefix, symbol, suffix, color] = formatCurrencyParts(
+        value, formatter, params.data?.[`${field}_currency`],
+      );
+      const safeValue = escHtml(prefix) +
+        (symbol ? (color ? `<span style="color:${color}">${escHtml(symbol)}</span>` : escHtml(symbol)) : "") +
+        escHtml(suffix);
+      const cssClass = String(params.colDef?.cellRendererParams?.css_class || "");
+      return cssClass ? `<span class="${escHtml(cssClass)}">${safeValue}</span>` : safeValue;
     }
 
     if (
@@ -246,9 +251,7 @@ function moneyRenderer(params: AgCellParams): string {
     const rowCurr = params.data?.[`${field}_currency`];
     const curr = (typeof rowCurr === "string" && rowCurr) || "UAH";
     const symbols: Record<string, string> = { USD: "$", EUR: "€", UAH: "₴", PLN: "zł", GBP: "£" };
-    const colors: Record<string, string> = { USD: "#10b981", EUR: "#3b82f6", UAH: "#eab308" };
     const sym = symbols[curr] || curr;
-    const color = colors[curr] || "#9ca3af";
     const numValue = Number(value);
     const useDecimals = curr !== "UAH";
     const displayValue = useDecimals
@@ -256,8 +259,7 @@ function moneyRenderer(params: AgCellParams): string {
       : Math.round(numValue).toLocaleString("uk-UA");
     const cssClass = String(params.colDef?.cellRendererParams?.css_class || "");
     const inner =
-      displayValue +
-      ` <span style="color:${color};font-size:12px;margin-left:2px">${sym}</span>`;
+      escHtml(displayValue) + ` ${escHtml(sym)}`;
     return cssClass ? `<span class="${escHtml(cssClass)}">${inner}</span>` : inner;
   } catch {
     return "";

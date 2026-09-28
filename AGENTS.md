@@ -21,6 +21,14 @@ must extend, not shadow, the global base skill.
 
 ## Guards
 
+For architecture design, refactors, or component changes, read the
+[maintainer architecture reference](docs/maintainers/gridviewspec-architecture.md)
+and the relevant [specification](docs/spec/index.md) or
+[host contract](docs/integration/host-contract.md) before choosing an approach
+or making the first edit. Record their concrete constraints in the task plan,
+recheck them when scope or ownership changes, and verify the change against
+them during review.
+
 ```bash
 uv run ruff check src/grid_view_spec tests
 uv run basedpyright --warnings src/grid_view_spec tests

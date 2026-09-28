@@ -42,6 +42,7 @@ def build_chart_runtime(spec: ChartSpec, rows: Sequence[RowDict]) -> ChartRuntim
         bind=bind,
         title=spec.title,
         overlay=spec.overlay,
+        echarts_theme=spec.echarts_theme,
     )
     return runtime
 

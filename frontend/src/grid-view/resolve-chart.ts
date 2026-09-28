@@ -2,7 +2,7 @@
 
 import type { ChartOverlayDict, RowDict } from "../types/chart-bind";
 
-const PALETTE = ["#22c55e", "#f59e0b", "#ef4444"] as const;
+const PALETTE = ["#22c55e", "#f59e0b", "#ef4444", "#3b82f6", "#8b5cf6", "#06b6d4", "#ec4899", "#84cc16"] as const;
 
 export interface ChartSeriesPointDict {
   name: string;
@@ -262,10 +262,5 @@ export function resolveChartDataFromRuntime(
       series_type: seriesDef.seriesType,
     })),
   };
-  // Static/standalone charts (e.g. AI chat) carry their data in the separate rows
-  // payload, while the baked-in bind.rows is an empty array. `?? rows` would keep
-  // that empty array and render an empty chart, so fall back to `rows` whenever
-  // bind.rows has no entries (mirrors buildEchartsOption in charts.ts).
-  const dataRows = bind.rows && bind.rows.length ? bind.rows : rows;
-  return resolveChartData(spec, dataRows);
+  return resolveChartData(spec, rows);
 }

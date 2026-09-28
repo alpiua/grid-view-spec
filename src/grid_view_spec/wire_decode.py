@@ -693,6 +693,18 @@ def decode_currency_formatter(raw: object) -> CurrencyFormatter | None:
     if not is_wire_mapping(raw):
         return None
     precision = raw.get("precision", 2)
+    colors_raw = raw.get("symbol_colors")
+    precisions_raw = raw.get("precision_by_currency")
+    colors = (
+        {key: value for key, value in colors_raw.items() if isinstance(value, str)}
+        if is_wire_mapping(colors_raw)
+        else {}
+    )
+    precisions = (
+        {key: value for key, value in precisions_raw.items() if type(value) is int}
+        if is_wire_mapping(precisions_raw)
+        else {}
+    )
     return CurrencyFormatter(
         currency=wire_str(raw.get("currency"), default="UAH") or "UAH",
         locale=wire_str(raw.get("locale"), default="uk-UA") or "uk-UA",
@@ -706,6 +718,8 @@ def decode_currency_formatter(raw: object) -> CurrencyFormatter | None:
         show_symbol=wire_bool(raw.get("show_symbol"), default=True),
         empty_value=wire_str(raw.get("empty_value"), default="—"),
         strict=wire_bool(raw.get("strict"), default=False),
+        symbol_colors=colors,
+        precision_by_currency=precisions,
     )
 
 

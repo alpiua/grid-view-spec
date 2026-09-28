@@ -16,6 +16,7 @@ from grid_view_spec.types.formatters import CurrencyFormatter
 from grid_view_spec.types.layout import GridViewArea, GridViewLayout
 from grid_view_spec.types.spec import GridViewSpec
 from grid_view_spec.types.table_v2 import GridViewColumn, GridViewTable, GridViewTableFooter
+from grid_view_spec.validate.validate import validate_spec
 from grid_view_spec.validate.wire import spec_to_wire
 from grid_view_spec.wire_decode import decode_column, decode_currency_formatter, decode_spec
 
@@ -414,3 +415,67 @@ def test_simple_table_renders_currency_formatter() -> None:
     )
     assert "$1,234.50" in html
     assert "N/A" in html
+
+
+def test_row_currency_uses_column_locale_and_optional_symbol_color() -> None:
+    formatter = CurrencyFormatter(
+        currency="UAH",
+        locale="uk-UA",
+        precision=2,
+        precision_by_currency={"UAH": 0},
+        symbol_colors={"USD": "#22c55e"},
+        empty_value="INVALID",
+        strict=True,
+    )
+    assert formatter.format(1234.5) == "1 235 ₴"
+    assert formatter.format(1234.5, currency="USD") == "1 234,50 $"
+    assert formatter.format_parts(1234.5, currency="USD") == ("1 234,50 ", "$", "", "#22c55e")
+    assert formatter.format_parts(1234.5) == ("1 235 ", "₴", "", "")
+    assert formatter.format("1234.5", currency="USD") == "INVALID"
+    assert formatter.format(1234.5, currency="<img>") == "INVALID"
+    assert formatter.format(1234.5, currency=24) == "INVALID"
+    assert (
+        CurrencyFormatter(symbol_colors={"USD": "red;injection"}).format(3, currency="USD") == "—"
+    )
+
+
+def test_mixed_currency_simple_table_preserves_numeric_sort_and_wire() -> None:
+    formatter = CurrencyFormatter(
+        locale="en-US",
+        currency="UAH",
+        precision=2,
+        precision_by_currency={"UAH": 0},
+        symbol_colors={"USD": "#22c55e"},
+        empty_value="<missing>",
+    )
+    table = GridViewTable(
+        id="prices",
+        columns=(
+            GridViewColumn(
+                id="price", label="Price", type="currency", currency_formatter=formatter
+            ),
+        ),
+        rows=(
+            {"price": 1234.5, "price_currency": "USD"},
+            {"price": 45.5, "price_currency": "UAH"},
+            {"price": 1, "price_currency": "<script>"},
+        ),
+    )
+    spec = GridViewSpec(
+        id="prices",
+        blocks=(table,),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=("prices",))),
+    )
+    assert decode_spec(spec_to_wire(spec)) == spec
+    assert validate_spec(spec).ok
+    config = ag_grid_spec_config(table, "prices")["columns"]
+    assert isinstance(config, list)
+    assert config[0]["currencyFormatter"]["symbolColors"] == {"USD": "#22c55e"}
+    assert config[0]["currencyFormatter"]["precisionByCurrency"] == {"UAH": 0}
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+    assert 'data-cm-sort-val="1234.5"' in html
+    assert 'data-cm-export-raw="45.5"' in html
+    assert '<span style="color:#22c55e">$</span>' in html
+    assert "₴46" in html or "46₴" in html
+    assert "&lt;missing&gt;" in html
+    assert "<script>" not in html

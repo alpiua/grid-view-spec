@@ -4,27 +4,51 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.1.0]
+
 ### Added
 
-- Browser-local `GridView.PageState` namespaces for page layout and table state,
-  keyed by `GridViewSpec.id` with optional `GridViewConfig.page_state_scope`.
-- Package `GridViewGallery` lightbox in `gridviewspec.min.js` (thumbs, overlay,
-  keyboard, optional `datasource` fetch). No extra pip/npm dependency.
-- Named view presets can include host-owned `pageState` alongside column state
-  through `PageStateHooks`; legacy column-only presets remain supported.
+- `CurrencyFormatter` configures locale-aware currency formatting for both table
+  backends. Per-row currency metadata, currency-specific precision, optional
+  symbol colors, strict parsing, and empty-value handling are supported.
+- Browser-local `GridView.PageState` namespaces persist page layout and table
+  state by `GridViewSpec.id`, with optional `GridViewConfig.page_state_scope`.
+- `GridViewGallery` adds a package-owned lightbox with thumbnails, overlay,
+  keyboard controls, and optional datasource loading.
+- Named view presets can store host-owned `pageState` through `PageStateHooks`;
+  existing column-only presets remain supported.
 
 ### Changed
 
-- Existing `GridPreference` data and its server API remain unchanged. Table
-  adapters migrate supported legacy browser grid keys once, clear obsolete keys,
-  and then stop dual-writing them.
+- Table adapters migrate supported legacy browser grid keys once, clear the old
+  keys, and then persist table state through `GridView.PageState`. Existing
+  `GridPreference` data and its server API remain unchanged.
+- Charts adapt to light and dark themes and use compact layouts on narrow
+  screens.
 
 ### Fixed
 
-- Column settings dialog uses `min(920px, 94vw)` instead of a 1500px shell.
-- Toolbar stacking: idle search stays below filter panels; focused search and
-  saved-search/help rise above them via `--cm-z-search`, `--cm-z-filter-panel`,
-  `--cm-z-search-active`, and `--cm-z-settings`.
+- Column settings use a viewport-limited dialog width, and toolbar stacking
+  keeps idle search below filter panels while focused search and menus remain
+  accessible above them.
+- Chart renderers handle empty, missing, and custom-bound data without replacing
+  valid chart state.
+
+## [2.0.4] — 2026-09-03
+
+### Added & Improved
+
+- Column presets show the active selection and an instructional empty state.
+- Toolbar mobile behavior uses a unified 640px breakpoint, with responsive
+  filter controls and KPI card sizing.
+- Backend views handle an optional request in `api_column_filter_dictionary`.
+
+## [2.0.3] — 2026-08-30
+
+### Documentation & Tooling
+
+- Updated agent skills, repository adapter configuration, portfolio routing,
+  and planner documentation.
 
 ## [2.0.2] — 2026-08-03
 
@@ -63,3 +87,6 @@ All notable changes to this project are documented here.
 [2.0.0]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.0.0
 [2.0.1]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.0.1
 [2.0.2]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.0.2
+[2.0.3]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.0.3
+[2.0.4]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.0.4
+[2.1.0]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.0

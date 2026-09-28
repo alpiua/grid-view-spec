@@ -94,4 +94,5 @@ def grid_view_chart_to_chart_spec(chart: GridViewChart) -> ChartSpec:
         tooltip_kind=str(opts["tooltip_kind"]) if opts.get("tooltip_kind") else None,
         y_axis_format=str(opts["y_axis_format"]) if opts.get("y_axis_format") else None,
         y_axis_symbol=str(opts["y_axis_symbol"]) if opts.get("y_axis_symbol") else None,
+        echarts_theme=str(opts.get("echarts_theme", "dark") or "dark"),
     )

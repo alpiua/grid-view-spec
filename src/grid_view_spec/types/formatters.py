@@ -5,6 +5,7 @@ from __future__ import annotations
 import dataclasses
 import math
 import re
+from collections.abc import Mapping
 from decimal import ROUND_HALF_UP, Decimal, InvalidOperation, localcontext
 from typing import NotRequired, TypedDict
 
@@ -18,6 +19,8 @@ class CurrencyFormatterWire(TypedDict):
     show_symbol: NotRequired[bool]
     empty_value: NotRequired[str]
     strict: NotRequired[bool]
+    symbol_colors: NotRequired[dict[str, str]]
+    precision_by_currency: NotRequired[dict[str, int]]
 
 
 CURRENCY_SYMBOLS: dict[str, str] = {
@@ -29,6 +32,9 @@ CURRENCY_SYMBOLS: dict[str, str] = {
     "JPY": "¥",
     "CHF": "CHF",
 }
+
+_CURRENCY_CODE = re.compile(r"[A-Z]{3}\Z")
+_SYMBOL_COLOR = re.compile(r"#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?\Z")
 
 
 @dataclasses.dataclass(frozen=True, slots=True)
@@ -367,26 +373,57 @@ class CurrencyFormatter:
     show_symbol: bool = True
     empty_value: str = "—"
     strict: bool = False
+    symbol_colors: Mapping[str, str] = dataclasses.field(default_factory=lambda: dict[str, str]())
+    precision_by_currency: Mapping[str, int] = dataclasses.field(
+        default_factory=lambda: dict[str, int]()
+    )
 
-    def format(self, value: object, *, empty_value: str | None = None) -> str:
-        """Format ``value`` to a currency string; returns ``empty_value`` on failure."""
-        fallback = self.empty_value if empty_value is None else empty_value
+    def format_parts(self, value: object, *, currency: object = None) -> tuple[str, str, str, str]:
+        """Return escaped-by-caller text around the optional colored symbol."""
+        fallback = (self.empty_value, "", "", "")
         try:
+            code = self.currency if currency is None or currency == "" else currency
+            if not isinstance(code, str):
+                return fallback
+            code = code.upper()
+            if _CURRENCY_CODE.fullmatch(code) is None:
+                return fallback
+            precision = self.precision_by_currency.get(code, self.precision)
+            if type(precision) is not int or not 0 <= precision <= 6:
+                return fallback
             num = _parse_number_to_decimal(value, locale=self.locale, strict=self.strict)
             if num is None:
                 return fallback
-
-            res = _format_currency(
+            text = _format_currency(
                 num,
-                currency=self.currency,
+                currency=code,
                 locale=self.locale,
-                precision=self.precision,
+                precision=precision,
                 show_symbol=self.show_symbol,
             )
-            return res if res else fallback
+            if not text:
+                return fallback
+            if not self.show_symbol:
+                return (text, "", "", "")
+            symbol = CURRENCY_SYMBOLS.get(code, code)
+            index = text.find(symbol)
+            if index < 0:
+                return fallback
+            color = self.symbol_colors.get(code, "")
+            if color and _SYMBOL_COLOR.fullmatch(color) is None:
+                return fallback
+            return (text[:index], symbol, text[index + len(symbol) :], color)
         except Exception:
             return fallback
 
-    def __call__(self, value: object) -> str:
+    def format(
+        self, value: object, *, empty_value: str | None = None, currency: object = None
+    ) -> str:
+        """Format ``value`` to a currency string; returns ``empty_value`` on failure."""
+        prefix, symbol, suffix, _ = self.format_parts(value, currency=currency)
+        result = prefix + symbol + suffix
+        return empty_value if empty_value is not None and result == self.empty_value else result
+
+    def __call__(self, value: object, *, currency: object = None) -> str:
         """Callable interface delegating to :meth:`format`."""
-        return self.format(value)
+        return self.format(value, currency=currency)

@@ -30,6 +30,38 @@ GridViewColumn(
 
 Register custom renderers in host JS: `GridView.registerRenderer(name, fn)`.
 
+For a currency column, `currency_formatter` defines the locale, fallback currency,
+precision, empty value, and strict amount parsing. A row may provide
+`<field>_currency` (for example `price_currency: "USD"`) to select that cell's
+currency without changing its raw numeric `price`. Missing row metadata uses
+the configured currency; invalid explicit metadata renders `empty_value`.
+`precision_by_currency` can override precision for named currencies, and
+`symbol_colors` can optionally color their symbols using hex colors. GVS has
+no default currency colors. AG Grid and Simple Table use the same row convention;
+sort and export continue to use the raw amount. Custom AG renderers can call
+`GridView.formatCurrencyParts(value, formatterConfig, rowCurrency)` to obtain
+plain-text `[prefix, symbol, suffix, color]` parts and must escape them before
+placing them in HTML.
+
+```python
+from grid_view_spec import CurrencyFormatter
+from grid_view_spec.types import GridViewColumn
+
+GridViewColumn(
+    id="price",
+    label="Price",
+    field="price",
+    type="currency",
+    currency_formatter=CurrencyFormatter(
+        currency="UAH",
+        locale="uk-UA",
+        precision=2,
+        precision_by_currency={"JPY": 0},
+        symbol_colors={"USD": "#2563eb"},
+    ),
+)
+```
+
 ## Dynamic columns
 
 ```python

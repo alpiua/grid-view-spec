@@ -943,6 +943,12 @@ def _serializable_leaves(value: object, path: str) -> list[GridViewDiagnostic]:
     diagnostics: list[GridViewDiagnostic] = []
     if value is None or isinstance(value, bool | int | float | str):
         return diagnostics
+    if is_dataclass(value):
+        for field in fields(value):
+            diagnostics.extend(
+                _serializable_leaves(getattr(value, field.name), f"{path}.{field.name}")
+            )
+        return diagnostics
     if callable(value):
         diagnostics.append(
             error(
@@ -951,12 +957,6 @@ def _serializable_leaves(value: object, path: str) -> list[GridViewDiagnostic]:
                 path,
             )
         )
-        return diagnostics
-    if is_dataclass(value):
-        for field in fields(value):
-            diagnostics.extend(
-                _serializable_leaves(getattr(value, field.name), f"{path}.{field.name}")
-            )
         return diagnostics
     if is_wire_mapping(value):
         for key, item in value.items():

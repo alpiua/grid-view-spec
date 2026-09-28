@@ -1724,16 +1724,7 @@
   function applyHiddenColumnWidth(table, colKey) {
     const col = colElementForKey(table, colKey);
     if (col) {
-      col.style.width = "0";
-      col.style.minWidth = "0";
-      col.style.maxWidth = "0";
-      col.dataset.cmColZero = "1";
-    }
-    const th = leafHeaderCell(table, colKey);
-    if (th) {
-      th.style.width = "0";
-      th.style.minWidth = "0";
-      th.dataset.cmColWidth = "0";
+      col.style.display = "none";
     }
   }
   function applyColumnWidth(table, colKey, widthPx) {
@@ -1765,7 +1756,7 @@
         applyHiddenColumnWidth(table, key);
       } else {
         const col = colElementForKey(table, key);
-        if (col) delete col.dataset.cmColZero;
+        if (col) col.style.display = "";
       }
     });
   }
@@ -4793,6 +4784,8 @@
             host.onQuickFilterChanged();
           }
         }
+      } else if (ctx.backend === "client") {
+        ctx.input.dispatchEvent(new Event("input", { bubbles: true }));
       } else if (typeof onPick === "function") {
         onPick(text);
       }
@@ -5039,11 +5032,24 @@
     const root = scope && "querySelectorAll" in scope ? scope : document;
     latestFilterNavigationUrl = filterNavigateHref();
     root.querySelectorAll("[data-cm-filter-bar]").forEach((barEl) => {
+      var _a2;
       const bar = asHTMLElement(barEl);
       if (!bar) return;
       if (!bar.dataset.cmFbBound) {
         bar.dataset.cmFbBound = "1";
         bindFilterBar(bar, { navigate: bar.dataset.navigateOnChange !== "0" });
+      }
+      const clientParams = Array.from(
+        bar.querySelectorAll('[data-filter-scope="client"]')
+      ).map((filter) => filter.dataset.filterParam || filter.dataset.filterId || "");
+      const target = (_a2 = asHTMLElement(bar.closest(".cm-filters, .cm-toolbar-unified"))) == null ? void 0 : _a2.dataset.target;
+      if (target && clientParams.length) {
+        const selected = selectedFilterValues(bar);
+        const clientState = {};
+        clientParams.forEach((param) => {
+          if (param in selected) clientState[param] = selected[param];
+        });
+        applyClientFilterState(document.getElementById("cm-table-" + target), clientState);
       }
     });
     initFilterDrawers(root);
@@ -5510,6 +5516,7 @@
       );
       if (clearInput) {
         clearInput.value = "";
+        clearInput.dispatchEvent(new Event("input", { bubbles: true }));
         syncToolbarSearchChrome(clearInput);
       }
       const root = asHTMLElement(gridBtn.closest("[data-cm-toolbar-search-root]"));
@@ -7257,53 +7264,64 @@
     if (normalized === null) return null;
     return normalized;
   }
+  function formatCurrencyParts(value, formatter, currencyOverride = null) {
+    var _a, _b, _c, _d, _e;
+    if (!isCurrencyFormatterConfig(formatter)) return ["", "", "", ""];
+    const fallback = [(_a = formatter.emptyValue) != null ? _a : "", "", "", ""];
+    try {
+      if (value === void 0 || value === null || typeof value === "string" && !value.trim() || typeof value === "boolean" || formatter.strict && typeof value === "string") return fallback;
+      const currency = currencyOverride === null || currencyOverride === void 0 || currencyOverride === "" ? formatter.currency : currencyOverride;
+      if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency.toUpperCase())) return fallback;
+      const code = currency.toUpperCase();
+      const precision = (_c = (_b = formatter.precisionByCurrency) == null ? void 0 : _b[code]) != null ? _c : formatter.precision;
+      if (!Number.isInteger(precision) || precision < 0 || precision > 6) return fallback;
+      const color = (_e = (_d = formatter.symbolColors) == null ? void 0 : _d[code]) != null ? _e : "";
+      if (typeof color !== "string" || color && !/^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(color)) return fallback;
+      const number = parseFormattedNumber(value, formatter.locale);
+      if (number === null) return fallback;
+      const formatted = new Intl.NumberFormat(
+        formatter.locale,
+        formatter.showSymbol ? { style: "currency", currency: code, minimumFractionDigits: precision, maximumFractionDigits: precision } : { minimumFractionDigits: precision, maximumFractionDigits: precision }
+      ).formatToParts(number);
+      const index = formatted.findIndex((part) => part.type === "currency");
+      if (index < 0) return [formatted.map((part) => part.value).join(""), "", "", ""];
+      return [
+        formatted.slice(0, index).map((part) => part.value).join(""),
+        formatted[index].value,
+        formatted.slice(index + 1).map((part) => part.value).join(""),
+        color
+      ];
+    } catch (e) {
+      return fallback;
+    }
+  }
   function moneyRenderer(params) {
-    var _a, _b, _c, _d, _e, _f, _g, _h;
+    var _a, _b, _c, _d, _e, _f, _g, _h, _i, _j;
     try {
       const value = params.value;
       const formatter = (_b = (_a = params.colDef) == null ? void 0 : _a.cellRendererParams) == null ? void 0 : _b.currencyFormatter;
       if (formatter !== void 0 && formatter !== null) {
-        if (!isCurrencyFormatterConfig(formatter)) return "";
-        const config = formatter;
-        const fallback = config.emptyValue !== void 0 ? escHtml(config.emptyValue) : "";
-        try {
-          if (value === void 0 || value === null || typeof value === "string" && value.trim() === "" || typeof value === "boolean") return fallback;
-          if (config.strict && typeof value === "string") return fallback;
-          const precision = config.precision;
-          const currency = config.currency;
-          const locale = config.locale;
-          const showSymbol = config.showSymbol;
-          const number = parseFormattedNumber(value, locale);
-          if (number === null || typeof precision !== "number" || !Number.isInteger(precision) || precision < 0 || precision > 6 || typeof currency !== "string" || typeof locale !== "string" || typeof showSymbol !== "boolean") return fallback;
-          const displayValue2 = new Intl.NumberFormat(
-            locale,
-            showSymbol ? {
-              style: "currency",
-              currency,
-              minimumFractionDigits: precision,
-              maximumFractionDigits: precision
-            } : { minimumFractionDigits: precision, maximumFractionDigits: precision }
-          ).format(number);
-          const cssClass2 = String(((_d = (_c = params.colDef) == null ? void 0 : _c.cellRendererParams) == null ? void 0 : _d.css_class) || "");
-          const safeValue = escHtml(displayValue2);
-          return cssClass2 ? `<span class="${escHtml(cssClass2)}">${safeValue}</span>` : safeValue;
-        } catch (e) {
-          return fallback;
-        }
+        const field2 = ((_c = params.colDef) == null ? void 0 : _c.field) || "";
+        const [prefix, symbol, suffix, color] = formatCurrencyParts(
+          value,
+          formatter,
+          (_d = params.data) == null ? void 0 : _d[`${field2}_currency`]
+        );
+        const safeValue = escHtml(prefix) + (symbol ? color ? `<span style="color:${color}">${escHtml(symbol)}</span>` : escHtml(symbol) : "") + escHtml(suffix);
+        const cssClass2 = String(((_f = (_e = params.colDef) == null ? void 0 : _e.cellRendererParams) == null ? void 0 : _f.css_class) || "");
+        return cssClass2 ? `<span class="${escHtml(cssClass2)}">${safeValue}</span>` : safeValue;
       }
       if (value === void 0 || value === null || typeof value === "string" && value.trim() === "" || typeof value === "boolean") return "";
-      const field = ((_e = params.colDef) == null ? void 0 : _e.field) || "";
-      const rowCurr = (_f = params.data) == null ? void 0 : _f[`${field}_currency`];
+      const field = ((_g = params.colDef) == null ? void 0 : _g.field) || "";
+      const rowCurr = (_h = params.data) == null ? void 0 : _h[`${field}_currency`];
       const curr = typeof rowCurr === "string" && rowCurr || "UAH";
       const symbols = { USD: "$", EUR: "\u20AC", UAH: "\u20B4", PLN: "z\u0142", GBP: "\xA3" };
-      const colors = { USD: "#10b981", EUR: "#3b82f6", UAH: "#eab308" };
       const sym = symbols[curr] || curr;
-      const color = colors[curr] || "#9ca3af";
       const numValue = Number(value);
       const useDecimals = curr !== "UAH";
       const displayValue = useDecimals ? numValue.toLocaleString("uk-UA", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : Math.round(numValue).toLocaleString("uk-UA");
-      const cssClass = String(((_h = (_g = params.colDef) == null ? void 0 : _g.cellRendererParams) == null ? void 0 : _h.css_class) || "");
-      const inner = displayValue + ` <span style="color:${color};font-size:12px;margin-left:2px">${sym}</span>`;
+      const cssClass = String(((_j = (_i = params.colDef) == null ? void 0 : _i.cellRendererParams) == null ? void 0 : _j.css_class) || "");
+      const inner = escHtml(displayValue) + ` ${escHtml(sym)}`;
       return cssClass ? `<span class="${escHtml(cssClass)}">${inner}</span>` : inner;
     } catch (e) {
       return "";
@@ -8177,6 +8195,7 @@
       initButtonEllipsisTips,
       initTableEdit,
       registerRenderer,
+      formatCurrencyParts,
       registerCommit,
       registerAction,
       invokeCommit,

@@ -177,6 +177,42 @@ function assertCurrencyRendererContract(): void {
     if (withStrict !== "INVALID") {
       throw new Error("Currency renderer did not enforce strict mode on string value");
     }
+    const mixed = money({
+      value: 1234.5,
+      data: { price_currency: "USD" },
+      colDef: {
+        field: "price",
+        cellRendererParams: {
+          currencyFormatter: {
+            currency: "UAH", locale: "en-US", precision: 2, showSymbol: true,
+            precisionByCurrency: { UAH: 0 }, symbolColors: { USD: "#22c55e" }, emptyValue: "INVALID",
+          },
+        },
+      },
+    });
+    if (typeof mixed !== "string" || !mixed.includes('style="color:#22c55e">$</span>') ||
+        !mixed.includes("1,234.50")) throw new Error("Mixed row currency or optional symbol color lost");
+    const noColor = money({
+      value: 1234.5,
+      data: { price_currency: "USD" },
+      colDef: { field: "price", cellRendererParams: {
+        currencyFormatter: { currency: "UAH", locale: "en-US", precision: 2, showSymbol: true },
+      } },
+    });
+    if (typeof noColor !== "string" || !noColor.includes("$1,234.50") || noColor.includes("color:")) {
+      throw new Error("Currency without a configured palette gained a default color");
+    }
+    const malformedCurrency = money({
+      value: 42, data: { price_currency: "<img>" },
+      colDef: { field: "price", cellRendererParams: {
+        currencyFormatter: { currency: "UAH", locale: "en-US", precision: 2, showSymbol: true, emptyValue: "INVALID" },
+      } },
+    });
+    if (malformedCurrency !== "INVALID") throw new Error("Malformed row currency bypassed fallback");
+    const legacy = money({ value: 12, data: { price_currency: "USD" }, colDef: { field: "price" } });
+    if (typeof legacy !== "string" || legacy.includes("color:")) {
+      throw new Error("Unconfigured money renderer retained default currency color");
+    }
     const groupedUsd = money({
       value: "1,234",
       colDef: {

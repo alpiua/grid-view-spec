@@ -33,13 +33,26 @@ class ChartPaletteColor(StrEnum):
     RED = "#ef4444"
     AMBER = "#f59e0b"
     BLUE = "#3b82f6"
+    PURPLE = "#8b5cf6"
+    CYAN = "#06b6d4"
+    PINK = "#ec4899"
+    LIME = "#84cc16"
     TEXT = "#1e293b"
     GRID = "#e2e8f0"
     OVERLAY_MUTED = "#475569"
 
     @classmethod
     def cycle(cls, index: int) -> ChartPaletteColor:
-        return (cls.GREEN, cls.AMBER, cls.RED)[index % 3]
+        return (
+            cls.GREEN,
+            cls.AMBER,
+            cls.RED,
+            cls.BLUE,
+            cls.PURPLE,
+            cls.CYAN,
+            cls.PINK,
+            cls.LIME,
+        )[index % 8]
 
 
 @dataclass(frozen=True, slots=True)
@@ -80,6 +93,7 @@ class ChartSpec:
     tooltip_kind: str | None = None
     y_axis_format: str | None = None
     y_axis_symbol: str | None = None
+    echarts_theme: str = "dark"
 
 
 @dataclass(frozen=True, slots=True)

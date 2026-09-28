@@ -1612,7 +1612,7 @@ Import from **`grid_view_spec`** at host boundaries. Do not copy type trees loca
 ## Core spec
 
 ```python
-from grid_view_spec import GridViewSpec, validate_spec
+from grid_view_spec import CurrencyFormatter, GridViewSpec, validate_spec
 from grid_view_spec.types import (
     GridViewActions,
     GridViewArea,
@@ -1693,6 +1693,33 @@ from grid_view_spec.render import render_grid_view_spec, build_render_context
 ```
 
 Strict typing: package ships `py.typed`; run `basedpyright --warnings` on host code that constructs specs.
+
+## Currency formatting
+
+Set a `CurrencyFormatter` on a currency column to share locale, precision, and
+symbol rules across the Simple Table and AG Grid renderers:
+
+```python
+from grid_view_spec import CurrencyFormatter
+from grid_view_spec.types import GridViewColumn
+
+total_column = GridViewColumn(
+    id="total",
+    label="Total",
+    field="amount",
+    type="currency",
+    currency_formatter=CurrencyFormatter(
+        currency="UAH",
+        locale="uk-UA",
+        precision=2,
+        precision_by_currency={"JPY": 0},
+        symbol_colors={"USD": "#2563eb"},
+    ),
+)
+```
+
+Rows can provide `<field>_currency` (for example, `amount_currency: "USD"`) to
+select a currency per cell. See Columns and renderers (see section: tables/columns.md).
 
 ## Page-state identity
 
@@ -2046,6 +2073,36 @@ Column settings UI uses the same msgids as the modal. Export column order/visibi
 <!-- source: changelog.md -->
 
 # Changelog
+
+## 2.1.0
+
+### Added
+
+- `CurrencyFormatter` configures locale-aware currency formatting for both table
+  backends. Per-row currency metadata, currency-specific precision, optional
+  symbol colors, strict parsing, and empty-value handling are supported.
+- Browser-local `GridView.PageState` namespaces persist page layout and table
+  state by `GridViewSpec.id`, with optional `GridViewConfig.page_state_scope`.
+- `GridViewGallery` adds a package-owned lightbox with thumbnails, overlay,
+  keyboard controls, and optional datasource loading.
+- Named view presets can store host-owned `pageState` through `PageStateHooks`;
+  existing column-only presets remain supported.
+
+### Changed
+
+- Table adapters migrate supported legacy browser grid keys once, clear the old
+  keys, and then persist table state through `GridView.PageState`. Existing
+  `GridPreference` data and its server API remain unchanged.
+- Charts adapt to light and dark themes and use compact layouts on narrow
+  screens.
+
+### Fixed
+
+- Column settings use a viewport-limited dialog width, and toolbar stacking
+  keeps idle search below filter panels while focused search and menus remain
+  accessible above them.
+- Chart renderers handle empty, missing, and custom-bound data without replacing
+  valid chart state.
 
 ## 2.0.4 — 2026-09-03
 

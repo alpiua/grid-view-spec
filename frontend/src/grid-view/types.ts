@@ -4,6 +4,7 @@ import type { ChartRuntimeDict, RowDict } from "../types/chart-bind";
 import type { KpiSpecDict, ResolvedKpiDict } from "../types/kpi-bind";
 import type { PageStateApi } from "../page-state/types";
 import type { GridActionContext } from "./registry-api";
+import type { CurrencyParts } from "../runtime/renderers/builtins";
 
 export type FilterState = Record<string, string | string[]>;
 
@@ -150,6 +151,7 @@ export interface GridViewPublic {
     name: string,
     fn: (ctx: Record<string, unknown>) => string | HTMLElement
   ) => void;
+  formatCurrencyParts: (value: unknown, formatter: unknown, currency?: unknown) => CurrencyParts;
   registerCommit: (
     name: string,
     fn: (ctx: {

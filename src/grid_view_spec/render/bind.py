@@ -17,9 +17,16 @@ from grid_view_spec.types.json import RowDict
 from grid_view_spec.types.table_v2 import GridViewTable
 
 
-def format_currency(value: object, formatter: CurrencyFormatter) -> str:
+def format_currency(value: object, formatter: CurrencyFormatter, currency: object = None) -> str:
     """Format numeric values using the typed CurrencyFormatter."""
-    return formatter.format(value)
+    return formatter.format(value, currency=currency)
+
+
+def format_currency_parts(
+    value: object, formatter: CurrencyFormatter, currency: object = None
+) -> tuple[str, str, str, str]:
+    """Return display text and optional symbol color for an escaped template."""
+    return formatter.format_parts(value, currency=currency)
 
 
 def _group_number(n: float, decimals: int) -> str:

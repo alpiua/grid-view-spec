@@ -1,7 +1,8 @@
+{% from '_icon.html' import render_icon %}
 <div class="cm-actions cm-actions-{{ block.presentation | e }}">
   {% for action in block.items %}
   {% if action.type == 'export' %}
-  <a href="{{ export_action_href(action) | e }}" class="cm-action cm-action-export cm-action-{{ action.format | e }}" data-action-id="{{ action.id | e }}"{% if action.target %} target="{{ action.target | e }}"{% if action.target == '_blank' %} rel="noopener noreferrer"{% endif %}{% endif %}{% if action.disabled %} aria-disabled="true"{% endif %}{% if action.confirm is not none %} data-cm-confirm="{{ confirm_config_json(action.confirm) | e }}"{% endif %}>{{ action.label | e }}</a>
+  <a href="{{ export_action_href(action) | e }}" class="cm-action cm-action-export cm-action-{{ action.format | e }}" data-action-id="{{ action.id | e }}" aria-label="{{ action.label | e }}" title="{{ action.label | e }}"{% if action.target %} target="{{ action.target | e }}"{% if action.target == '_blank' %} rel="noopener noreferrer"{% endif %}{% endif %}{% if action.disabled %} aria-disabled="true"{% endif %}{% if action.confirm is not none %} data-cm-confirm="{{ confirm_config_json(action.confirm) | e }}"{% endif %}>{% if action.icon %}{{ render_icon(action.icon) }}{% endif %}<span>{{ action.label | e }}</span></a>
   {% elif action.type == 'link' %}
   <a href="{{ action_href(action) | e }}" class="cm-action cm-action-link" data-action-id="{{ action.id | e }}"{% if action.target %} target="{{ action.target | e }}"{% if action.target == '_blank' %} rel="noopener noreferrer"{% endif %}{% endif %}{% if action.disabled %} aria-disabled="true"{% endif %}{% if action.confirm is not none %} data-cm-confirm="{{ confirm_config_json(action.confirm) | e }}"{% endif %}>{{ action.label | e }}</a>
   {% elif action.type == 'overlay' %}
@@ -14,7 +15,7 @@
     <div class="cm-action-menu-items">
       {% for item in action.items %}
       {% if item.type == 'export' %}
-      <a href="{{ export_action_href(item) | e }}" class="cm-action cm-action-export cm-action-{{ item.format | e }}" data-action-id="{{ item.id | e }}"{% if item.target %} target="{{ item.target | e }}"{% if item.target == '_blank' %} rel="noopener noreferrer"{% endif %}{% endif %}{% if item.confirm is not none %} data-cm-confirm="{{ confirm_config_json(item.confirm) | e }}"{% endif %}>{{ item.label | e }}</a>
+      <a href="{{ export_action_href(item) | e }}" class="cm-action cm-action-export cm-action-{{ item.format | e }}" data-action-id="{{ item.id | e }}" aria-label="{{ item.label | e }}" title="{{ item.label | e }}"{% if item.target %} target="{{ item.target | e }}"{% if item.target == '_blank' %} rel="noopener noreferrer"{% endif %}{% endif %}{% if item.confirm is not none %} data-cm-confirm="{{ confirm_config_json(item.confirm) | e }}"{% endif %}>{% if item.icon %}{{ render_icon(item.icon) }}{% endif %}<span>{{ item.label | e }}</span></a>
       {% elif item.type == 'link' %}
       <a href="{{ action_href(item) | e }}" class="cm-action cm-action-link" data-action-id="{{ item.id | e }}"{% if item.target %} target="{{ item.target | e }}"{% if item.target == '_blank' %} rel="noopener noreferrer"{% endif %}{% endif %}{% if item.confirm is not none %} data-cm-confirm="{{ confirm_config_json(item.confirm) | e }}"{% endif %}>{{ item.label | e }}</a>
       {% elif item.type == 'overlay' %}
