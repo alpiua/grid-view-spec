@@ -72,3 +72,14 @@ GridViewNav(
 
 Register `create_resource` through `GridView.registerAction`; navigation markup never
 contains inline event handlers.
+
+Tree drag and drop is enabled with `extra={"allow_drag": True}`. On drop, the browser
+runtime emits a cancelable `cm:nav-item-drop` event with `sourceId`, `targetId`,
+`position`, `sourceNode`, and `targetNode`. If a listener calls `preventDefault()`,
+the node stays in place. Otherwise, the runtime moves it in the DOM and updates
+`data-parent-id`: a child dropped on a root branch moves inside it even when it
+is empty, a node dropped on a nested leaf moves after it, and root nodes dropped
+on root nodes reorder at the root.
+`extra={"root_drop_label": "Root"}` enables a root drop zone for moving children
+back to the root. The host validates and persists the new hierarchy, and restores
+the rendered tree if persistence fails.

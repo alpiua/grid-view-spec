@@ -6,7 +6,7 @@
  * 2. In-tree search filtering ([data-cm-tree-search="1"]).
  * 3. "+ Create" dropdown menu toggling ([data-cm-tree-create-trigger]).
  * 4. Active row selection styling (.cm-nav-tree-row).
- * 5. Drag & Drop reordering: emits standard 'cm:nav-item-drop' CustomEvent.
+ * 5. Drag & Drop: emits a cancellable event, then moves the node in the tree.
  */
 
 type NavScope = Document | Element | null | undefined;
@@ -42,6 +42,35 @@ function bindOutsideClick(): void {
       });
     }
   });
+}
+
+function moveTreeNode(source: HTMLElement, target: HTMLElement, root: Element | null): void {
+  if (target.classList.contains("cm-root-drop-zone")) {
+    root?.append(source);
+  } else {
+    const sourceAtRoot = source.parentElement?.classList.contains("cm-nav-tree-items");
+    const targetAtRoot = target.parentElement?.classList.contains("cm-nav-tree-items");
+    let children = target.querySelector<HTMLElement>(":scope > .cm-nav-tree-children");
+    if (sourceAtRoot && targetAtRoot) {
+      target.after(source);
+    } else if (targetAtRoot || children) {
+      if (!children) {
+        children = document.createElement("div");
+        children.className = "cm-nav-tree-children pl-3 space-y-0.5 border-l border-slate-100 dark:border-[#1e263d] ml-3 mt-0.5";
+        target.append(children);
+      }
+      children.append(source);
+    } else {
+      target.after(source);
+    }
+  }
+  const parent = source.parentElement?.closest<HTMLElement>(".cm-nav-tree-node");
+  const parentId = parent?.getAttribute("data-node-id");
+  if (parentId) {
+    source.setAttribute("data-parent-id", parentId);
+  } else {
+    source.removeAttribute("data-parent-id");
+  }
 }
 
 export function initNavTrees(scope?: NavScope): void {
@@ -358,7 +387,9 @@ export function initNavTrees(scope?: NavScope): void {
               originalEvent: e,
             },
           });
-          tree.dispatchEvent(dropEvent);
+          if (rootDropZone && tree.dispatchEvent(dropEvent)) {
+            moveTreeNode(draggedNode, rootDropZone, itemsContainer);
+          }
         });
       }
 
@@ -435,7 +466,7 @@ export function initNavTrees(scope?: NavScope): void {
             "dark:bg-indigo-950/50"
           );
           const targetNode = row.closest<HTMLElement>(".cm-nav-tree-node");
-          if (!draggedNode || draggedNode === targetNode || (targetNode && draggedNode.contains(targetNode))) {
+          if (!draggedNode || !targetNode || draggedNode === targetNode || draggedNode.contains(targetNode)) {
             return;
           }
 
@@ -443,6 +474,10 @@ export function initNavTrees(scope?: NavScope): void {
           const targetId = targetNode?.getAttribute("data-node-id");
           if (!sourceId || !targetId) return;
 
+          const sourceAtRoot = draggedNode.parentElement?.classList.contains("cm-nav-tree-items");
+          const targetAtRoot = targetNode.parentElement?.classList.contains("cm-nav-tree-items");
+          const hasChildren = !!targetNode.querySelector(":scope > .cm-nav-tree-children");
+          const position = (sourceAtRoot && targetAtRoot) || (!targetAtRoot && !hasChildren) ? "after" : "inside";
           const dropEvent = new CustomEvent("cm:nav-item-drop", {
             bubbles: true,
             cancelable: true,
@@ -450,13 +485,15 @@ export function initNavTrees(scope?: NavScope): void {
               treeId: tree.getAttribute("data-cm-nav-tree") || "",
               sourceId,
               targetId,
-              position: "inside",
+              position,
               sourceNode: draggedNode,
               targetNode,
               originalEvent: e,
             },
           });
-          tree.dispatchEvent(dropEvent);
+          if (tree.dispatchEvent(dropEvent)) {
+            moveTreeNode(draggedNode, targetNode, itemsContainer);
+          }
         });
 
         row.addEventListener(
