@@ -7,7 +7,7 @@ from grid_view_spec.types.actions import GridViewAction
 from grid_view_spec.types.assets import GridViewTemplateAsset
 from grid_view_spec.types.block_base import GridViewBlockBase
 from grid_view_spec.types.filters_v2 import GridViewFilter
-from grid_view_spec.types.formatters import CurrencyFormatter
+from grid_view_spec.types.formatters import CurrencyFormatter, DateTimeFormatter
 from grid_view_spec.types.json import JsonObject, empty_json_map
 from grid_view_spec.types.wire import is_object_tuple
 
@@ -124,6 +124,7 @@ class GridViewColumn:
     pinned: GridViewColumnPinned = ""
     extra: JsonObject = dataclasses.field(default_factory=empty_json_map)
     currency_formatter: CurrencyFormatter | None = None
+    date_time_formatter: DateTimeFormatter | None = None
 
 
 @dataclasses.dataclass(frozen=True, slots=True)

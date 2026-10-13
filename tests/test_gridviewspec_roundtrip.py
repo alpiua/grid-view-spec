@@ -21,12 +21,13 @@ from grid_view_spec.types.actions import (
 )
 from grid_view_spec.types.assets import GridViewTemplateAsset
 from grid_view_spec.types.content import GridViewCardGroups
+from grid_view_spec.types.formatters import DateTimeFormatter
 from grid_view_spec.types.layout import GridViewArea, GridViewLayout
 from grid_view_spec.types.lazy import GridViewLazyDefaults
 from grid_view_spec.types.spec import GridViewSpec
 from grid_view_spec.types.spec_meta import GridViewConfig
 from grid_view_spec.types.table_v2 import GridViewColumn, GridViewTable, GridViewTableSettings
-from grid_view_spec.types.wire import is_wire_mapping
+from grid_view_spec.types.wire import is_object_list, is_wire_mapping
 from grid_view_spec.validate import spec_from_wire, spec_to_wire
 from grid_view_spec.wire_decode import decode_confirm_config, decode_spec
 from tests.gridviewspec_fixtures import minimal_valid_spec, rich_spec
@@ -225,6 +226,109 @@ def test_card_group_items_decode_from_wire_string_lists() -> None:
     block = spec.blocks[0]
     assert isinstance(block, GridViewCardGroups)
     assert block.groups[0].items == ("Validated", "Interactive")
+
+
+def test_datetime_formatter_column_roundtrips_through_json_wire() -> None:
+    formatter = DateTimeFormatter(
+        format="iso",
+        locale="en-US",
+        timezone="Europe/Kyiv",
+        empty_value="not available",
+        strict=True,
+    )
+    column = GridViewColumn(
+        id="created",
+        label="Created",
+        field="created",
+        type="datetime",
+        date_time_formatter=formatter,
+    )
+    table = GridViewTable(id="records", columns=(column,))
+    spec = GridViewSpec(
+        id="datetime_formatter_wire",
+        blocks=(table,),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(table.id,))),
+    )
+
+    wire = spec_to_wire(spec)
+    reparsed: object = json.loads(json.dumps(wire))
+    assert is_wire_mapping(reparsed)
+    blocks = reparsed.get("blocks")
+    assert is_object_list(blocks) and len(blocks) == 1 and is_wire_mapping(blocks[0])
+    columns = blocks[0].get("columns")
+    assert is_object_list(columns) and len(columns) == 1 and is_wire_mapping(columns[0])
+    assert columns[0].get("date_time_formatter") == {
+        "format": "iso",
+        "locale": "en-US",
+        "timezone": "Europe/Kyiv",
+        "empty_value": "not available",
+        "strict": True,
+    }
+    assert decode_spec(reparsed) == spec
+
+
+@pytest.mark.parametrize(
+    "formatter_fields",
+    (
+        pytest.param({}, id="absent"),
+        pytest.param({"date_time_formatter": None}, id="null"),
+    ),
+)
+def test_datetime_formatter_column_missing_or_null_decodes_as_none(
+    formatter_fields: dict[str, object],
+) -> None:
+    wire: dict[str, object] = {
+        "id": "datetime_formatter_compatibility",
+        "blocks": [
+            {
+                "id": "records",
+                "type": "table",
+                "columns": [
+                    {
+                        "id": "created",
+                        "label": "Created",
+                        "field": "created",
+                        **formatter_fields,
+                    }
+                ],
+            }
+        ],
+        "layout": {"root": {"id": "root", "blocks": ["records"]}},
+    }
+
+    result = spec_from_wire(wire)
+
+    assert result.ok
+    assert result.spec is not None
+    table = result.spec.blocks[0]
+    assert isinstance(table, GridViewTable)
+    assert table.columns[0].date_time_formatter is None
+
+
+def test_datetime_formatter_column_rejects_wrong_typed_wire_value() -> None:
+    result = spec_from_wire(
+        {
+            "id": "datetime_formatter_invalid",
+            "blocks": [
+                {
+                    "id": "records",
+                    "type": "table",
+                    "columns": [
+                        {
+                            "id": "created",
+                            "label": "Created",
+                            "field": "created",
+                            "date_time_formatter": "iso",
+                        }
+                    ],
+                }
+            ],
+            "layout": {"root": {"id": "root", "blocks": ["records"]}},
+        }
+    )
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "INVALID_WIRE"
 
 
 def test_set_filter_model_match_contract_aligns_with_typescript() -> None:

@@ -103,20 +103,65 @@ receipt:
 
 ```yaml
 task_ref: column-wire
-target: >
-  Add optional date_time_formatter on GridViewColumn. Encode it as snake_case
-  and decode absent or null as None. Reject a present malformed formatter with
-  INVALID_WIRE. Leave currency formatter decode unchanged. Prove constructor
-  to JSON to decode equality, missing and null compatibility, and rejection of
-  a wrong-typed formatter in tests/test_gridviewspec_roundtrip.py.
+target: |
+  Add optional date_time_formatter on GridViewColumn. Encode it as snake_case and decode absent or null as None. Reject a present malformed formatter with INVALID_WIRE. Leave currency formatter decode unchanged. Prove constructor to JSON to decode equality, missing and null compatibility, and rejection of a wrong-typed formatter in tests/test_gridviewspec_roundtrip.py.
 proof_policy: seam-test-first
 contract_revision: 1
 depends_on:
-  - formatter-value
+- formatter-value
 scope:
-  - src/grid_view_spec/types/table_v2.py
-  - src/grid_view_spec/wire_decode.py
-  - tests/test_gridviewspec_roundtrip.py
+- src/grid_view_spec/types/table_v2.py
+- src/grid_view_spec/wire_decode.py
+- tests/test_gridviewspec_roundtrip.py
+status: completed
+receipt:
+  contract_revision: 1
+  passed_at: 2026-10-13T03:16:46.703582215+00:00
+  evidence:
+    command_proof:
+      command: uv run pytest tests/test_gridviewspec_roundtrip.py -q --tb=short
+      exit_code: 0
+      tests_passed: 24
+      tests_failed: 0
+  review:
+    review_proof:
+      decision: pass
+      contours:
+        paths:
+          applicable: true
+          evidence: Only the three admitted files are modified; no staged or untracked changes. All three worktree blobs match candidate fa1a97a, and git diff --check is clean.
+        claims:
+          applicable: true
+          evidence: 'GridViewColumn adds an optional formatter at the end with a None default. The decoder accepts absent/null as None, validates mapping fields and format values, and spec_from_wire reports malformed values as INVALID_WIRE. Roundtrip tests verify snake_case JSON equality, absent/null compatibility, and rejection. Existing decode_currency_formatter behavior and its call are unchanged. Focused roundtrip suite: 24 passed.'
+        concurrency:
+          applicable: false
+          evidence: This task changes an immutable data field and pure wire decoding only; it adds no shared state, transactions, locks, receipts, or concurrent operations.
+        project_isolation:
+          applicable: false
+          evidence: No workspace paths, task storage, project resolution, or filesystem operations are changed.
+        administration:
+          applicable: false
+          evidence: No Forge profile, migration, Git hook, delivery, or administrative behavior is changed.
+  decision: pass
+  rollup:
+    verified_invariants:
+    - 'INV-DT-OWNER: DateTimeFormatter and format_datetime_value live in date_time_formatter.py. formatters.py re-exports them and does not implement a second formatter. date-time.ts owns dateTimeRenderer. builtins.ts only imports and registers it.'
+    - 'INV-DT-VALUES: The pure helper accepts native date, time, and datetime, valid ISO 8601 strings, and finite Unix epoch numbers. abs(value) >= 1e11 selects milliseconds; smaller magnitudes select seconds. Naive native and ISO datetimes are UTC before ZoneInfo projection. Date-only and time-only values keep their components. Date-only as time and time-only as date are invalid.'
+    - 'INV-DT-DISPLAY: uk-UA and de-DE dates are DD.MM.YYYY. en-US dates are MM/DD/YYYY. Time is 24-hour HH:mm:ss. Datetime joins date and time with one space. Unsupported locales use uk-UA. Instant-bearing iso is offset ISO 8601 in the target timezone, Z for UTC, with at most three fractional digits. Date-only iso is YYYY-MM-DD. Time-only iso is HH:mm:ss. Date-only datetime appends 00:00:00. Time-only datetime is invalid.'
+    - 'INV-DT-STRICT: None and an empty string return empty_value in both modes. Python strict=True raises ValueError for an invalid value, timezone, or format. strict=False returns empty_value. AG Grid never throws: strict invalid input, a corrupt config, or an invalid timezone renders escaped emptyValue.'
+    - 'INV-DT-WIRE: GridViewColumn.date_time_formatter is optional. Wire uses snake_case. Absent or null decodes as None. A present malformed formatter fails spec_from_wire with INVALID_WIRE. Currency formatter decode stays unchanged. JSON rows stay RowDict scalars; native temporal objects are accepted only by the pure helper.'
+    - 'INV-DT-SSR: A configured date or datetime column formats row and footer cells before generic empty handling, so empty_value survives. Unconfigured date cells stay escaped raw values. Currency and inline-edit paths stay unchanged.'
+    - 'INV-DT-GRID: A configured date or datetime column emits camelCase dateTimeFormatter and selects dateTimeRenderer. An explicit custom renderer stays selected and still receives the config. The unconfigured date builtin stays. Host columnsVar definitions are not rewritten. A hostile empty_value stays inside one inert application/json script and decodes to the original string.'
+    architectural_notes:
+    - 'deferred: {"owner_task":"gridviewspec/GV-001:ag-grid-renderer","kind":"deferred-finding","observed_during":"column-wire delivery hook","command":"./scripts/ci-gate.sh","result":{"format_check":"passed (201 files already formatted)","ruff":"passed","basedpyright":"passed (0 errors, 0 warnings, 0 notes)","pytest":"passed (529 passed)","frontend_lint":"passed","frontend_typecheck":"failed"},"finding":"npm run typecheck --prefix frontend exits 2 at src/runtime/table-ag-grid.ts:221:17: Property ''tooltips'' does not exist on type ''AgGridSpecColumn''.","disposition":"Outside column-wire''s three admitted Python paths. No source changes made. Address in ag-grid-renderer and rerun npm run typecheck plus frontend conformance."}'
+    review_summary:
+      decision: pass
+      contours:
+        administration: not_applicable
+        claims: accepted
+        concurrency: not_applicable
+        paths: accepted
+        project_isolation: not_applicable
 ```
 
 ### task: ssr-cells

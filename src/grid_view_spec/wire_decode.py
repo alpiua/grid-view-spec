@@ -57,6 +57,7 @@ from grid_view_spec.types.content import (
     GridViewTemplate,
     KpiSpec,
 )
+from grid_view_spec.types.date_time_formatter import DateTimeFormat
 from grid_view_spec.types.filters_v2 import (
     GRIDVIEW_FILTER_DRAWER_CONTROLS,
     GRIDVIEW_FILTER_DRAWER_LAYOUTS,
@@ -87,7 +88,7 @@ from grid_view_spec.types.form import (
     GridViewTranslationEnvelope,
     GridViewValidator,
 )
-from grid_view_spec.types.formatters import CurrencyFormatter
+from grid_view_spec.types.formatters import CurrencyFormatter, DateTimeFormatter
 from grid_view_spec.types.header import (
     GRIDVIEW_FACT_TONES,
     GRIDVIEW_HEADER_PRESENTATIONS,
@@ -723,12 +724,56 @@ def decode_currency_formatter(raw: object) -> CurrencyFormatter | None:
     )
 
 
+def _decode_date_time_format(value: object) -> DateTimeFormat:
+    """Require one of the supported date and time output formats."""
+    if value == "date":
+        return "date"
+    if value == "datetime":
+        return "datetime"
+    if value == "time":
+        return "time"
+    if value == "iso":
+        return "iso"
+    raise TypeError("expected date_time_formatter.format to be date, datetime, time, or iso")
+
+
+def decode_date_time_formatter(raw: object) -> DateTimeFormatter | None:
+    """Decode a date and time formatter, rejecting malformed wire values."""
+    if raw is None:
+        return None
+    if not is_wire_mapping(raw):
+        raise TypeError("expected object for date_time_formatter")
+
+    format_value = _decode_date_time_format(raw.get("format", "datetime"))
+    locale = raw.get("locale", "uk-UA")
+    timezone = raw.get("timezone", "UTC")
+    empty_value = raw.get("empty_value", "—")
+    strict = raw.get("strict", False)
+    if not isinstance(locale, str):
+        raise TypeError("expected string for date_time_formatter.locale")
+    if not isinstance(timezone, str):
+        raise TypeError("expected string for date_time_formatter.timezone")
+    if not isinstance(empty_value, str):
+        raise TypeError("expected string for date_time_formatter.empty_value")
+    if not isinstance(strict, bool):
+        raise TypeError("expected boolean for date_time_formatter.strict")
+
+    return DateTimeFormatter(
+        format=format_value,
+        locale=locale,
+        timezone=timezone,
+        empty_value=empty_value,
+        strict=strict,
+    )
+
+
 def decode_column(raw: Mapping[str, object]) -> GridViewColumn:
     """Decode one table column definition."""
     filter_raw = raw.get("filter")
     formatter_raw = raw.get("currency_formatter")
     if formatter_raw is None:
         formatter_raw = raw.get("formatter")
+    date_time_formatter_raw = raw.get("date_time_formatter")
     return GridViewColumn(
         id=wire_str(raw.get("id")),
         label=wire_str(raw.get("label")),
@@ -749,6 +794,7 @@ def decode_column(raw: Mapping[str, object]) -> GridViewColumn:
         pinned=wire_literal(raw.get("pinned"), GRIDVIEW_COLUMN_PINNEDS, ""),
         extra=wire_json_object(raw.get("extra", {})),
         currency_formatter=decode_currency_formatter(formatter_raw),
+        date_time_formatter=decode_date_time_formatter(date_time_formatter_raw),
     )
 
 
