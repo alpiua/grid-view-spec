@@ -168,22 +168,65 @@ receipt:
 
 ```yaml
 task_ref: ssr-cells
-target: >
-  Bind format_datetime from the canonical helper and apply it to configured
-  date and datetime row and footer cells before generic empty handling.
-  Keep autoescaping, unconfigured date cells, currency, and inline editing.
-  Prove an InMemoryHost spec with ISO and epoch row values, a null footer,
-  an escaped configured fallback, and an unchanged unconfigured cell in
-  tests/test_datetime_formatter.py.
+target: |
+  Bind format_datetime from the canonical helper and apply it to configured date and datetime row and footer cells before generic empty handling. Keep autoescaping, unconfigured date cells, currency, and inline editing. Prove an InMemoryHost spec with ISO and epoch row values, a null footer, an escaped configured fallback, and an unchanged unconfigured cell in tests/test_datetime_formatter.py.
 proof_policy: seam-test-first
 contract_revision: 1
 depends_on:
-  - column-wire
+- column-wire
 scope:
-  - src/grid_view_spec/render/bind.py
-  - src/grid_view_spec/render/spec_renderer.py
-  - src/grid_view_spec/templates/grid_view/spec/table.html
-  - tests/test_datetime_formatter.py
+- src/grid_view_spec/render/bind.py
+- src/grid_view_spec/render/spec_renderer.py
+- src/grid_view_spec/templates/grid_view/spec/table.html
+- tests/test_datetime_formatter.py
+status: completed
+receipt:
+  contract_revision: 1
+  passed_at: 2026-10-13T03:35:11.938938990+00:00
+  evidence:
+    command_proof:
+      command: ./scripts/ci-gate.sh
+      exit_code: 0
+      tests_passed: 554
+      tests_failed: 0
+  review:
+    review_proof:
+      decision: pass
+      contours:
+        paths:
+          applicable: true
+          evidence: Candidate snapshot 1d9f1bf contains exactly the four admitted paths. Their snapshot blob IDs match the four current worktree file hashes, and git status shows no other modified paths; baseline HEAD is a157b85. No protected profile, repository configuration, generated state, or neighboring project path changed.
+        claims:
+          applicable: true
+          evidence: The renderer binds the canonical format_datetime helper and passes it to the real Jinja spec renderer. In the row template, configured date/datetime formatting runs after the inline-select and currency branches but before generic empty handling, and the result is escaped with |e. The footer uses the same ordering before null/empty fallback. Unconfigured date cells continue through the existing raw escaped branch; currency and inline-edit branches are preserved. The production-seam test renders an InMemoryHost GridViewSpec and asserts ISO date and epoch datetime output, escaped configured empty_value for null row/footer values, and unchanged raw unconfigured date values. Accepted build proof for this same snapshot is ./scripts/ci-gate.sh, exit 0, 554 passed, 0 failed; the repository gate includes ruff format --check, Ruff, basedpyright, pytest, and frontend conformance.
+        concurrency:
+          applicable: false
+          evidence: This change only formats in-memory SSR table values. It introduces no shared mutable state, transaction, task receipt, lock, or concurrent operation.
+        project_isolation:
+          applicable: false
+          evidence: The change is confined to rendering code, one template, and its test inside the owning grid-view-spec worktree. It adds no workspace resolution, task/profile paths, symlink handling, namespace, filesystem access, or Git behavior.
+        administration:
+          applicable: false
+          evidence: No schema migration, profile pin, credential, hook, delivery, deployment, or administrative behavior changed. The accepted full CI gate passed for the candidate snapshot.
+  decision: pass
+  rollup:
+    verified_invariants:
+    - 'INV-DT-OWNER: DateTimeFormatter and format_datetime_value live in date_time_formatter.py. formatters.py re-exports them and does not implement a second formatter. date-time.ts owns dateTimeRenderer. builtins.ts only imports and registers it.'
+    - 'INV-DT-VALUES: The pure helper accepts native date, time, and datetime, valid ISO 8601 strings, and finite Unix epoch numbers. abs(value) >= 1e11 selects milliseconds; smaller magnitudes select seconds. Naive native and ISO datetimes are UTC before ZoneInfo projection. Date-only and time-only values keep their components. Date-only as time and time-only as date are invalid.'
+    - 'INV-DT-DISPLAY: uk-UA and de-DE dates are DD.MM.YYYY. en-US dates are MM/DD/YYYY. Time is 24-hour HH:mm:ss. Datetime joins date and time with one space. Unsupported locales use uk-UA. Instant-bearing iso is offset ISO 8601 in the target timezone, Z for UTC, with at most three fractional digits. Date-only iso is YYYY-MM-DD. Time-only iso is HH:mm:ss. Date-only datetime appends 00:00:00. Time-only datetime is invalid.'
+    - 'INV-DT-STRICT: None and an empty string return empty_value in both modes. Python strict=True raises ValueError for an invalid value, timezone, or format. strict=False returns empty_value. AG Grid never throws: strict invalid input, a corrupt config, or an invalid timezone renders escaped emptyValue.'
+    - 'INV-DT-WIRE: GridViewColumn.date_time_formatter is optional. Wire uses snake_case. Absent or null decodes as None. A present malformed formatter fails spec_from_wire with INVALID_WIRE. Currency formatter decode stays unchanged. JSON rows stay RowDict scalars; native temporal objects are accepted only by the pure helper.'
+    - 'INV-DT-SSR: A configured date or datetime column formats row and footer cells before generic empty handling, so empty_value survives. Unconfigured date cells stay escaped raw values. Currency and inline-edit paths stay unchanged.'
+    - 'INV-DT-GRID: A configured date or datetime column emits camelCase dateTimeFormatter and selects dateTimeRenderer. An explicit custom renderer stays selected and still receives the config. The unconfigured date builtin stays. Host columnsVar definitions are not rewritten. A hostile empty_value stays inside one inert application/json script and decodes to the original string.'
+    architectural_notes: []
+    review_summary:
+      decision: pass
+      contours:
+        administration: not_applicable
+        claims: accepted
+        concurrency: not_applicable
+        paths: accepted
+        project_isolation: not_applicable
 ```
 
 ### task: ag-grid-renderer

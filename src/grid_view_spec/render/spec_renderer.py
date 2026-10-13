@@ -21,6 +21,7 @@ from grid_view_spec.render.ag_grid import ag_grid_spec_config_json
 from grid_view_spec.render.bind import (
     format_currency,
     format_currency_parts,
+    format_datetime,
     format_kpi_value,
     kpi_block_rows,
     resolve_kpi_value,
@@ -358,6 +359,7 @@ def render_grid_view_spec(
             column_filter_wire=column_filter_wire,
             format_currency=format_currency,
             format_currency_parts=format_currency_parts,
+            format_datetime=format_datetime,
         )
     return _placeholder_html(ctx)
 

@@ -14,6 +14,8 @@ from grid_view_spec import (
 from grid_view_spec import (
     format_datetime_value as public_format_datetime_value,
 )
+from grid_view_spec.hosts.memory import InMemoryHost
+from grid_view_spec.render import render_grid_view_spec
 from grid_view_spec.types import (
     DateTimeFormatter as TypesDateTimeFormatter,
 )
@@ -23,6 +25,13 @@ from grid_view_spec.types import (
 from grid_view_spec.types.formatters import (
     DateTimeFormatter,
     format_datetime_value,
+)
+from grid_view_spec.types.layout import GridViewArea, GridViewLayout
+from grid_view_spec.types.spec import GridViewSpec
+from grid_view_spec.types.table_v2 import (
+    GridViewColumn,
+    GridViewTable,
+    GridViewTableFooter,
 )
 
 
@@ -42,6 +51,67 @@ def test_formatter_is_frozen_and_reexported_from_public_modules() -> None:
 
     with pytest.raises(dataclasses.FrozenInstanceError):
         setattr(formatter, "locale", "en-US")
+
+
+def test_configured_table_dates_render_with_formatter_before_empty_handling() -> None:
+    table = GridViewTable(
+        id="dates",
+        columns=(
+            GridViewColumn(
+                id="created",
+                label="Created",
+                field="created",
+                type="date",
+                date_time_formatter=DateTimeFormatter(
+                    format="date", empty_value="<i>missing date</i>"
+                ),
+            ),
+            GridViewColumn(
+                id="updated",
+                label="Updated",
+                field="updated",
+                type="datetime",
+                date_time_formatter=DateTimeFormatter(
+                    format="datetime", empty_value="<b>missing time</b>"
+                ),
+            ),
+            GridViewColumn(
+                id="plain",
+                label="Plain",
+                field="plain",
+                type="date",
+            ),
+        ),
+        rows=(
+            {
+                "created": "2024-03-05",
+                "updated": 1_709_596_800,
+                "plain": "2024-03-06",
+            },
+        ),
+        footer=GridViewTableFooter(row=True, label="Total"),
+        extra={
+            "footer_row": {
+                "created": None,
+                "updated": None,
+                "plain": "2024-03-07",
+            }
+        },
+    )
+    spec = GridViewSpec(
+        id="date_spec",
+        blocks=(table,),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(table.id,))),
+    )
+
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+
+    assert "05.03.2024" in html
+    assert "05.03.2024 00:00:00" in html
+    assert "&lt;i&gt;missing date&lt;/i&gt;" in html
+    assert "&lt;b&gt;missing time&lt;/b&gt;" in html
+    assert "2024-03-06" in html
+    assert "2024-03-07" in html
 
 
 def test_native_temporal_values_keep_their_components() -> None:

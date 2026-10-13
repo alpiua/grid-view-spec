@@ -184,6 +184,8 @@
               <span class="cm-currency{% if css %} {{ css | e }}{% endif %}{% if val_css %} {{ val_css }}{% endif %}">
                 {{ currency_parts[0] }}{% if currency_parts[1] %}{% if currency_parts[3] %}<span style="color:{{ currency_parts[3] | e }}">{% endif %}{{ currency_parts[1] }}{% if currency_parts[3] %}</span>{% endif %}{% endif %}{{ currency_parts[2] }}
               </span>
+            {% elif col.type in ('date', 'datetime') and col.date_time_formatter %}
+              <span class="cm-cell{% if css %} {{ css | e }}{% endif %}{% if val_css %} {{ val_css }}{% endif %}">{{ format_datetime(val, col.date_time_formatter) | e }}</span>
             {% elif val is none or val == '' or (val is iterable and val is not string and val | list | length == 0) %}
             <span class="cm-muted">—</span>
             {% elif col.renderer == 'select' %}
@@ -314,6 +316,8 @@
             <span class="cm-currency{% if fval_css %} {{ fval_css }}{% endif %}">
               {{ currency_parts[0] }}{% if currency_parts[1] %}{% if currency_parts[3] %}<span style="color:{{ currency_parts[3] | e }}">{% endif %}{{ currency_parts[1] }}{% if currency_parts[3] %}</span>{% endif %}{% endif %}{{ currency_parts[2] }}
             </span>
+            {% elif col.type in ('date', 'datetime') and col.date_time_formatter %}
+            <span class="cm-cell{% if fcss %} {{ fcss | e }}{% endif %}{% if fval_css %} {{ fval_css }}{% endif %}">{{ format_datetime(fval, col.date_time_formatter) | e }}</span>
             {% elif fval is none or fval == '' %}
             <span class="cm-muted">—</span>
             {% elif col.type == 'currency' %}

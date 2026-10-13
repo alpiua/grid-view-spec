@@ -12,6 +12,10 @@ from grid_view_spec.types.content import (
     GridViewKpi,
     KpiSpec,
 )
+from grid_view_spec.types.date_time_formatter import (
+    DateTimeFormatter,
+    format_datetime_value,
+)
 from grid_view_spec.types.formatters import CurrencyFormatter
 from grid_view_spec.types.json import RowDict
 from grid_view_spec.types.table_v2 import GridViewTable
@@ -20,6 +24,11 @@ from grid_view_spec.types.table_v2 import GridViewTable
 def format_currency(value: object, formatter: CurrencyFormatter, currency: object = None) -> str:
     """Format numeric values using the typed CurrencyFormatter."""
     return formatter.format(value, currency=currency)
+
+
+def format_datetime(value: object, formatter: DateTimeFormatter) -> str:
+    """Format date and time values using the canonical date-time formatter."""
+    return format_datetime_value(value, formatter)
 
 
 def format_currency_parts(
