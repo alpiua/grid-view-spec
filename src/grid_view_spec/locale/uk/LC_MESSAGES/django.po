@@ -139,7 +139,7 @@ msgid "filter.list_search"
 msgstr "Пошук…"
 
 msgid "filter.workspace_search"
-msgstr "Пошук фільтрів"
+msgstr "Пошук фільтра"
 
 msgid "filter.empty_mode_hint"
 msgstr "Показано рядки з порожніми клітинками"

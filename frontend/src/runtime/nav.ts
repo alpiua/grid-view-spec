@@ -1,3 +1,5 @@
+import { invokeDrop } from "../grid-view/registry-api";
+
 /**
  * GridViewNav presentation="tree" client runtime.
  *
@@ -6,7 +8,7 @@
  * 2. In-tree search filtering ([data-cm-tree-search="1"]).
  * 3. "+ Create" dropdown menu toggling ([data-cm-tree-create-trigger]).
  * 4. Active row selection styling (.cm-nav-tree-row).
- * 5. Drag & Drop: emits a cancellable event, then moves the node in the tree.
+ * 5. Drag & Drop: checks level rules and awaits a named host action before moving.
  */
 
 type NavScope = Document | Element | null | undefined;
@@ -53,7 +55,7 @@ function moveTreeNode(source: HTMLElement, target: HTMLElement, root: Element | 
     let children = target.querySelector<HTMLElement>(":scope > .cm-nav-tree-children");
     if (sourceAtRoot && targetAtRoot) {
       target.after(source);
-    } else if (targetAtRoot || children) {
+    } else if (targetAtRoot || children || target.getAttribute("data-cm-node-can-have-children") === "1") {
       if (!children) {
         children = document.createElement("div");
         children.className = "cm-nav-tree-children pl-3 space-y-0.5 border-l border-slate-100 dark:border-[#1e263d] ml-3 mt-0.5";
@@ -332,6 +334,78 @@ export function initNavTrees(scope?: NavScope): void {
       let draggedNode: HTMLElement | null = null;
       let isDraggingTree = false;
       let dragEndTime = 0;
+      let savingDrop = false;
+      const dropAction = tree.getAttribute("data-cm-drop-action") || "";
+      const clearDropZones = (): void => {
+        tree.querySelectorAll(".cm-tree-drop-inside, .cm-tree-drop-after").forEach((node) => {
+          node.classList.remove("cm-tree-drop-inside", "cm-tree-drop-after");
+        });
+      };
+
+      const dropPosition = (source: HTMLElement, target: HTMLElement): "inside" | "after" => {
+        const sourceAtRoot = source.parentElement?.classList.contains("cm-nav-tree-items");
+        const targetAtRoot = target.parentElement?.classList.contains("cm-nav-tree-items");
+        const hasChildren = !!target.querySelector(":scope > .cm-nav-tree-children");
+        const acceptsChildren = target.getAttribute("data-cm-node-can-have-children") === "1";
+        return (sourceAtRoot && targetAtRoot) || (!targetAtRoot && !hasChildren && !acceptsChildren)
+          ? "after" : "inside";
+      };
+
+      const acceptsDrop = (source: HTMLElement, target: HTMLElement): boolean => {
+        if (!dropAction) return true;
+        if (source.getAttribute("data-cm-node-draggable") !== "1") return false;
+        if (target.classList.contains("cm-root-drop-zone")) return true;
+        if (target.getAttribute("data-cm-node-droppable") !== "1") return false;
+        const sourceType = source.getAttribute("data-node-type") || "";
+        let accepted: unknown;
+        try {
+          accepted = JSON.parse(target.getAttribute("data-cm-node-accept") || "[]");
+        } catch {
+          return false;
+        }
+        return Boolean(sourceType) && Array.isArray(accepted) &&
+          accepted.some((type: unknown) => type === sourceType);
+      };
+
+      const commitDrop = async (
+        source: HTMLElement,
+        target: HTMLElement,
+        targetId: string,
+        position: "inside" | "after",
+        originalEvent: DragEvent,
+      ): Promise<void> => {
+        if (savingDrop || !acceptsDrop(source, target)) return;
+        const sourceId = source.getAttribute("data-node-id") || "";
+        if (!sourceId) return;
+        const dropEvent = new CustomEvent("cm:nav-item-drop", {
+          bubbles: true,
+          cancelable: true,
+          detail: {
+            treeId: tree.getAttribute("data-cm-nav-tree") || "",
+            sourceId,
+            targetId,
+            position,
+            sourceNode: source,
+            targetNode: target,
+            originalEvent,
+          },
+        });
+        if (!tree.dispatchEvent(dropEvent)) return;
+        if (dropAction) {
+          savingDrop = true;
+          const accepted = await invokeDrop(dropAction, {
+            treeId: tree.getAttribute("data-cm-nav-tree") || "",
+            sourceId,
+            targetId,
+            sourceType: source.getAttribute("data-node-type") || "",
+            targetType: target.getAttribute("data-node-type") || "root",
+            position,
+          });
+          savingDrop = false;
+          if (!accepted || !source.isConnected || !target.isConnected) return;
+        }
+        moveTreeNode(source, target, itemsContainer);
+      };
 
       const itemsContainer = tree.querySelector(".cm-nav-tree-items");
       let rootDropZone = tree.querySelector<HTMLElement>(".cm-root-drop-zone");
@@ -340,7 +414,7 @@ export function initNavTrees(scope?: NavScope): void {
       if (!rootDropZone && itemsContainer && rootDropLabel) {
         rootDropZone = document.createElement("div");
         rootDropZone.className =
-          "cm-root-drop-zone hidden p-2 mb-1.5 rounded-lg border-2 border-dashed border-indigo-400 dark:border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/40 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-all cursor-pointer";
+          "cm-root-drop-zone hidden p-2 mb-1.5 rounded-lg border border-dashed border-indigo-400/50 dark:border-indigo-400/40 bg-indigo-50/20 dark:bg-indigo-950/15 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-all cursor-pointer";
         rootDropZone.textContent = rootDropLabel;
         itemsContainer.insertBefore(rootDropZone, itemsContainer.firstChild);
 
@@ -348,56 +422,52 @@ export function initNavTrees(scope?: NavScope): void {
           e.preventDefault();
           if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
           rootDropZone?.classList.add(
-            "ring-2",
-            "ring-indigo-600",
-            "bg-indigo-100/80",
-            "dark:bg-indigo-900/60"
+            "ring-1",
+            "ring-indigo-400/50",
+            "bg-indigo-50/30",
+            "dark:bg-indigo-900/20"
           );
         });
         rootDropZone.addEventListener("dragleave", () => {
           rootDropZone?.classList.remove(
-            "ring-2",
-            "ring-indigo-600",
-            "bg-indigo-100/80",
-            "dark:bg-indigo-900/60"
+            "ring-1",
+            "ring-indigo-400/50",
+            "bg-indigo-50/30",
+            "dark:bg-indigo-900/20"
           );
         });
-        rootDropZone.addEventListener("drop", (e) => {
+        rootDropZone.addEventListener("drop", async (e) => {
           e.preventDefault();
           rootDropZone?.classList.remove(
-            "ring-2",
-            "ring-indigo-600",
-            "bg-indigo-100/80",
-            "dark:bg-indigo-900/60"
+            "ring-1",
+            "ring-indigo-400/50",
+            "bg-indigo-50/30",
+            "dark:bg-indigo-900/20"
           );
           if (!draggedNode) return;
-          const sourceId = draggedNode.getAttribute("data-node-id");
-          if (!sourceId) return;
-
-          const dropEvent = new CustomEvent("cm:nav-item-drop", {
-            bubbles: true,
-            cancelable: true,
-            detail: {
-              treeId: tree.getAttribute("data-cm-nav-tree") || "",
-              sourceId,
-              targetId: "root",
-              position: "inside",
-              sourceNode: draggedNode,
-              targetNode: rootDropZone,
-              originalEvent: e,
-            },
-          });
-          if (rootDropZone && tree.dispatchEvent(dropEvent)) {
-            moveTreeNode(draggedNode, rootDropZone, itemsContainer);
-          }
+          if (rootDropZone) await commitDrop(draggedNode, rootDropZone, "root", "inside", e);
         });
       }
 
       tree.querySelectorAll<HTMLElement>(".cm-nav-tree-row").forEach((row) => {
-        if (row.hasAttribute("data-disabled")) return;
-        row.setAttribute("draggable", "true");
+        if (row.hasAttribute("data-disabled")) {
+          row.addEventListener("drop", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+          });
+          return;
+        }
+        const rowNode = row.closest<HTMLElement>(".cm-nav-tree-node");
+        const canStartDrag = !dropAction || rowNode?.getAttribute("data-cm-node-draggable") === "1";
+        if (canStartDrag) row.setAttribute("draggable", "true");
 
         row.addEventListener("dragstart", (e) => {
+          if (!canStartDrag) {
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+          }
+          e.stopPropagation();
           const node = row.closest<HTMLElement>(".cm-nav-tree-node");
           draggedNode = node;
           isDraggingTree = true;
@@ -406,7 +476,8 @@ export function initNavTrees(scope?: NavScope): void {
             e.dataTransfer.effectAllowed = "move";
           }
           row.classList.add("opacity-50");
-          if (rootDropZone && draggedNode?.getAttribute("data-parent-id")) {
+          const parentNode = draggedNode?.parentElement?.closest<HTMLElement>(".cm-nav-tree-node");
+          if (rootDropZone && parentNode) {
             rootDropZone.classList.remove("hidden");
           }
         });
@@ -414,15 +485,7 @@ export function initNavTrees(scope?: NavScope): void {
         row.addEventListener("dragend", () => {
           row.classList.remove("opacity-50");
           if (rootDropZone) rootDropZone.classList.add("hidden");
-          tree.querySelectorAll(".cm-drop-target").forEach((el) => {
-            el.classList.remove(
-              "cm-drop-target",
-              "ring-2",
-              "ring-indigo-500",
-              "bg-indigo-50/70",
-              "dark:bg-indigo-950/50"
-            );
-          });
+          clearDropZones();
           dragEndTime = Date.now();
           setTimeout(() => {
             isDraggingTree = false;
@@ -432,68 +495,34 @@ export function initNavTrees(scope?: NavScope): void {
 
         row.addEventListener("dragover", (e) => {
           const node = row.closest<HTMLElement>(".cm-nav-tree-node");
-          if (!draggedNode || draggedNode === node || (node && draggedNode.contains(node))) return;
+          if (!draggedNode || !node || draggedNode === node || draggedNode.contains(node) || !acceptsDrop(draggedNode, node)) return;
           e.preventDefault();
+          e.stopPropagation();
           if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-          row.classList.add(
-            "cm-drop-target",
-            "ring-2",
-            "ring-indigo-500",
-            "bg-indigo-50/70",
-            "dark:bg-indigo-950/50"
-          );
+          clearDropZones();
+          node.classList.add(dropPosition(draggedNode, node) === "inside" ? "cm-tree-drop-inside" : "cm-tree-drop-after");
         });
 
         row.addEventListener("dragleave", (e) => {
           if (!row.contains(e.relatedTarget as Node | null)) {
-            row.classList.remove(
-              "cm-drop-target",
-              "ring-2",
-              "ring-indigo-500",
-              "bg-indigo-50/70",
-              "dark:bg-indigo-950/50"
-            );
+            rowNode?.classList.remove("cm-tree-drop-inside", "cm-tree-drop-after");
           }
         });
 
-        row.addEventListener("drop", (e) => {
+        row.addEventListener("drop", async (e) => {
           e.preventDefault();
-          row.classList.remove(
-            "cm-drop-target",
-            "ring-2",
-            "ring-indigo-500",
-            "bg-indigo-50/70",
-            "dark:bg-indigo-950/50"
-          );
+          e.stopPropagation();
+          clearDropZones();
           const targetNode = row.closest<HTMLElement>(".cm-nav-tree-node");
-          if (!draggedNode || !targetNode || draggedNode === targetNode || draggedNode.contains(targetNode)) {
+          if (!draggedNode || !targetNode || draggedNode === targetNode || draggedNode.contains(targetNode) || !acceptsDrop(draggedNode, targetNode)) {
             return;
           }
 
-          const sourceId = draggedNode.getAttribute("data-node-id");
           const targetId = targetNode?.getAttribute("data-node-id");
-          if (!sourceId || !targetId) return;
+          if (!targetId) return;
 
-          const sourceAtRoot = draggedNode.parentElement?.classList.contains("cm-nav-tree-items");
-          const targetAtRoot = targetNode.parentElement?.classList.contains("cm-nav-tree-items");
-          const hasChildren = !!targetNode.querySelector(":scope > .cm-nav-tree-children");
-          const position = (sourceAtRoot && targetAtRoot) || (!targetAtRoot && !hasChildren) ? "after" : "inside";
-          const dropEvent = new CustomEvent("cm:nav-item-drop", {
-            bubbles: true,
-            cancelable: true,
-            detail: {
-              treeId: tree.getAttribute("data-cm-nav-tree") || "",
-              sourceId,
-              targetId,
-              position,
-              sourceNode: draggedNode,
-              targetNode,
-              originalEvent: e,
-            },
-          });
-          if (tree.dispatchEvent(dropEvent)) {
-            moveTreeNode(draggedNode, targetNode, itemsContainer);
-          }
+          const position = dropPosition(draggedNode, targetNode);
+          await commitDrop(draggedNode, targetNode, targetId, position, e);
         });
 
         row.addEventListener(

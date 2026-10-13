@@ -50,8 +50,11 @@ Charts may reference the same filters block id for documentation/validation; the
 | `drawer_sections` | Ordered visual groups for a `workspace` drawer |
 
 `presentation="drawer"` renders the filter block as a persistent, resizable
-sidebar with a bounded scroll area and in-drawer filter search. The drawer's
-collapsed state, width, and active `Filters`/`Column settings` tab are stored
+sidebar with a bounded scroll area and in-drawer filter search. The drawer
+search uses the translated `filter.workspace_search` label (“Search filter”)
+and the same compact input styling for standard and workspace layouts. Searches
+inside an individual filter card use `filter.list_search` to find option values.
+The drawer stores its collapsed state, width, and active `Filters`/`Column settings` tab
 through the owning spec's `GridView.PageState` namespace; filter values remain
 URL state. When the filter has a table `target`, the `Column settings` tab
 mounts that table's shared settings controls in the drawer. The package owns

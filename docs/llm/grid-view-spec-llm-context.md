@@ -1605,6 +1605,11 @@ For `backend="ag_grid"` tables, the export builder still returns `GridViewExport
 
 <!-- source: reference/python-types.md -->
 
+---
+title: "Python types — public import map"
+doc_type: api
+---
+
 # Python types — public import map
 
 Import from **`grid_view_spec`** at host boundaries. Do not copy type trees locally.
@@ -1720,6 +1725,25 @@ total_column = GridViewColumn(
 
 Rows can provide `<field>_currency` (for example, `amount_currency: "USD"`) to
 select a currency per cell. See Columns and renderers (see section: tables/columns.md).
+
+## Date and time formatting
+
+Use the pure `format_datetime_value` helper to format native date and time
+values, ISO strings, or Unix timestamps with an explicit output format, locale,
+and timezone:
+
+```python
+from grid_view_spec import DateTimeFormatter, format_datetime_value
+
+label = format_datetime_value(
+    "2024-03-05T14:05:06Z",
+    DateTimeFormatter(format="datetime", locale="uk-UA", timezone="Europe/Kyiv"),
+)
+```
+
+Naive datetimes are interpreted as UTC. Date-only and time-only values keep
+their components; invalid values return `empty_value` unless `strict=True`, in
+which case formatting raises `ValueError`.
 
 ## Page-state identity
 
@@ -2072,7 +2096,19 @@ Column settings UI uses the same msgids as the modal. Export column order/visibi
 
 <!-- source: changelog.md -->
 
+---
+title: "Changelog"
+doc_type: guide
+---
+
 # Changelog
+
+## 2.1.1 — 2026-10-13
+
+### Added
+
+- AG Grid date and datetime columns support `DateTimeFormatter` with escaped
+  invalid-value fallbacks and locale-aware rendering.
 
 ## 2.1.0
 

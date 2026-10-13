@@ -15,6 +15,7 @@ from grid_view_spec.hosts.memory import InMemoryHost
 from grid_view_spec.render import render_grid_view_spec
 from grid_view_spec.types.filters_v2 import (
     GridViewFilter,
+    GridViewFilterDrawerSection,
     GridViewFilterOption,
     GridViewFilters,
     GridViewFilterState,
@@ -28,6 +29,87 @@ from grid_view_spec.types.toolbar import GridViewSearch, GridViewToolbar
 _ROOT = Path(__file__).resolve().parents[1]
 _FRONTEND = _ROOT / "frontend"
 _BUILD_SCRIPT = _FRONTEND / "scripts" / "build-browser-contract-conformance.mjs"
+
+
+@pytest.mark.parametrize("dark", [False, True])
+def test_filter_search_controls_share_compact_themed_styles(
+    browser_context: tuple[str, str, Path], tmp_path: Path, dark: bool
+) -> None:
+    _, chromium, bundle = browser_context
+    standard = GridViewFilters(
+        id="standard_filters",
+        presentation="drawer",
+        schema=(GridViewFilter(id="active", label="Active", param="active", type="boolean"),),
+    )
+    workspace = GridViewFilters(
+        id="workspace_filters",
+        presentation="drawer",
+        drawer_layout="workspace",
+        schema=(
+            GridViewFilter(id="available", label="Available", param="available", type="boolean"),
+        ),
+        drawer_sections=(
+            GridViewFilterDrawerSection(
+                id="availability",
+                label="Availability",
+                filter_ids=("available",),
+            ),
+        ),
+    )
+    spec = GridViewSpec(
+        id="search_styles",
+        blocks=(standard, workspace),
+        layout=GridViewLayout(
+            root=GridViewArea(
+                id="root",
+                blocks=(standard.id, workspace.id),
+            )
+        ),
+    )
+    markup = render_grid_view_spec(
+        spec,
+        (),
+        host=InMemoryHost(translations={"filter.workspace_search": "Search filter"}),
+        backend="html",
+    )
+    static = _ROOT / "src/grid_view_spec/static/grid_view_spec"
+    styles = (static / "gridviewspec.css").read_text() + (
+        static / "gridviewspec-filter-workspace.css"
+    ).read_text()
+    styles += """
+      :root { --cm-surface: #fff; --cm-border: #cbd5e1; --cm-muted: #64748b; }
+      :root.dark { --cm-surface: #161a2b; --cm-border: #334155; --cm-muted: #94a3b8; }
+    """
+    scenario = """
+        try {
+          document.documentElement.classList.toggle('dark', DARK);
+          const inputs = document.querySelectorAll(
+            '[data-cm-filter-drawer-search], [data-cm-filter-workspace-search]');
+          if (inputs.length !== 2) throw new Error('both drawer searches must render');
+          const controls = Array.from(inputs).map(input => {
+            if (input.placeholder !== 'Search filter') throw new Error('incorrect filter label');
+            const label = input.parentElement;
+            const style = getComputedStyle(label);
+            const expectedBackground = DARK ? 'rgb(22, 26, 43)' : 'rgb(255, 255, 255)';
+            const expectedBorder = DARK ? 'rgb(51, 65, 85)' : 'rgb(203, 213, 225)';
+            if (style.backgroundColor !== expectedBackground ||
+                style.borderColor !== expectedBorder) {
+              throw new Error('search must use the active host theme tokens');
+            }
+            if (label.getBoundingClientRect().height !== 32) throw new Error('search height');
+            if (getComputedStyle(input).fontSize !== '12px') throw new Error('search font size');
+            return [style.color, style.backgroundColor, style.borderColor, style.borderRadius];
+          });
+          if (JSON.stringify(controls[0]) !== JSON.stringify(controls[1])) {
+            throw new Error('drawer search styles differ');
+          }
+          document.querySelector('#contract-result').dataset.result = 'PASS';
+        } catch (error) {
+          document.querySelector('#contract-result').dataset.result = `FAIL: ${error.message}`;
+        }
+    """.replace("DARK", "true" if dark else "false")
+    result = _run_browser(chromium, bundle, f"<style>{styles}</style>{markup}", scenario, tmp_path)
+    assert result == "PASS"
 
 
 def _saved_search_page() -> tuple[str, InMemoryHost]:

@@ -100,6 +100,7 @@
   var _renderers = /* @__PURE__ */ new Map();
   var _commits = /* @__PURE__ */ new Map();
   var _actions = /* @__PURE__ */ new Map();
+  var _drops = /* @__PURE__ */ new Map();
   function registerRenderer(name, fn) {
     if (!name || typeof fn !== "function") return;
     _renderers.set(name, fn);
@@ -111,6 +112,19 @@
   function registerAction(name, fn) {
     if (!name || typeof fn !== "function") return;
     _actions.set(name, fn);
+  }
+  function registerDrop(name, fn) {
+    if (!name || typeof fn !== "function") return;
+    _drops.set(name, fn);
+  }
+  async function invokeDrop(name, ctx) {
+    const fn = _drops.get(name);
+    if (typeof fn !== "function") return false;
+    try {
+      return await fn(ctx) === true;
+    } catch (e) {
+      return false;
+    }
   }
   function invokeAction(name, ctx) {
     const fn = _actions.get(name);
@@ -150,9 +164,9 @@
   function initI18n(next) {
     catalog = next || {};
   }
-  function t(key, fallback) {
+  function t(key, fallback2) {
     if (catalog[key] && catalog[key] !== key) return catalog[key];
-    if (fallback !== void 0) return fallback;
+    if (fallback2 !== void 0) return fallback2;
     return key;
   }
   var i18n = { initI18n, t };
@@ -4338,8 +4352,8 @@
       const selected = Array.from(select.options).find(
         (option) => !option.disabled && values.includes(option.value)
       );
-      const fallback = Array.from(select.options).find((option) => !option.disabled);
-      select.value = (selected == null ? void 0 : selected.value) || (fallback == null ? void 0 : fallback.value) || "";
+      const fallback2 = Array.from(select.options).find((option) => !option.disabled);
+      select.value = (selected == null ? void 0 : selected.value) || (fallback2 == null ? void 0 : fallback2.value) || "";
     });
   }
   function filterNavigateHref() {
@@ -6534,7 +6548,7 @@
       let children = target.querySelector(":scope > .cm-nav-tree-children");
       if (sourceAtRoot && targetAtRoot) {
         target.after(source);
-      } else if (targetAtRoot || children) {
+      } else if (targetAtRoot || children || target.getAttribute("data-cm-node-can-have-children") === "1") {
         if (!children) {
           children = document.createElement("div");
           children.className = "cm-nav-tree-children pl-3 space-y-0.5 border-l border-slate-100 dark:border-[#1e263d] ml-3 mt-0.5";
@@ -6776,65 +6790,125 @@
         let draggedNode = null;
         let isDraggingTree = false;
         let dragEndTime = 0;
+        let savingDrop = false;
+        const dropAction = tree.getAttribute("data-cm-drop-action") || "";
+        const clearDropZones = () => {
+          tree.querySelectorAll(".cm-tree-drop-inside, .cm-tree-drop-after").forEach((node) => {
+            node.classList.remove("cm-tree-drop-inside", "cm-tree-drop-after");
+          });
+        };
+        const dropPosition = (source, target) => {
+          var _a, _b;
+          const sourceAtRoot = (_a = source.parentElement) == null ? void 0 : _a.classList.contains("cm-nav-tree-items");
+          const targetAtRoot = (_b = target.parentElement) == null ? void 0 : _b.classList.contains("cm-nav-tree-items");
+          const hasChildren = !!target.querySelector(":scope > .cm-nav-tree-children");
+          const acceptsChildren = target.getAttribute("data-cm-node-can-have-children") === "1";
+          return sourceAtRoot && targetAtRoot || !targetAtRoot && !hasChildren && !acceptsChildren ? "after" : "inside";
+        };
+        const acceptsDrop = (source, target) => {
+          if (!dropAction) return true;
+          if (source.getAttribute("data-cm-node-draggable") !== "1") return false;
+          if (target.classList.contains("cm-root-drop-zone")) return true;
+          if (target.getAttribute("data-cm-node-droppable") !== "1") return false;
+          const sourceType = source.getAttribute("data-node-type") || "";
+          let accepted;
+          try {
+            accepted = JSON.parse(target.getAttribute("data-cm-node-accept") || "[]");
+          } catch (e) {
+            return false;
+          }
+          return Boolean(sourceType) && Array.isArray(accepted) && accepted.some((type) => type === sourceType);
+        };
+        const commitDrop = async (source, target, targetId, position, originalEvent) => {
+          if (savingDrop || !acceptsDrop(source, target)) return;
+          const sourceId = source.getAttribute("data-node-id") || "";
+          if (!sourceId) return;
+          const dropEvent = new CustomEvent("cm:nav-item-drop", {
+            bubbles: true,
+            cancelable: true,
+            detail: {
+              treeId: tree.getAttribute("data-cm-nav-tree") || "",
+              sourceId,
+              targetId,
+              position,
+              sourceNode: source,
+              targetNode: target,
+              originalEvent
+            }
+          });
+          if (!tree.dispatchEvent(dropEvent)) return;
+          if (dropAction) {
+            savingDrop = true;
+            const accepted = await invokeDrop(dropAction, {
+              treeId: tree.getAttribute("data-cm-nav-tree") || "",
+              sourceId,
+              targetId,
+              sourceType: source.getAttribute("data-node-type") || "",
+              targetType: target.getAttribute("data-node-type") || "root",
+              position
+            });
+            savingDrop = false;
+            if (!accepted || !source.isConnected || !target.isConnected) return;
+          }
+          moveTreeNode(source, target, itemsContainer);
+        };
         const itemsContainer = tree.querySelector(".cm-nav-tree-items");
         let rootDropZone = tree.querySelector(".cm-root-drop-zone");
         const rootDropLabel = tree.getAttribute("data-cm-root-drop-label") || null;
         if (!rootDropZone && itemsContainer && rootDropLabel) {
           rootDropZone = document.createElement("div");
-          rootDropZone.className = "cm-root-drop-zone hidden p-2 mb-1.5 rounded-lg border-2 border-dashed border-indigo-400 dark:border-indigo-500 bg-indigo-50/70 dark:bg-indigo-950/40 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-all cursor-pointer";
+          rootDropZone.className = "cm-root-drop-zone hidden p-2 mb-1.5 rounded-lg border border-dashed border-indigo-400/50 dark:border-indigo-400/40 bg-indigo-50/20 dark:bg-indigo-950/15 text-center text-xs font-semibold text-indigo-700 dark:text-indigo-300 transition-all cursor-pointer";
           rootDropZone.textContent = rootDropLabel;
           itemsContainer.insertBefore(rootDropZone, itemsContainer.firstChild);
           rootDropZone.addEventListener("dragover", (e) => {
             e.preventDefault();
             if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
             rootDropZone == null ? void 0 : rootDropZone.classList.add(
-              "ring-2",
-              "ring-indigo-600",
-              "bg-indigo-100/80",
-              "dark:bg-indigo-900/60"
+              "ring-1",
+              "ring-indigo-400/50",
+              "bg-indigo-50/30",
+              "dark:bg-indigo-900/20"
             );
           });
           rootDropZone.addEventListener("dragleave", () => {
             rootDropZone == null ? void 0 : rootDropZone.classList.remove(
-              "ring-2",
-              "ring-indigo-600",
-              "bg-indigo-100/80",
-              "dark:bg-indigo-900/60"
+              "ring-1",
+              "ring-indigo-400/50",
+              "bg-indigo-50/30",
+              "dark:bg-indigo-900/20"
             );
           });
-          rootDropZone.addEventListener("drop", (e) => {
+          rootDropZone.addEventListener("drop", async (e) => {
             e.preventDefault();
             rootDropZone == null ? void 0 : rootDropZone.classList.remove(
-              "ring-2",
-              "ring-indigo-600",
-              "bg-indigo-100/80",
-              "dark:bg-indigo-900/60"
+              "ring-1",
+              "ring-indigo-400/50",
+              "bg-indigo-50/30",
+              "dark:bg-indigo-900/20"
             );
             if (!draggedNode) return;
-            const sourceId = draggedNode.getAttribute("data-node-id");
-            if (!sourceId) return;
-            const dropEvent = new CustomEvent("cm:nav-item-drop", {
-              bubbles: true,
-              cancelable: true,
-              detail: {
-                treeId: tree.getAttribute("data-cm-nav-tree") || "",
-                sourceId,
-                targetId: "root",
-                position: "inside",
-                sourceNode: draggedNode,
-                targetNode: rootDropZone,
-                originalEvent: e
-              }
-            });
-            if (rootDropZone && tree.dispatchEvent(dropEvent)) {
-              moveTreeNode(draggedNode, rootDropZone, itemsContainer);
-            }
+            if (rootDropZone) await commitDrop(draggedNode, rootDropZone, "root", "inside", e);
           });
         }
         tree.querySelectorAll(".cm-nav-tree-row").forEach((row) => {
-          if (row.hasAttribute("data-disabled")) return;
-          row.setAttribute("draggable", "true");
+          if (row.hasAttribute("data-disabled")) {
+            row.addEventListener("drop", (e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            });
+            return;
+          }
+          const rowNode = row.closest(".cm-nav-tree-node");
+          const canStartDrag = !dropAction || (rowNode == null ? void 0 : rowNode.getAttribute("data-cm-node-draggable")) === "1";
+          if (canStartDrag) row.setAttribute("draggable", "true");
           row.addEventListener("dragstart", (e) => {
+            var _a;
+            if (!canStartDrag) {
+              e.preventDefault();
+              e.stopPropagation();
+              return;
+            }
+            e.stopPropagation();
             const node = row.closest(".cm-nav-tree-node");
             draggedNode = node;
             isDraggingTree = true;
@@ -6843,22 +6917,15 @@
               e.dataTransfer.effectAllowed = "move";
             }
             row.classList.add("opacity-50");
-            if (rootDropZone && (draggedNode == null ? void 0 : draggedNode.getAttribute("data-parent-id"))) {
+            const parentNode = (_a = draggedNode == null ? void 0 : draggedNode.parentElement) == null ? void 0 : _a.closest(".cm-nav-tree-node");
+            if (rootDropZone && parentNode) {
               rootDropZone.classList.remove("hidden");
             }
           });
           row.addEventListener("dragend", () => {
             row.classList.remove("opacity-50");
             if (rootDropZone) rootDropZone.classList.add("hidden");
-            tree.querySelectorAll(".cm-drop-target").forEach((el) => {
-              el.classList.remove(
-                "cm-drop-target",
-                "ring-2",
-                "ring-indigo-500",
-                "bg-indigo-50/70",
-                "dark:bg-indigo-950/50"
-              );
-            });
+            clearDropZones();
             dragEndTime = Date.now();
             setTimeout(() => {
               isDraggingTree = false;
@@ -6867,65 +6934,30 @@
           });
           row.addEventListener("dragover", (e) => {
             const node = row.closest(".cm-nav-tree-node");
-            if (!draggedNode || draggedNode === node || node && draggedNode.contains(node)) return;
+            if (!draggedNode || !node || draggedNode === node || draggedNode.contains(node) || !acceptsDrop(draggedNode, node)) return;
             e.preventDefault();
+            e.stopPropagation();
             if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
-            row.classList.add(
-              "cm-drop-target",
-              "ring-2",
-              "ring-indigo-500",
-              "bg-indigo-50/70",
-              "dark:bg-indigo-950/50"
-            );
+            clearDropZones();
+            node.classList.add(dropPosition(draggedNode, node) === "inside" ? "cm-tree-drop-inside" : "cm-tree-drop-after");
           });
           row.addEventListener("dragleave", (e) => {
             if (!row.contains(e.relatedTarget)) {
-              row.classList.remove(
-                "cm-drop-target",
-                "ring-2",
-                "ring-indigo-500",
-                "bg-indigo-50/70",
-                "dark:bg-indigo-950/50"
-              );
+              rowNode == null ? void 0 : rowNode.classList.remove("cm-tree-drop-inside", "cm-tree-drop-after");
             }
           });
-          row.addEventListener("drop", (e) => {
-            var _a, _b;
+          row.addEventListener("drop", async (e) => {
             e.preventDefault();
-            row.classList.remove(
-              "cm-drop-target",
-              "ring-2",
-              "ring-indigo-500",
-              "bg-indigo-50/70",
-              "dark:bg-indigo-950/50"
-            );
+            e.stopPropagation();
+            clearDropZones();
             const targetNode = row.closest(".cm-nav-tree-node");
-            if (!draggedNode || !targetNode || draggedNode === targetNode || draggedNode.contains(targetNode)) {
+            if (!draggedNode || !targetNode || draggedNode === targetNode || draggedNode.contains(targetNode) || !acceptsDrop(draggedNode, targetNode)) {
               return;
             }
-            const sourceId = draggedNode.getAttribute("data-node-id");
             const targetId = targetNode == null ? void 0 : targetNode.getAttribute("data-node-id");
-            if (!sourceId || !targetId) return;
-            const sourceAtRoot = (_a = draggedNode.parentElement) == null ? void 0 : _a.classList.contains("cm-nav-tree-items");
-            const targetAtRoot = (_b = targetNode.parentElement) == null ? void 0 : _b.classList.contains("cm-nav-tree-items");
-            const hasChildren = !!targetNode.querySelector(":scope > .cm-nav-tree-children");
-            const position = sourceAtRoot && targetAtRoot || !targetAtRoot && !hasChildren ? "after" : "inside";
-            const dropEvent = new CustomEvent("cm:nav-item-drop", {
-              bubbles: true,
-              cancelable: true,
-              detail: {
-                treeId: tree.getAttribute("data-cm-nav-tree") || "",
-                sourceId,
-                targetId,
-                position,
-                sourceNode: draggedNode,
-                targetNode,
-                originalEvent: e
-              }
-            });
-            if (tree.dispatchEvent(dropEvent)) {
-              moveTreeNode(draggedNode, targetNode, itemsContainer);
-            }
+            if (!targetId) return;
+            const position = dropPosition(draggedNode, targetNode);
+            await commitDrop(draggedNode, targetNode, targetId, position, e);
           });
           row.addEventListener(
             "click",
@@ -6955,8 +6987,8 @@
   var activeGalleryId = "";
   var lastFocus = null;
   var delegated = false;
-  function t2(key, fallback) {
-    return i18n.t(key, fallback);
+  function t2(key, fallback2) {
+    return i18n.t(key, fallback2);
   }
   function parseLightboxEnabled(root) {
     return root.getAttribute("data-cm-gallery-lightbox") !== "false";
@@ -7164,6 +7196,199 @@
     closeLightbox();
   }
 
+  // src/runtime/renderers/date-time.ts
+  var htmlEscapes = {
+    "&": "&amp;",
+    "<": "&lt;",
+    ">": "&gt;",
+    '"': "&quot;",
+    "'": "&#x27;"
+  };
+  function isRecord4(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  function isFormatterConfig(value) {
+    if (!isRecord4(value)) return false;
+    const format = value.format;
+    return (format === "date" || format === "datetime" || format === "time" || format === "iso") && typeof value.locale === "string" && typeof value.timezone === "string" && value.timezone !== "" && (value.emptyValue === void 0 || typeof value.emptyValue === "string") && (value.strict === void 0 || typeof value.strict === "boolean");
+  }
+  function escapeHtml3(value) {
+    return value.replace(/[&<>"']/g, (character) => {
+      var _a;
+      return (_a = htmlEscapes[character]) != null ? _a : character;
+    });
+  }
+  function fallback(formatter) {
+    const emptyValue = isRecord4(formatter) && typeof formatter.emptyValue === "string" ? formatter.emptyValue : "\u2014";
+    return escapeHtml3(emptyValue);
+  }
+  function isValidDate(year, month, day) {
+    var _a;
+    if (year < 1 || month < 1 || month > 12) return false;
+    const leapYear = year % 4 === 0 && (year % 100 !== 0 || year % 400 === 0);
+    const daysByMonth = [31, leapYear ? 29 : 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
+    return day >= 1 && day <= ((_a = daysByMonth[month - 1]) != null ? _a : 0);
+  }
+  function isValidTime(hour, minute, second) {
+    return hour >= 0 && hour < 24 && minute >= 0 && minute < 60 && second >= 0 && second < 60;
+  }
+  function parseOffset(offset) {
+    if (!offset || offset.toUpperCase() === "Z") return "Z";
+    const digits = offset.slice(1).replace(":", "");
+    const hours = Number(digits.slice(0, 2));
+    const minutes = Number(digits.slice(2, 4));
+    if (hours > 23 || minutes > 59) throw new RangeError("Invalid UTC offset");
+    return `${offset[0]}${digits.slice(0, 2)}:${digits.slice(2, 4)}`;
+  }
+  function parseCalendarDate(value) {
+    var _a, _b, _c;
+    const dateMatch = /^(?:(\d{4})-(\d{2})-(\d{2})|(\d{4})(\d{2})(\d{2}))$/.exec(value);
+    if (!dateMatch) return void 0;
+    const year = Number((_a = dateMatch[1]) != null ? _a : dateMatch[4]);
+    const month = Number((_b = dateMatch[2]) != null ? _b : dateMatch[5]);
+    const day = Number((_c = dateMatch[3]) != null ? _c : dateMatch[6]);
+    if (!isValidDate(year, month, day)) throw new RangeError("Invalid calendar date");
+    return { year, month, day };
+  }
+  function parseClockTime(value) {
+    var _a, _b, _c, _d, _e;
+    const timeMatch = /^(?:(\d{2}):(\d{2})(?::(\d{2}))?|(\d{2})(?:(\d{2})(\d{2})?)?)(?:[.,](\d+))?(Z|[+-]\d{2}:?\d{2})?$/i.exec(value);
+    if (!timeMatch) return void 0;
+    const fractionDigits = timeMatch[7];
+    if (fractionDigits && timeMatch[3] === void 0 && timeMatch[6] === void 0) {
+      throw new RangeError("Fraction requires clock seconds");
+    }
+    const hour = Number((_a = timeMatch[1]) != null ? _a : timeMatch[4]);
+    const minute = Number((_c = (_b = timeMatch[2]) != null ? _b : timeMatch[5]) != null ? _c : "0");
+    const second = Number((_e = (_d = timeMatch[3]) != null ? _d : timeMatch[6]) != null ? _e : "0");
+    if (!isValidTime(hour, minute, second)) throw new RangeError("Invalid clock time");
+    return {
+      hour,
+      minute,
+      second,
+      fraction: fractionDigits ? `.${fractionDigits.slice(0, 3)}` : "",
+      offset: parseOffset(timeMatch[8])
+    };
+  }
+  function parseValue(value) {
+    var _a, _b;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) throw new RangeError("Epoch value must be finite");
+      const milliseconds = Math.abs(value) >= 1e11 ? value : value * 1e3;
+      const instant = new Date(milliseconds);
+      if (Number.isNaN(instant.getTime())) throw new RangeError("Epoch value is outside the supported range");
+      return { kind: "instant", value: instant };
+    }
+    if (typeof value !== "string") throw new TypeError("Unsupported date and time value");
+    const date = parseCalendarDate(value);
+    if (date) return { kind: "date", ...date };
+    const dateTimeMatch = /^(\d{4}-\d{2}-\d{2}|\d{8})[Tt ](.+)$/i.exec(value);
+    if (dateTimeMatch) {
+      const dateParts = parseCalendarDate((_a = dateTimeMatch[1]) != null ? _a : "");
+      const clock2 = parseClockTime((_b = dateTimeMatch[2]) != null ? _b : "");
+      if (!dateParts || !clock2) throw new TypeError("Value is not a supported ISO datetime");
+      const canonical = `${pad(dateParts.year, 4)}-${pad(dateParts.month)}-${pad(dateParts.day)}T${pad(clock2.hour)}:${pad(clock2.minute)}:${pad(clock2.second)}${clock2.fraction}${clock2.offset}`;
+      const instant = new Date(canonical);
+      if (Number.isNaN(instant.getTime())) throw new RangeError("Datetime is outside the supported range");
+      return { kind: "instant", value: instant };
+    }
+    const clock = parseClockTime(value);
+    if (clock) return { kind: "time", hour: clock.hour, minute: clock.minute, second: clock.second };
+    throw new TypeError("Value is not a supported ISO date or time");
+  }
+  function normalizedLocale(locale) {
+    return locale.trim().replace(/_/g, "-").toLowerCase() === "en-us" ? "en-US" : "uk-UA";
+  }
+  function partValue(parts, type) {
+    const part = parts.find((item) => item.type === type);
+    if (!part) throw new RangeError(`Missing ${type} date part`);
+    return part.value;
+  }
+  function zonedParts(value, timezone) {
+    const parts = new Intl.DateTimeFormat("en-US", {
+      timeZone: timezone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: false
+    }).formatToParts(value);
+    const hour = Number(partValue(parts, "hour"));
+    return {
+      year: Number(partValue(parts, "year")),
+      month: Number(partValue(parts, "month")),
+      day: Number(partValue(parts, "day")),
+      hour: hour === 24 ? 0 : hour,
+      minute: Number(partValue(parts, "minute")),
+      second: Number(partValue(parts, "second"))
+    };
+  }
+  function pad(value, length = 2) {
+    return String(value).padStart(length, "0");
+  }
+  function dateText(year, month, day, locale) {
+    const yyyy = pad(year, 4);
+    const mm = pad(month);
+    const dd = pad(day);
+    return locale === "en-US" ? `${mm}/${dd}/${yyyy}` : `${dd}.${mm}.${yyyy}`;
+  }
+  function timeText(hour, minute, second) {
+    return `${pad(hour)}:${pad(minute)}:${pad(second)}`;
+  }
+  function isoOffset(value, parts) {
+    const localTime = /* @__PURE__ */ new Date(0);
+    localTime.setUTCFullYear(parts.year, parts.month - 1, parts.day);
+    localTime.setUTCHours(parts.hour, parts.minute, parts.second, 0);
+    const instantSecond = Math.floor(value.getTime() / 1e3) * 1e3;
+    const offsetMinutes = Math.round((localTime.getTime() - instantSecond) / 6e4);
+    if (offsetMinutes === 0) return "Z";
+    const sign = offsetMinutes < 0 ? "-" : "+";
+    const absoluteMinutes = Math.abs(offsetMinutes);
+    return `${sign}${pad(Math.floor(absoluteMinutes / 60))}:${pad(absoluteMinutes % 60)}`;
+  }
+  function formatParsed(value, formatter, locale) {
+    if (value.kind === "date") {
+      if (formatter.format === "time") throw new RangeError("A date cannot be formatted as a time");
+      if (formatter.format === "iso") return `${pad(value.year, 4)}-${pad(value.month)}-${pad(value.day)}`;
+      const date2 = dateText(value.year, value.month, value.day, locale);
+      return formatter.format === "datetime" ? `${date2} 00:00:00` : date2;
+    }
+    if (value.kind === "time") {
+      if (formatter.format === "date" || formatter.format === "datetime") {
+        throw new RangeError("A time-only value cannot be formatted as a date");
+      }
+      return timeText(value.hour, value.minute, value.second);
+    }
+    const parts = zonedParts(value.value, formatter.timezone);
+    const date = dateText(parts.year, parts.month, parts.day, locale);
+    const time = timeText(parts.hour, parts.minute, parts.second);
+    if (formatter.format === "date") return date;
+    if (formatter.format === "time") return time;
+    if (formatter.format === "datetime") return `${date} ${time}`;
+    const milliseconds = value.value.getUTCMilliseconds();
+    const fraction = milliseconds === 0 ? "" : `.${pad(milliseconds, 3)}`;
+    const isoDate = `${pad(parts.year, 4)}-${pad(parts.month)}-${pad(parts.day)}`;
+    return `${isoDate}T${time}${fraction}${isoOffset(value.value, parts)}`;
+  }
+  function dateTimeRenderer(params) {
+    const colDef = isRecord4(params) && isRecord4(params.colDef) ? params.colDef : void 0;
+    const rendererParams = colDef && isRecord4(colDef.cellRendererParams) ? colDef.cellRendererParams : void 0;
+    const formatter = rendererParams == null ? void 0 : rendererParams.dateTimeFormatter;
+    const emptyHtml = () => fallback(formatter);
+    const input = isRecord4(params) ? params.value : void 0;
+    if (input === null || input === void 0 || input === "") return emptyHtml();
+    if (!isFormatterConfig(formatter)) return emptyHtml();
+    try {
+      new Intl.DateTimeFormat("en-US", { timeZone: formatter.timezone });
+      const parsed = parseValue(input);
+      return escapeHtml3(formatParsed(parsed, formatter, normalizedLocale(formatter.locale)));
+    } catch (e) {
+      return emptyHtml();
+    }
+  }
+
   // src/runtime/renderers/builtins.ts
   function isCurrencyFormatterConfig(value) {
     if (typeof value !== "object" || value === null || !("currency" in value) || !("locale" in value) || !("precision" in value) || !("showSymbol" in value)) return false;
@@ -7305,18 +7530,18 @@
   function formatCurrencyParts(value, formatter, currencyOverride = null) {
     var _a, _b, _c, _d, _e;
     if (!isCurrencyFormatterConfig(formatter)) return ["", "", "", ""];
-    const fallback = [(_a = formatter.emptyValue) != null ? _a : "", "", "", ""];
+    const fallback2 = [(_a = formatter.emptyValue) != null ? _a : "", "", "", ""];
     try {
-      if (value === void 0 || value === null || typeof value === "string" && !value.trim() || typeof value === "boolean" || formatter.strict && typeof value === "string") return fallback;
+      if (value === void 0 || value === null || typeof value === "string" && !value.trim() || typeof value === "boolean" || formatter.strict && typeof value === "string") return fallback2;
       const currency = currencyOverride === null || currencyOverride === void 0 || currencyOverride === "" ? formatter.currency : currencyOverride;
-      if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency.toUpperCase())) return fallback;
+      if (typeof currency !== "string" || !/^[A-Z]{3}$/.test(currency.toUpperCase())) return fallback2;
       const code = currency.toUpperCase();
       const precision = (_c = (_b = formatter.precisionByCurrency) == null ? void 0 : _b[code]) != null ? _c : formatter.precision;
-      if (!Number.isInteger(precision) || precision < 0 || precision > 6) return fallback;
+      if (!Number.isInteger(precision) || precision < 0 || precision > 6) return fallback2;
       const color = (_e = (_d = formatter.symbolColors) == null ? void 0 : _d[code]) != null ? _e : "";
-      if (typeof color !== "string" || color && !/^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(color)) return fallback;
+      if (typeof color !== "string" || color && !/^#[0-9a-fA-F]{3}(?:[0-9a-fA-F]{3})?$/.test(color)) return fallback2;
       const number = parseFormattedNumber(value, formatter.locale);
-      if (number === null) return fallback;
+      if (number === null) return fallback2;
       const formatted = new Intl.NumberFormat(
         formatter.locale,
         formatter.showSymbol ? { style: "currency", currency: code, minimumFractionDigits: precision, maximumFractionDigits: precision } : { minimumFractionDigits: precision, maximumFractionDigits: precision }
@@ -7330,7 +7555,7 @@
         color
       ];
     } catch (e) {
-      return fallback;
+      return fallback2;
     }
   }
   function moneyRenderer(params) {
@@ -7440,6 +7665,7 @@
     registerRenderer("link", linkRenderer);
     registerRenderer("badge", badgeRenderer);
     registerRenderer("date", dateRenderer);
+    registerRenderer("dateTimeRenderer", dateTimeRenderer);
     registerRenderer("button", buttonRenderer);
     registerRenderer("image", imageRenderer);
     registerRenderer("thumbnail", thumbnailRenderer);
@@ -7582,13 +7808,13 @@
   // src/runtime/table-ag-grid.ts
   var specGridStates = /* @__PURE__ */ new Map();
   var specFilterListeners = /* @__PURE__ */ new Set();
-  function isRecord4(value) {
+  function isRecord5(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function collectColumnIds(columns, ids = /* @__PURE__ */ new Set()) {
     for (const column of columns) {
       const id = column.colId || column.field;
-      if (Array.isArray(column.children)) collectColumnIds(column.children.filter(isRecord4), ids);
+      if (Array.isArray(column.children)) collectColumnIds(column.children.filter(isRecord5), ids);
       else if (typeof id === "string" && id) ids.add(id);
     }
     return ids;
@@ -7616,7 +7842,7 @@
     if (retainedState.length) gridApi.applyColumnState({ state: retainedState, applyOrder: true });
   }
   function isColumnStateItem(value) {
-    if (!isRecord4(value) || typeof value.colId !== "string" || typeof value.hide !== "boolean") {
+    if (!isRecord5(value) || typeof value.colId !== "string" || typeof value.hide !== "boolean") {
       return false;
     }
     if (value.pinned !== null && typeof value.pinned !== "string") return false;
@@ -7627,7 +7853,7 @@
   }
   function isStoredColumnPreset(value) {
     if (isColumnState(value)) return true;
-    return isRecord4(value) && isColumnState(value.columns) && (value.pageState === void 0 || isRecord4(value.pageState));
+    return isRecord5(value) && isColumnState(value.columns) && (value.pageState === void 0 || isRecord5(value.pageState));
   }
   function resolvePresets(fromConfig) {
     if (!fromConfig) return {};
@@ -7651,6 +7877,7 @@
   }
   function resolveRendererId(col) {
     if (col.renderer) return col.renderer;
+    if (col.dateTimeFormatter !== void 0 && col.dateTimeFormatter !== null && (col.type === "date" || col.type === "datetime")) return "dateTimeRenderer";
     if (col.type === "currency") return "money";
     return "";
   }
@@ -7659,7 +7886,8 @@
       const regFn = getRegisteredRenderer(rendererId);
       if (!regFn) {
         const value = typeof params === "object" && params !== null && "value" in params ? params.value : params;
-        return value === void 0 || value === null ? "" : String(value);
+        if (value === void 0 || value === null || typeof value === "object") return "";
+        return String(value);
       }
       return regFn(params);
     };
@@ -7682,7 +7910,13 @@
         resizable: ((_b = col.extra) == null ? void 0 : _b.resizable) !== false,
         suppressSizeToFit: ((_c = col.extra) == null ? void 0 : _c.suppress_size_to_fit) === true,
         enableCellTextSelection: true,
-        tooltipField: field
+        tooltipValueGetter: (params) => {
+          var _a2, _b2;
+          if (((_a2 = col.extra) == null ? void 0 : _a2.tooltips) === false || ((_b2 = col.extra) == null ? void 0 : _b2.suppressTooltips) === true) return null;
+          const value = isRecord5(params) ? params.value : void 0;
+          if (value === null || value === void 0 || value === "" || typeof value === "object") return null;
+          return String(value);
+        }
       };
       if (agFilter === "customExprFilter") def.columnFilter = exprColumnFilterKind(col);
       if (col.pinned === "left" || col.pinned === "right") def.pinned = col.pinned;
@@ -7708,10 +7942,12 @@
         def.minWidth = 200;
       }
       if (rendererId) def.cellRenderer = wrapRegisteredRenderer(rendererId);
-      if (col.extra && Object.keys(col.extra).length > 0 || col.currencyFormatter) {
+      const hasDateTimeFormatter = col.dateTimeFormatter !== void 0 && col.dateTimeFormatter !== null && (col.type === "date" || col.type === "datetime");
+      if (col.extra && Object.keys(col.extra).length > 0 || col.currencyFormatter || hasDateTimeFormatter) {
         def.cellRendererParams = {
           ...col.extra,
-          ...col.currencyFormatter ? { currencyFormatter: col.currencyFormatter } : {}
+          ...col.currencyFormatter ? { currencyFormatter: col.currencyFormatter } : {},
+          ...hasDateTimeFormatter ? { dateTimeFormatter: col.dateTimeFormatter } : {}
         };
         if (((_j = col.extra) == null ? void 0 : _j.flex) != null) def.flex = Number(col.extra.flex);
         const cellClass = (_k = col.extra) == null ? void 0 : _k.cell_class;
@@ -7874,7 +8110,11 @@
           // Always render the unsorted (⇅) indicator, matching SimpleTable's
           // always-visible sort glyph next to the filter control.
           unSortIcon: true,
-          tooltipValueGetter: (p) => p.value
+          tooltipValueGetter: (params) => {
+            const value = isRecord5(params) ? params.value : void 0;
+            if (value === null || value === void 0 || value === "" || typeof value === "object") return null;
+            return String(value);
+          }
         },
         localeText: g.AG_GRID_LOCALE_UK || {},
         getRowId: (params) => {
@@ -8235,8 +8475,10 @@
       registerRenderer,
       formatCurrencyParts,
       registerCommit,
+      registerDrop,
       registerAction,
       invokeCommit,
+      invokeDrop,
       invokeAction,
       openGallery: openGalleryLightbox,
       closeGallery: closeGalleryLightbox,
@@ -8737,13 +8979,13 @@
   }
 
   // src/column-settings/helpers.ts
-  function colT(key, fallback) {
+  function colT(key, fallback2) {
     const catalog2 = window.GridViewI18n;
     if (catalog2 && catalog2[key]) {
       const val = catalog2[key];
       if (val && val !== key) return val;
     }
-    return fallback;
+    return fallback2;
   }
   function portColSelectorPanel(panel) {
     if (panel.dataset.cmColSelectorPortaled === "1") return panel;
@@ -8862,7 +9104,7 @@
   // src/column-settings/page-state.ts
   var WIDTH_PATTERN = /^\d+(?:\.\d+)?(?:px|%|rem|em|vw|vh)?$/i;
   var FORBIDDEN_KEYS = /* @__PURE__ */ new Set(["__proto__", "constructor", "prototype"]);
-  function isRecord5(value) {
+  function isRecord6(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function isSafeKey2(key) {
@@ -8885,7 +9127,7 @@
     }
   }
   function isJsonRecord(value) {
-    return isRecord5(value) && isJsonValue(value);
+    return isRecord6(value) && isJsonValue(value);
   }
   function normalizeWidth(value) {
     if (value == null) return null;
@@ -8899,7 +9141,7 @@
     const seen = /* @__PURE__ */ new Set();
     const normalized = [];
     for (const raw of value) {
-      if (!isRecord5(raw) || typeof raw.colId !== "string") return null;
+      if (!isRecord6(raw) || typeof raw.colId !== "string") return null;
       const colId = raw.colId.trim();
       if (!colId || colId.length > 256 || seen.has(colId)) return null;
       seen.add(colId);

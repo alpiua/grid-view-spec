@@ -87,7 +87,13 @@ export class AgGridHost implements GridHandle {
     if (this.gridOptions.columnDefs) {
       this.gridOptions.columnDefs.forEach((col) => {
         if (col.field && !col.tooltipField && !col.tooltipValueGetter) {
-          col.tooltipField = col.field;
+          col.tooltipValueGetter = (params: unknown) => {
+            if (col.tooltips === false || col.cellRendererParams?.tooltips === false || col.extra?.tooltips === false) return null;
+            if (col.cellRendererParams?.suppressTooltips === true) return null;
+            const value = isJsonRecord(params) ? params.value : undefined;
+            if (value === null || value === undefined || value === "" || typeof value === "object") return null;
+            return String(value);
+          };
         }
       });
     }

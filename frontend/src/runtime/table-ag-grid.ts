@@ -199,7 +199,8 @@ function wrapRegisteredRenderer(rendererId: string): (params: unknown) => string
         typeof params === "object" && params !== null && "value" in params
           ? params.value
           : params;
-      return value === undefined || value === null ? "" : String(value);
+      if (value === undefined || value === null || typeof value === "object") return "";
+      return String(value);
     }
     return regFn(params as Record<string, unknown>);
   };
@@ -222,7 +223,12 @@ function buildColumnDefsFromSpec(columns: AgGridSpecColumn[]): Record<string, un
       resizable: col.extra?.resizable !== false,
       suppressSizeToFit: col.extra?.suppress_size_to_fit === true,
       enableCellTextSelection: true,
-      tooltipField: field,
+      tooltipValueGetter: (params: unknown) => {
+        if (col.extra?.tooltips === false || col.extra?.suppressTooltips === true) return null;
+        const value = isRecord(params) ? params.value : undefined;
+        if (value === null || value === undefined || value === "" || typeof value === "object") return null;
+        return String(value);
+      },
     };
     // flag numeric columns server-side (so empty = 0/null, not blank/dash).
     if (agFilter === "customExprFilter") def.columnFilter = exprColumnFilterKind(col);
@@ -459,7 +465,11 @@ function bootFromSpecConfig(config: AgGridSpecConfig): void {
         // Always render the unsorted (⇅) indicator, matching SimpleTable's
         // always-visible sort glyph next to the filter control.
         unSortIcon: true,
-        tooltipValueGetter: (p: unknown) => (p as Record<string, unknown>).value,
+        tooltipValueGetter: (params: unknown) => {
+          const value = isRecord(params) ? params.value : undefined;
+          if (value === null || value === undefined || value === "" || typeof value === "object") return null;
+          return String(value);
+        },
       },
       localeText: (g as Record<string, unknown>).AG_GRID_LOCALE_UK || {},
       getRowId: (params: { data?: Record<string, unknown> }) => {

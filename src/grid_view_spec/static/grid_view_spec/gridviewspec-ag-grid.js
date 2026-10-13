@@ -549,7 +549,14 @@
       if (this.gridOptions.columnDefs) {
         this.gridOptions.columnDefs.forEach((col) => {
           if (col.field && !col.tooltipField && !col.tooltipValueGetter) {
-            col.tooltipField = col.field;
+            col.tooltipValueGetter = (params) => {
+              var _a2, _b, _c;
+              if (col.tooltips === false || ((_a2 = col.cellRendererParams) == null ? void 0 : _a2.tooltips) === false || ((_b = col.extra) == null ? void 0 : _b.tooltips) === false) return null;
+              if (((_c = col.cellRendererParams) == null ? void 0 : _c.suppressTooltips) === true) return null;
+              const value = isJsonRecord(params) ? params.value : void 0;
+              if (value === null || value === void 0 || value === "" || typeof value === "object") return null;
+              return String(value);
+            };
           }
         });
       }
@@ -1131,8 +1138,14 @@
   var AgGridTooltip = class {
     init(params) {
       const eGui = document.createElement("div");
+      const value = params.value;
+      const val = value === null || value === void 0 || typeof value === "object" ? "" : String(value).trim();
       eGui.className = "cm-ellipsis-tip cm-ellipsis-tip--floating";
-      eGui.textContent = params.value ? params.value : "No data";
+      if (!val) {
+        eGui.style.display = "none";
+      } else {
+        eGui.textContent = val;
+      }
       this.eGui = eGui;
     }
     getGui() {

@@ -1,7 +1,6 @@
 # grid-view-spec — Agent Router
 
-Planning and portfolio-state requests load global `planner`, then
-[`.agents/skills/planner/ADDON.md`](.agents/skills/planner/ADDON.md).
+Plan, milestone, and documentation rules are in [docs/AGENTS.md](docs/AGENTS.md).
 
 No `git commit`, `git push`, `git checkout <file>`, or `git restore` without
 explicit user approval.
@@ -12,10 +11,14 @@ Load `close-review-findings` before fixing a defect or closing a review,
 Repository-specific additions belong in `.agents/skills/<skill>/ADDON.md`; they
 must extend, not shadow, the global base skill.
 
+Claim and submit commands are in [docs/runbooks/acdd.md](docs/runbooks/acdd.md).
+Load `contextunity-forge` before code discovery or task operations, then follow the claim's `workflow_guidance`.
+
 ## Routes
 
 - Architecture: [gridviewspec-architecture.md](docs/maintainers/gridviewspec-architecture.md).
-- Docs: [.agents/skills/grid-view-spec-docs/SKILL.md](.agents/skills/grid-view-spec-docs/SKILL.md).
+- Documentation authoring: [docs/AGENTS.md](docs/AGENTS.md).
+- Package use: [.agents/skills/grid-view-spec-docs/SKILL.md](.agents/skills/grid-view-spec-docs/SKILL.md).
 - Behavior: global `close-review-findings` and `test-contract-seam`.
 - Quality: [code-quality.md](../../contextunity/docs/architecture/code-quality.md).
 
@@ -30,11 +33,11 @@ recheck them when scope or ownership changes, and verify the change against
 them during review.
 
 ```bash
-uv run ruff check src/grid_view_spec tests
-uv run basedpyright --warnings src/grid_view_spec tests
-uv run pytest -q
+./scripts/ci-gate.sh
 ```
 
+- Always ensure `./scripts/ci-gate.sh` passes cleanly (including `ruff format --check`, `ruff check`, and `basedpyright`) on the `build` gate.
+- Strict ACDD snapshot immutability: do not edit or reformat files during `deliver` or after `review`. A worktree change relative to the accepted candidate snapshot triggers `TASK_CANDIDATE_MISMATCH`. If delivery fails, preserve local changes and prepare a candidate-matching worktree before retrying; do not overwrite files without explicit user approval.
 - Boundaries: no `Any`, `cast`, pyright ignore; use narrowing/`TypeGuard`/
   `Protocol`/`TypedDict`/`JsonValue`.
 - Use English-only gettext msgids and JavaScript i18n keys; keep translated text

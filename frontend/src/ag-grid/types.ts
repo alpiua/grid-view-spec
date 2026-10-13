@@ -26,7 +26,9 @@ export interface AgGridColumnDef {
   children?: AgGridColumnDef[];
   menuGroup?: string;
   contextGroup?: string;
-  cellRendererParams?: { menuGroup?: string };
+  cellRendererParams?: { menuGroup?: string; tooltips?: boolean; suppressTooltips?: boolean };
+  tooltips?: boolean;
+  extra?: { tooltips?: boolean; [key: string]: unknown };
   tooltipField?: string;
   tooltipValueGetter?: unknown;
   filterMatch?: FilterMatch;
@@ -177,7 +179,7 @@ export interface ExprFilterAgModel {
 }
 
 export interface AgGridTooltipInitParams {
-  value?: string;
+  value?: unknown;
 }
 
 export function readSearchInputValue(el: HTMLElement | null): string {

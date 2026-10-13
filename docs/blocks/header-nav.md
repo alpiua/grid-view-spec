@@ -73,13 +73,54 @@ GridViewNav(
 Register `create_resource` through `GridView.registerAction`; navigation markup never
 contains inline event handlers.
 
-Tree drag and drop is enabled with `extra={"allow_drag": True}`. On drop, the browser
-runtime emits a cancelable `cm:nav-item-drop` event with `sourceId`, `targetId`,
-`position`, `sourceNode`, and `targetNode`. If a listener calls `preventDefault()`,
-the node stays in place. Otherwise, the runtime moves it in the DOM and updates
-`data-parent-id`: a child dropped on a root branch moves inside it even when it
-is empty, a node dropped on a nested leaf moves after it, and root nodes dropped
-on root nodes reorder at the root.
-`extra={"root_drop_label": "Root"}` enables a root drop zone for moving children
-back to the root. The host validates and persists the new hierarchy, and restores
-the rendered tree if persistence fails.
+Tree drag and drop uses a named host action. The spec contains only JSON data:
+
+```python
+GridViewNav(
+    id="resource_tree",
+    presentation="tree",
+    levels=(
+        GridViewNavLevel(level=0, type="group", draggable=True, droppable=True,
+                         accept_drop_types=("group", "resource")),
+        GridViewNavLevel(level=1, type="resource", draggable=True, droppable=False),
+    ),
+    items=items,
+    extra={"allow_drag": True, "drop_action": "resources.move"},
+)
+```
+
+Register the handler once in a host JavaScript module, before the first drop:
+
+```javascript
+GridView.registerDrop("resources.move", async ({ sourceId, targetId, position }) => {
+  const response = await fetch("/resources/move/", {
+    method: "POST",
+    headers: { "X-CSRFToken": csrfToken() },
+    body: new URLSearchParams({ source_id: sourceId, target_id: targetId, position }),
+  });
+  return response.ok;
+});
+```
+
+The host owns authorization, validation, persistence, and refresh when server
+ordering differs from the requested placement. GVS uses `GridViewNavLevel`
+(`draggable`, `droppable`, `accept_drop_types`, and `can_have_children`) to
+allow only declared sources and targets, including empty branches. It awaits the handler and moves the DOM
+only when the handler returns `true`; a missing handler, `false`, or an exception
+leaves the tree unchanged. `position` is `inside` or `after` for current tree
+targets. `extra={"root_drop_label": "Root"}` enables a root drop zone with
+`targetId="root"` and `position="inside"`.
+
+While dragging, GVS outlines the whole target subtree for `inside`, including
+its child content, or draws a line across the subtree's lower edge for `after`.
+The zone uses a faint fill and thin strokes; the title row itself is not
+highlighted. The root drop zone uses a similarly light outline.
+
+The runtime also emits the cancelable `cm:nav-item-drop` event for existing
+hosts. A listener can call `preventDefault()` synchronously. For new hosts,
+prefer `drop_action` so an asynchronous write cannot move the tree before it
+finishes. The drop configuration contains no URL, HTTP method, or executable callback.
+
+This contract moves nodes within one `GridViewNav` tree. Dropping a table row,
+file, or host-rendered item onto another component uses the host's own
+interaction until that source and target have a separate GVS contract.

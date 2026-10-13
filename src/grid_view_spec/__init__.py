@@ -16,7 +16,7 @@ from grid_view_spec.validate import normalize_spec, spec_from_wire, spec_to_wire
 try:
     __version__ = version("grid-view-spec")
 except PackageNotFoundError:
-    __version__ = "2.1.0"
+    __version__ = "2.1.1"
 
 __all__ = [
     "CurrencyFormatter",

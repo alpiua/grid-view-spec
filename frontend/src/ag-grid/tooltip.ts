@@ -5,8 +5,15 @@ export class AgGridTooltip {
 
   init(params: AgGridTooltipInitParams): void {
     const eGui = document.createElement("div");
+    const value = params.value;
+    const val =
+      value === null || value === undefined || typeof value === "object" ? "" : String(value).trim();
     eGui.className = "cm-ellipsis-tip cm-ellipsis-tip--floating";
-    eGui.textContent = params.value ? params.value : "No data";
+    if (!val) {
+      eGui.style.display = "none";
+    } else {
+      eGui.textContent = val;
+    }
     this.eGui = eGui;
   }
 

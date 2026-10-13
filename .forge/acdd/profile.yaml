@@ -1,0 +1,19 @@
+# Workspace override. Unspecified gates, commands, policies, and contours use
+# the embedded defaults compiled into contextunity-forge-mcp.
+commands:
+  test:
+    command: "./scripts/ci-gate.sh"
+    description: "Repository CI gate script covering ruff format/check, basedpyright, pytest, and frontend conformance."
+  pytest:
+    command: "uv run pytest"
+    description: "Registered pytest command retained for existing task proof records."
+roles:
+  builder:
+    models:
+      - 'gpt6-luna:xhigh'
+  independent_reviewer:
+    mode: subagent
+    reuse_on_reject: true
+    models:
+      - 'sol-6.1:high'
+    guidance: "Use a reviewer worker that is independent from the task builder."

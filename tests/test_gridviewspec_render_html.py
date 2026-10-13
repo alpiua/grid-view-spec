@@ -152,10 +152,18 @@ def test_filter_drawer_renders_filter_search_and_target_settings_tab() -> None:
         layout=GridViewLayout(root=GridViewArea(id="root", blocks=(filters.id, table.id))),
     )
 
-    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+    html = render_grid_view_spec(
+        spec,
+        (),
+        host=InMemoryHost(translations={"filter.workspace_search": "Search filter"}),
+        backend="html",
+    )
 
     assert 'data-cm-filter-drawer-id="record_filters"' in html
     assert "data-cm-filter-drawer-search" in html
+    assert re.search(
+        r'<input[^>]*data-cm-filter-drawer-search[^>]*placeholder="Search filter"', html
+    )
     assert "data-cm-filter-drawer-close-label" in html
     assert 'data-cm-filter-drawer-tab="settings"' in html
     assert 'data-cm-filter-drawer-settings data-cm-grid-id="records"' in html
@@ -222,13 +230,21 @@ def test_workspace_filter_drawer_renders_grouped_cards_and_canonical_filter_bar(
         layout=GridViewLayout(root=GridViewArea(id="root", blocks=(filters.id, table.id))),
     )
 
-    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+    html = render_grid_view_spec(
+        spec,
+        (),
+        host=InMemoryHost(translations={"filter.workspace_search": "Search filter"}),
+        backend="html",
+    )
 
     assert "data-cm-filter-drawer-workspace" in html
     assert "data-cm-filter-bar" in html
     assert 'data-cm-filter-workspace-panel="filters"' in html
     assert 'data-cm-filter-workspace-panel="settings"' in html
     assert "data-cm-filter-workspace-search" in html
+    assert re.search(
+        r'<input[^>]*data-cm-filter-workspace-search[^>]*placeholder="Search filter"', html
+    )
     assert "data-cm-filter-tree-node" in html
     assert 'data-filter-param="view"' in html
     assert re.search(r'<input[^>]*value="tents"[^>]*checked', html)

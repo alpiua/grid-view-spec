@@ -1,4 +1,16 @@
+---
+title: "Changelog"
+doc_type: guide
+---
+
 # Changelog
+
+## 2.1.1 — 2026-10-13
+
+### Added
+
+- AG Grid date and datetime columns support `DateTimeFormatter` with escaped
+  invalid-value fallbacks and locale-aware rendering.
 
 ## 2.1.0
 

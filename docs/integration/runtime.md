@@ -16,6 +16,7 @@ After HTMX swaps: `GridView.bootScope(swappedElement)`.
 | `GridView.registerRenderer` | Custom cell renderer |
 | `GridView.registerEditor` | Custom cell editor |
 | `GridView.registerCommit` | Edit commit hook |
+| `GridView.registerDrop` | Async named tree drop handler; return `true` only after the host persists the move |
 | `GridView.AgGrid.createInfiniteDatasource` | AG-Grid data blocks |
 | `GridView.AgGrid.syncExportHref` | Live export column sync |
 

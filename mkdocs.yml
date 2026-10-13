@@ -129,7 +129,7 @@ nav:
       - Host dependency policy: guides/host-dependency-policy.md
   - Architecture (maintainers):
       - Architecture: maintainers/gridviewspec-architecture.md
-      - Table backend parity plan: maintainers/table-backend-parity-plan.md
+      - Table backend parity plan: plans/archived/table-backend-parity-plan.md
   - Changelog: changelog.md
   - LLM context:
       - Download bundle: llm/context.md

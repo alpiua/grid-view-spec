@@ -8,3 +8,30 @@
     margin-top: var(--cm-block-gap);
 }
 
+/* Cover the target subtree, not just its title row. */
+.cm-nav-tree-node.cm-tree-drop-inside,
+.cm-nav-tree-node.cm-tree-drop-after {
+    position: relative;
+}
+
+.cm-nav-tree-node.cm-tree-drop-inside::after,
+.cm-nav-tree-node.cm-tree-drop-after::after {
+    content: "";
+    position: absolute;
+    z-index: 2;
+    pointer-events: none;
+}
+
+.cm-nav-tree-node.cm-tree-drop-inside::after {
+    inset: 0;
+    border: 1px dashed rgba(99, 102, 241, 0.45);
+    border-radius: 0.375rem;
+    background: rgba(99, 102, 241, 0.035);
+}
+
+.cm-nav-tree-node.cm-tree-drop-after::after {
+    right: 0;
+    bottom: 0;
+    left: 0;
+    border-bottom: 1px solid rgba(99, 102, 241, 0.55);
+}

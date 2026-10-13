@@ -3,7 +3,7 @@
     display: grid;
     align-content: start;
     min-height: 0;
-    gap: 12px;
+    gap: 8px;
 }
 
 .cm-filter-drawer-workspace-cards {
@@ -26,7 +26,6 @@
 .cm-filter-drawer-card-heading,
 .cm-filter-drawer-option,
 .cm-filter-drawer-toggle,
-.cm-filter-drawer-workspace-search,
 .cm-filter-drawer-card-search {
     display: flex;
     align-items: center;
@@ -83,15 +82,6 @@
     text-decoration: underline;
 }
 
-.cm-filter-drawer-workspace-search {
-    gap: 7px;
-    min-height: 32px;
-    padding: 0 8px;
-    color: var(--cm-muted);
-    border: 1px solid var(--cm-border);
-    border-radius: 7px;
-}
-
 .cm-filter-drawer-card-search {
     gap: 7px;
     min-height: 30px;
@@ -106,12 +96,6 @@
     box-shadow: 0 0 0 2px color-mix(in srgb, var(--cm-primary) 14%, transparent);
 }
 
-.cm-filter-drawer-workspace-search:focus-within {
-    border-color: var(--cm-primary);
-    box-shadow: 0 0 0 2px color-mix(in srgb, var(--cm-primary) 14%, transparent);
-}
-
-.cm-filter-drawer-workspace-search input,
 .cm-filter-drawer-card-search input {
     width: 100%;
     min-width: 0;

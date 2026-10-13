@@ -6,7 +6,6 @@ Single markdown file with **all user-facing documentation** for this package —
 
 | Source | Link |
 |--------|------|
-| **Bundle file (docs site)** | [**grid-view-spec-llm-context.md**](grid-view-spec-llm-context.md) |
 | **Bundle file (GitHub Pages)** | [grid-view-spec-llm-context.md](https://alpiua.github.io/grid-view-spec/llm/grid-view-spec-llm-context.md) |
 | **Path in repository** | `docs/llm/grid-view-spec-llm-context.md` |
 

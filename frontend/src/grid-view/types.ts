@@ -3,7 +3,7 @@
 import type { ChartRuntimeDict, RowDict } from "../types/chart-bind";
 import type { KpiSpecDict, ResolvedKpiDict } from "../types/kpi-bind";
 import type { PageStateApi } from "../page-state/types";
-import type { GridActionContext } from "./registry-api";
+import type { GridActionContext, GridDropContext, GridDropHandler } from "./registry-api";
 import type { CurrencyParts } from "../runtime/renderers/builtins";
 
 export type FilterState = Record<string, string | string[]>;
@@ -167,6 +167,8 @@ export interface GridViewPublic {
     name: string,
     fn: (ctx: GridActionContext) => void
   ) => void;
+  registerDrop: (name: string, fn: GridDropHandler) => void;
+  invokeDrop: (name: string, ctx: GridDropContext) => Promise<boolean>;
   invokeCommit: (
     name: string,
     ctx: {

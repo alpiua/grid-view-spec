@@ -32,8 +32,10 @@ import { boot, bootScope } from "../runtime/boot";
 import {
   invokeAction,
   invokeCommit,
+  invokeDrop,
   registerAction,
   registerCommit,
+  registerDrop,
   registerRenderer,
 } from "./registry-api";
 import { initTableEdit } from "./table-edit";
@@ -94,8 +96,10 @@ export function createGridView(): GridViewPublic {
     registerRenderer,
     formatCurrencyParts,
     registerCommit,
+    registerDrop,
     registerAction,
     invokeCommit,
+    invokeDrop,
     invokeAction,
     openGallery: openGalleryLightbox,
     closeGallery: closeGalleryLightbox,

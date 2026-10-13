@@ -4,6 +4,8 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.1.1] — 2026-10-13
+
 ### Added
 
 - AG Grid date and datetime columns support `DateTimeFormatter` with escaped
@@ -95,3 +97,4 @@ All notable changes to this project are documented here.
 [2.0.3]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.0.3
 [2.0.4]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.0.4
 [2.1.0]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.0
+[2.1.1]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.1

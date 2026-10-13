@@ -134,7 +134,7 @@ msgid "filter.list_search"
 msgstr "Search…"
 
 msgid "filter.workspace_search"
-msgstr "Search filters"
+msgstr "Search filter"
 
 msgid "filter.empty_mode_hint"
 msgstr "Showing rows with empty cells"

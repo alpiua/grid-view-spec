@@ -1,9 +1,16 @@
+---
+title: "Table backend visual parity"
+doc_type: plan
+status: done
+area: gridviewspec
+---
+
 # Table Backend Visual Parity Plan
 
-> **Status:** Implemented (2026-06). The token bridge, shared surface, and AG-Grid theme
+> **Status:** done (2026-06). The token bridge, shared surface, and AG-Grid theme
 > (`gridviewspec-ag-grid-theme.min.css`, loaded after AG vendor CSS) are shipped. Hosts override
 > `--cm-*` / `--cm-table-*` tokens to theme both backends — see
-> [Theming with CSS tokens](../integration/theming.md). The sections below remain as the design
+> [Theming with CSS tokens](../../integration/theming.md). The sections below remain as the design
 > record for the work that landed.
 
 Goal: `GridViewTable(backend="simple")` and `GridViewTable(backend="ag_grid")` must look and behave like one table component with two data engines.

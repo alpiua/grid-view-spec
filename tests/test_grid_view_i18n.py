@@ -44,6 +44,7 @@ class GridViewI18nTests(SimpleTestCase):
         self.assertEqual(catalog["filter.only_empty"], "Порожні")
         self.assertEqual(catalog["filter.non_empty"], "Не порожні")
         self.assertEqual(catalog["filter.list_search"], "Пошук…")
+        self.assertEqual(catalog["filter.workspace_search"], "Пошук фільтра")
         self.assertEqual(catalog["filter.value_count"], "%(count)s значень")
         self.assertEqual(catalog["column_filter.placeholder"], "слово1 +слово2, 10..20")
         self.assertIn("column_filter.placeholder_text", catalog)

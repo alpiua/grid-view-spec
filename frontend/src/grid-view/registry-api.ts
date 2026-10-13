@@ -22,11 +22,23 @@ export type GridCommitHandler = (
   ctx: GridCommitContext
 ) => void | boolean | Promise<void | boolean>;
 
+export type GridDropContext = {
+  treeId: string;
+  sourceId: string;
+  targetId: string;
+  sourceType: string;
+  targetType: string;
+  position: "inside" | "before" | "after";
+};
+
+export type GridDropHandler = (ctx: GridDropContext) => boolean | Promise<boolean>;
+
 export type GridActionHandler = (ctx: GridActionContext) => void;
 
 const _renderers = new Map<string, (ctx: Record<string, unknown>) => string | HTMLElement>();
 const _commits = new Map<string, GridCommitHandler>();
 const _actions = new Map<string, GridActionHandler>();
+const _drops = new Map<string, GridDropHandler>();
 
 export function registerRenderer(
   name: string,
@@ -44,6 +56,21 @@ export function registerCommit(name: string, fn: GridCommitHandler): void {
 export function registerAction(name: string, fn: GridActionHandler): void {
   if (!name || typeof fn !== "function") return;
   _actions.set(name, fn);
+}
+
+export function registerDrop(name: string, fn: GridDropHandler): void {
+  if (!name || typeof fn !== "function") return;
+  _drops.set(name, fn);
+}
+
+export async function invokeDrop(name: string, ctx: GridDropContext): Promise<boolean> {
+  const fn = _drops.get(name);
+  if (typeof fn !== "function") return false;
+  try {
+    return (await fn(ctx)) === true;
+  } catch {
+    return false;
+  }
 }
 
 export function invokeAction(name: string, ctx: GridActionContext): void {
