@@ -10,7 +10,7 @@ from __future__ import annotations
 import json
 from collections.abc import Mapping, Sequence
 
-from grid_view_spec.types.formatters import CurrencyFormatter
+from grid_view_spec.types.formatters import CurrencyFormatter, DateTimeFormatter
 from grid_view_spec.types.json import JsonObject, JsonValue
 from grid_view_spec.types.table_v2 import GridViewTable
 
@@ -30,6 +30,17 @@ def currency_formatter_config(formatter: CurrencyFormatter) -> JsonObject:
     if formatter.precision_by_currency:
         config["precisionByCurrency"] = dict(formatter.precision_by_currency)
     return config
+
+
+def date_time_formatter_config(formatter: DateTimeFormatter) -> JsonObject:
+    """Serialize one date and time policy for AG Grid columns."""
+    return {
+        "format": formatter.format,
+        "locale": formatter.locale,
+        "timezone": formatter.timezone,
+        "emptyValue": formatter.empty_value,
+        "strict": formatter.strict,
+    }
 
 
 def ag_grid_spec_config(
@@ -71,6 +82,11 @@ def ag_grid_spec_config(
                 **(
                     {"currencyFormatter": currency_formatter_config(col.currency_formatter)}
                     if col.currency_formatter is not None
+                    else {}
+                ),
+                **(
+                    {"dateTimeFormatter": date_time_formatter_config(col.date_time_formatter)}
+                    if col.type in {"date", "datetime"} and col.date_time_formatter is not None
                     else {}
                 ),
             }
@@ -124,4 +140,7 @@ def ag_grid_spec_config_json(
     searches: Sequence[str] = (),
 ) -> str:
     """Serialize :func:`ag_grid_spec_config` to a JSON string for the template."""
-    return json.dumps(ag_grid_spec_config(block, block_id, presets=presets, searches=searches))
+    serialized = json.dumps(
+        ag_grid_spec_config(block, block_id, presets=presets, searches=searches)
+    )
+    return serialized.replace("&", "\\u0026").replace("<", "\\u003c").replace(">", "\\u003e")

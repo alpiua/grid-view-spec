@@ -113,6 +113,7 @@ interface AgGridSpecColumn {
   hidden?: boolean;
   type?: string;
   renderer?: string;
+  dateTimeFormatter?: unknown;
   currencyFormatter?: {
     currency: string;
     locale: string;
@@ -181,6 +182,11 @@ function exprColumnFilterKind(col: AgGridSpecColumn): "numeric" | "text" {
 
 function resolveRendererId(col: AgGridSpecColumn): string {
   if (col.renderer) return col.renderer;
+  if (
+    col.dateTimeFormatter !== undefined &&
+    col.dateTimeFormatter !== null &&
+    (col.type === "date" || col.type === "datetime")
+  ) return "dateTimeRenderer";
   if (col.type === "currency") return "money";
   return "";
 }
@@ -243,10 +249,15 @@ function buildColumnDefsFromSpec(columns: AgGridSpecColumn[]): Record<string, un
       def.minWidth = 200;
     }
     if (rendererId) def.cellRenderer = wrapRegisteredRenderer(rendererId);
-    if ((col.extra && Object.keys(col.extra).length > 0) || col.currencyFormatter) {
+    const hasDateTimeFormatter =
+      col.dateTimeFormatter !== undefined &&
+      col.dateTimeFormatter !== null &&
+      (col.type === "date" || col.type === "datetime");
+    if ((col.extra && Object.keys(col.extra).length > 0) || col.currencyFormatter || hasDateTimeFormatter) {
       def.cellRendererParams = {
         ...col.extra,
         ...(col.currencyFormatter ? { currencyFormatter: col.currencyFormatter } : {}),
+        ...(hasDateTimeFormatter ? { dateTimeFormatter: col.dateTimeFormatter } : {}),
       };
       if (col.extra?.flex != null) def.flex = Number(col.extra.flex);
       const cellClass = col.extra?.cell_class;

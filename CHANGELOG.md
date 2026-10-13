@@ -4,6 +4,11 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+### Added
+
+- AG Grid date and datetime columns support `DateTimeFormatter` with escaped
+  invalid-value fallbacks and locale-aware rendering.
+
 ## [2.1.0]
 
 ### Added

@@ -233,29 +233,69 @@ receipt:
 
 ```yaml
 task_ref: ag-grid-renderer
-target: >
-  Emit camelCase dateTimeFormatter only for configured date and datetime
-  columns, forward it through static and columnSource column defs, and
-  register one dateTimeRenderer. Match the Python layouts with
-  Intl.DateTimeFormat. On the client, invalid input renders escaped
-  emptyValue and does not throw. Keep a hostile empty_value inside one inert
-  JSON script. Preserve an explicit custom renderer, the unconfigured date
-  builtin, and host columnsVar definitions. Prove the boot JSON in
-  tests/test_ag_grid_spec_config.py and the booted column-def plus cell
-  output in frontend/scripts/conformance-entry.ts. Refresh the checked-in
-  package bundle only when the owner build procedure requires it.
+target: |
+  Emit camelCase dateTimeFormatter only for configured date and datetime columns, forward it through static and columnSource column defs, and register one dateTimeRenderer. Match the Python layouts with Intl.DateTimeFormat. On the client, invalid input renders escaped emptyValue and does not throw. Keep a hostile empty_value inside one inert JSON script. Preserve an explicit custom renderer, the unconfigured date builtin, and host columnsVar definitions. Prove the boot JSON in tests/test_ag_grid_spec_config.py and the booted column-def plus cell output in frontend/scripts/conformance-entry.ts. Refresh the checked-in package bundle only when the owner build procedure requires it.
 proof_policy: seam-test-first
 contract_revision: 1
 depends_on:
-  - column-wire
-  - ssr-cells
+- column-wire
+- ssr-cells
 scope:
-  - src/grid_view_spec/render/ag_grid.py
-  - src/grid_view_spec/templates/grid_view/spec/table.html
-  - frontend/src/runtime/table-ag-grid.ts
-  - frontend/src/runtime/renderers/date-time.ts
-  - frontend/src/runtime/renderers/builtins.ts
-  - frontend/scripts/conformance-entry.ts
-  - tests/test_ag_grid_spec_config.py
-  - CHANGELOG.md
+- src/grid_view_spec/render/ag_grid.py
+- src/grid_view_spec/templates/grid_view/spec/table.html
+- frontend/src/runtime/table-ag-grid.ts
+- frontend/src/runtime/renderers/date-time.ts
+- frontend/src/runtime/renderers/builtins.ts
+- frontend/scripts/conformance-entry.ts
+- tests/test_ag_grid_spec_config.py
+- CHANGELOG.md
+status: completed
+receipt:
+  contract_revision: 1
+  passed_at: 2026-10-13T10:16:52.964498421+00:00
+  evidence:
+    command_proof:
+      command: ./scripts/ci-gate.sh
+      exit_code: 0
+      tests_passed: 555
+      tests_failed: 0
+      log: Full gate passed after the renderer fix. 203 files already formatted; Ruff clean; basedpyright 0 errors, 0 warnings, 0 notes; pytest 555 passed. Frontend ESLint, standard and strict typechecks passed; generated types are up to date; booted JS conformance passed, including 20240305, 20240305T040506, 040506 and equivalent reduced-precision/fraction/offset basic forms; all 9 chart fixtures passed. Pre-fix seam run against the unchanged 4dbdcb2 parser failed at the new 20240305 assertion. Gate-generated LLM bundle delta was removed; candidate status remains within the admitted scope.
+  review:
+    review_proof:
+      decision: pass
+      contours:
+        paths:
+          applicable: true
+          evidence: Snapshot 8151691 contains the nine admitted task paths, including the conformance extension. Every scoped snapshot blob matches the current worktree file hash. Compared with prior snapshot 4dbdcb2, only frontend/src/runtime/renderers/date-time.ts and frontend/scripts/ag-grid-date-time-conformance.ts changed, both admitted. git diff --check against baseline 74d030a4bcd0cde4c9cf403e154d069aeb96ab68 is clean. git status has only the task-scope files; no protected profile, .gitignore, generated docs, or neighboring project paths changed. No source files changed during review.
+        claims:
+          applicable: true
+          evidence: 'The introduced parsing defect is closed through the production boot/cell-renderer path. Blackboard note 4''s three exact cases are asserted: `render(created, "20240305")` -> `05.03.2024`; `render(dynamic, "20240305T040506")` -> `05.03.2024 04:05:06`; `render(clock, "040506")` -> `04:05:06`. The matrix also covers reduced precision (`20240305T0405`, `20240305T04`, `0405`), fractional/offset basic forms, and invalid residuals: `20240230`, `246060`, and `20240305T246060` render escaped configured emptyValue; existing invalid text, corrupt config, and invalid timezone fallback checks remain. Each result calls a renderer from columnDefs produced by `bootAgGridSpecFromDocument` and the shared static/columnSource builder. The accepted full build proof for this same snapshot is `./scripts/ci-gate.sh`, exit 0: 203 files formatted, Ruff clean, basedpyright 0 errors/warnings/notes, pytest 555 passed, frontend ESLint and standard/strict typechecks passed, generated types current, booted JS conformance passed, and all 9 chart fixtures passed. The build record also reports the pre-fix seam run failed at the 20240305 assertion. INV-DT-VALUES and INV-DT-DISPLAY are covered by the basic-form and output-layout assertions; invalid values still use escaped fallback.'
+        concurrency:
+          applicable: false
+          evidence: The fix adds pure parsing of basic ISO components and conformance cases; it introduces no shared persistence, task receipts, locks, transactions, or concurrent workflow operations.
+        project_isolation:
+          applicable: false
+          evidence: The fix introduces no workspace resolution, profile/task paths, symlink traversal, filesystem access, namespaces, or Git behavior. The snapshot is tied to the grid-view-spec worktree and confined to its admitted paths.
+        administration:
+          applicable: false
+          evidence: No schema migration, profile pin, credentials, hook, delivery, deployment, or administrative behavior changed. The full CI gate proof is recorded against snapshot 8151691.
+  decision: pass
+  rollup:
+    verified_invariants:
+    - 'INV-DT-OWNER: DateTimeFormatter and format_datetime_value live in date_time_formatter.py. formatters.py re-exports them and does not implement a second formatter. date-time.ts owns dateTimeRenderer. builtins.ts only imports and registers it.'
+    - 'INV-DT-VALUES: The pure helper accepts native date, time, and datetime, valid ISO 8601 strings, and finite Unix epoch numbers. abs(value) >= 1e11 selects milliseconds; smaller magnitudes select seconds. Naive native and ISO datetimes are UTC before ZoneInfo projection. Date-only and time-only values keep their components. Date-only as time and time-only as date are invalid.'
+    - 'INV-DT-DISPLAY: uk-UA and de-DE dates are DD.MM.YYYY. en-US dates are MM/DD/YYYY. Time is 24-hour HH:mm:ss. Datetime joins date and time with one space. Unsupported locales use uk-UA. Instant-bearing iso is offset ISO 8601 in the target timezone, Z for UTC, with at most three fractional digits. Date-only iso is YYYY-MM-DD. Time-only iso is HH:mm:ss. Date-only datetime appends 00:00:00. Time-only datetime is invalid.'
+    - 'INV-DT-STRICT: None and an empty string return empty_value in both modes. Python strict=True raises ValueError for an invalid value, timezone, or format. strict=False returns empty_value. AG Grid never throws: strict invalid input, a corrupt config, or an invalid timezone renders escaped emptyValue.'
+    - 'INV-DT-WIRE: GridViewColumn.date_time_formatter is optional. Wire uses snake_case. Absent or null decodes as None. A present malformed formatter fails spec_from_wire with INVALID_WIRE. Currency formatter decode stays unchanged. JSON rows stay RowDict scalars; native temporal objects are accepted only by the pure helper.'
+    - 'INV-DT-SSR: A configured date or datetime column formats row and footer cells before generic empty handling, so empty_value survives. Unconfigured date cells stay escaped raw values. Currency and inline-edit paths stay unchanged.'
+    - 'INV-DT-GRID: A configured date or datetime column emits camelCase dateTimeFormatter and selects dateTimeRenderer. An explicit custom renderer stays selected and still receives the config. The unconfigured date builtin stays. Host columnsVar definitions are not rewritten. A hostile empty_value stays inside one inert application/json script and decodes to the original string.'
+    architectural_notes: []
+    review_summary:
+      decision: pass
+      contours:
+        administration: not_applicable
+        claims: accepted
+        concurrency: not_applicable
+        paths: accepted
+        project_isolation: not_applicable
 ```

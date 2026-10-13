@@ -8,9 +8,10 @@ export {
 export { resolveKpis } from "../src/grid-view/kpi";
 export { verifyPageStateContract } from "./page-state-conformance";
 
-import { initBuiltinRenderers } from "../src/runtime/renderers/builtins";
 import { createAgGridColumnAdapter } from "../src/column-settings/ag-grid-adapter";
 import { getRegisteredRenderer } from "../src/grid-view/registry-api";
+import { initBuiltinRenderers } from "../src/runtime/renderers/builtins";
+import { verifyDateTimeRendererContract } from "./ag-grid-date-time-conformance";
 
 export function verifyAgGridColumnStateFallback(): void {
   const adapter = createAgGridColumnAdapter({
@@ -290,3 +291,5 @@ function assertCurrencyRendererContract(): void {
 }
 
 assertCurrencyRendererContract();
+
+await verifyDateTimeRendererContract();

@@ -3,6 +3,7 @@
  */
 import { registerRenderer } from "../../grid-view/registry-api";
 import { serializeConfirmAttribute } from "../../grid-view/action-confirmation";
+import { dateTimeRenderer } from "./date-time";
 
 type AgCellParams = Record<string, unknown> & {
   value?: unknown;
@@ -367,6 +368,7 @@ export function initBuiltinRenderers(): void {
   registerRenderer("link", linkRenderer);
   registerRenderer("badge", badgeRenderer);
   registerRenderer("date", dateRenderer);
+  registerRenderer("dateTimeRenderer", dateTimeRenderer);
   registerRenderer("button", buttonRenderer);
   registerRenderer("image", imageRenderer);
   registerRenderer("thumbnail", thumbnailRenderer);
