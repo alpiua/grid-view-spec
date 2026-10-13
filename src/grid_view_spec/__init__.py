@@ -4,10 +4,12 @@ from importlib.metadata import PackageNotFoundError, version
 
 from grid_view_spec.types import (
     CurrencyFormatter,
+    DateTimeFormatter,
     GridViewBlock,
     GridViewSpec,
     GridViewTable,
     GridViewToolbar,
+    format_datetime_value,
 )
 from grid_view_spec.validate import normalize_spec, spec_from_wire, spec_to_wire, validate_spec
 
@@ -18,11 +20,13 @@ except PackageNotFoundError:
 
 __all__ = [
     "CurrencyFormatter",
+    "DateTimeFormatter",
     "GridViewBlock",
     "GridViewSpec",
     "GridViewTable",
     "GridViewToolbar",
     "__version__",
+    "format_datetime_value",
     "normalize_spec",
     "spec_from_wire",
     "spec_to_wire",

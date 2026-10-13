@@ -1,3 +1,8 @@
+---
+title: "Python types — public import map"
+doc_type: api
+---
+
 # Python types — public import map
 
 Import from **`grid_view_spec`** at host boundaries. Do not copy type trees locally.
@@ -113,6 +118,25 @@ total_column = GridViewColumn(
 
 Rows can provide `<field>_currency` (for example, `amount_currency: "USD"`) to
 select a currency per cell. See [Columns and renderers](../tables/columns.md).
+
+## Date and time formatting
+
+Use the pure `format_datetime_value` helper to format native date and time
+values, ISO strings, or Unix timestamps with an explicit output format, locale,
+and timezone:
+
+```python
+from grid_view_spec import DateTimeFormatter, format_datetime_value
+
+label = format_datetime_value(
+    "2024-03-05T14:05:06Z",
+    DateTimeFormatter(format="datetime", locale="uk-UA", timezone="Europe/Kyiv"),
+)
+```
+
+Naive datetimes are interpreted as UTC. Date-only and time-only values keep
+their components; invalid values return `empty_value` unless `strict=True`, in
+which case formatting raises `ValueError`.
 
 ## Page-state identity
 
