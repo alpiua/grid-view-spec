@@ -4,7 +4,7 @@ title: Date and datetime column formatter
 doc_type: contract
 repository: grid-view-spec
 project: gridviewspec
-status: active
+status: completed
 owners:
 - src/grid_view_spec/types/
 - src/grid_view_spec/render/
@@ -19,6 +19,15 @@ invariants:
 - 'INV-DT-GRID: A configured date or datetime column emits camelCase dateTimeFormatter and selects dateTimeRenderer. An explicit custom renderer stays selected and still receives the config. The unconfigured date builtin stays. Host columnsVar definitions are not rewritten. A hostile empty_value stays inside one inert application/json script and decodes to the original string.'
 depends_on: []
 started_at: 2026-10-13T02:01:28+00:00
+handoff:
+  completed_at: 2026-10-13T10:20:15.850863208+00:00
+  duration: 8h 18m
+  commit: 90ddc649d3b97c905c8a0de5a17696fa265e5a3a
+  verification:
+    command: ./scripts/ci-gate.sh
+    status: passed
+    tests_passed: 555
+    tests_failed: 0
 ---
 
 # Date and datetime column formatter
@@ -50,6 +59,7 @@ scope:
 - docs/reference/python-types.md
 status: completed
 receipt:
+  commit: 7fc0fecf1ed35084cb08c0b0aa709f46c823aa4d
   contract_revision: 1
   passed_at: 2026-10-13T02:58:26.552000699+00:00
   evidence:
@@ -115,6 +125,7 @@ scope:
 - tests/test_gridviewspec_roundtrip.py
 status: completed
 receipt:
+  commit: a157b85187f404587bc4a3d809a7325eba0b96dc
   contract_revision: 1
   passed_at: 2026-10-13T03:16:46.703582215+00:00
   evidence:
@@ -181,6 +192,7 @@ scope:
 - tests/test_datetime_formatter.py
 status: completed
 receipt:
+  commit: 74d030a4bcd0cde4c9cf403e154d069aeb96ab68
   contract_revision: 1
   passed_at: 2026-10-13T03:35:11.938938990+00:00
   evidence:
@@ -251,6 +263,7 @@ scope:
 - CHANGELOG.md
 status: completed
 receipt:
+  commit: 90ddc649d3b97c905c8a0de5a17696fa265e5a3a
   contract_revision: 1
   passed_at: 2026-10-13T10:16:52.964498421+00:00
   evidence:
