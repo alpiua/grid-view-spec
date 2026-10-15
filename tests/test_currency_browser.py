@@ -1,10 +1,6 @@
 """Real-browser currency cells retain row identity and optional symbol colors."""
 
-import shutil
-import subprocess
 from pathlib import Path
-
-import pytest
 
 from grid_view_spec.hosts.memory import InMemoryHost
 from grid_view_spec.render import render_grid_view_spec
@@ -12,12 +8,11 @@ from grid_view_spec.types.formatters import CurrencyFormatter
 from grid_view_spec.types.layout import GridViewArea, GridViewLayout
 from grid_view_spec.types.spec import GridViewSpec
 from grid_view_spec.types.table_v2 import GridViewColumn, GridViewTable
+from tests.browser_testing import require_chromium, run_headless_chromium
 
 
 def test_currency_cells_render_in_browser_with_raw_values(tmp_path: Path) -> None:
-    chromium = shutil.which("chromium")
-    if not chromium:
-        pytest.skip("Chromium is required for browser rendering")
+    chromium = require_chromium()
     bundle = (
         Path(__file__).resolve().parents[1]
         / "src/grid_view_spec/static/grid_view_spec/gridviewspec.js"
@@ -56,22 +51,7 @@ def test_currency_cells_render_in_browser_with_raw_values(tmp_path: Path) -> Non
         "</script></body></html>",
         encoding="utf-8",
     )
-    result = subprocess.run(
-        [
-            chromium,
-            "--headless",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--virtual-time-budget=3000",
-            "--dump-dom",
-            page.as_uri(),
-        ],
-        text=True,
-        capture_output=True,
-        timeout=30,
-        check=False,
-    )
+    result = run_headless_chromium(chromium, page, tmp_path)
     assert result.returncode == 0, result.stderr
     assert 'data-cm-sort-val="1234.5"' in result.stdout
     assert 'style="color:#3b82f6">€</span>' in result.stdout

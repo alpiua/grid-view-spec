@@ -25,6 +25,7 @@ from grid_view_spec.types.layout import GridViewArea, GridViewLayout
 from grid_view_spec.types.spec import GridViewSpec
 from grid_view_spec.types.table_v2 import GridViewColumn, GridViewTable
 from grid_view_spec.types.toolbar import GridViewSearch, GridViewToolbar
+from tests.browser_testing import run_headless_chromium
 
 _ROOT = Path(__file__).resolve().parents[1]
 _FRONTEND = _ROOT / "frontend"
@@ -299,26 +300,14 @@ def _run_browser(
         + "</body></html>",
         encoding="utf-8",
     )
-    result = subprocess.run(
-        [
-            chromium,
-            "--headless",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--no-first-run",
-            "--no-default-browser-check",
-            "--allow-file-access-from-files",
-            "--dump-dom",
-            "--virtual-time-budget=500",
-            f"--user-data-dir={temp_dir / 'chromium-profile'}",
-            page.as_uri() + url_query,
-        ],
-        check=True,
-        capture_output=True,
-        text=True,
-        timeout=30,
+    result = run_headless_chromium(
+        chromium,
+        page,
+        temp_dir,
+        virtual_time_budget=500,
+        url_query=url_query,
     )
+    assert result.returncode == 0, result.stderr
     match = re.search(
         r'<output\b(?=[^>]*id="contract-result")(?=[^>]*data-result="([^"]+)")[^>]*>',
         result.stdout,

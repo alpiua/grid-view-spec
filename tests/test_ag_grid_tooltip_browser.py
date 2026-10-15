@@ -5,17 +5,13 @@ from __future__ import annotations
 import html
 import json
 import re
-import shutil
-import subprocess
 from pathlib import Path
 
-import pytest
+from tests.browser_testing import require_chromium, run_headless_chromium
 
 
 def test_ag_grid_tooltip_keeps_its_skin_and_displays_falsey_scalars(tmp_path: Path) -> None:
-    chromium = shutil.which("chromium")
-    if not chromium:
-        pytest.skip("Chromium is required for browser rendering")
+    chromium = require_chromium()
 
     static = Path(__file__).resolve().parents[1] / "src/grid_view_spec/static/grid_view_spec"
     page = tmp_path / "ag-grid-tooltip.html"
@@ -59,22 +55,7 @@ window.addEventListener("load", () => {{
 """,
         encoding="utf-8",
     )
-    result = subprocess.run(
-        [
-            chromium,
-            "--headless",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--virtual-time-budget=3000",
-            "--dump-dom",
-            page.as_uri(),
-        ],
-        text=True,
-        capture_output=True,
-        timeout=30,
-        check=False,
-    )
+    result = run_headless_chromium(chromium, page, tmp_path)
     assert result.returncode == 0, result.stderr
     match = re.search(r'<pre id="result">(.*?)</pre>', result.stdout, re.S)
     assert match is not None, result.stdout

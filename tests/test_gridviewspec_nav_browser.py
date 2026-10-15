@@ -5,17 +5,14 @@ from __future__ import annotations
 import html
 import json
 import re
-import shutil
-import subprocess
 from pathlib import Path
-
-import pytest
 
 from grid_view_spec.hosts.memory import InMemoryHost
 from grid_view_spec.render import render_grid_view_spec
 from grid_view_spec.types.layout import GridViewArea, GridViewLayout
 from grid_view_spec.types.nav import GridViewNav, GridViewNavItem, GridViewNavLevel
 from grid_view_spec.types.spec import GridViewSpec
+from tests.browser_testing import require_chromium, run_headless_chromium
 
 _SCENARIO = """
 <pre id="result"></pre>
@@ -67,9 +64,7 @@ window.addEventListener("load", () => {
 
 
 def test_tree_drop_moves_dom_and_honors_host_cancellation(tmp_path: Path) -> None:
-    chromium = shutil.which("chromium")
-    if not chromium:
-        pytest.skip("Chromium is required for browser rendering")
+    chromium = require_chromium()
     tree = GridViewNav(
         id="tree",
         presentation="tree",
@@ -103,22 +98,7 @@ def test_tree_drop_moves_dom_and_honors_host_cancellation(tmp_path: Path) -> Non
         f'<html><body>{markup}<script src="{bundle.as_uri()}"></script>{_SCENARIO}</body></html>',
         encoding="utf-8",
     )
-    result = subprocess.run(
-        [
-            chromium,
-            "--headless",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--virtual-time-budget=3000",
-            "--dump-dom",
-            page.as_uri(),
-        ],
-        text=True,
-        capture_output=True,
-        timeout=30,
-        check=False,
-    )
+    result = run_headless_chromium(chromium, page, tmp_path)
     assert result.returncode == 0, result.stderr
     match = re.search(r'<pre id="result">(.*?)</pre>', result.stdout, re.S)
     assert match is not None, result.stdout
@@ -141,9 +121,7 @@ def test_tree_drop_moves_dom_and_honors_host_cancellation(tmp_path: Path) -> Non
 
 
 def test_tree_drop_waits_for_host_and_enforces_level_rules(tmp_path: Path) -> None:
-    chromium = shutil.which("chromium")
-    if not chromium:
-        pytest.skip("Chromium is required for browser rendering")
+    chromium = require_chromium()
     tree = GridViewNav(
         id="tree",
         presentation="tree",
@@ -279,22 +257,7 @@ window.addEventListener("load", async () => {
         f'<html><body>{markup}<script src="{bundle.as_uri()}"></script>{scenario}</body></html>',
         encoding="utf-8",
     )
-    result = subprocess.run(
-        [
-            chromium,
-            "--headless",
-            "--no-sandbox",
-            "--disable-gpu",
-            "--disable-dev-shm-usage",
-            "--virtual-time-budget=3000",
-            "--dump-dom",
-            page.as_uri(),
-        ],
-        text=True,
-        capture_output=True,
-        timeout=30,
-        check=False,
-    )
+    result = run_headless_chromium(chromium, page, tmp_path)
     assert result.returncode == 0, result.stderr
     match = re.search(r'<pre id="result">(.*?)</pre>', result.stdout, re.S)
     assert match is not None, result.stdout
