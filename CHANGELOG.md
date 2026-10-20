@@ -4,6 +4,15 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.1.2] — 2026-10-20
+
+### Fixed
+
+- Filter navigation records the active spec id in browser history so Back and Forward restore the
+  correct grid view.
+- AG Grid applies saved browser filters and URL filters during grid creation to avoid a duplicate
+  datasource refresh; URL state takes precedence when both are present.
+
 ## [2.1.1] — 2026-10-13
 
 ### Added
@@ -98,3 +107,4 @@ All notable changes to this project are documented here.
 [2.0.4]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.0.4
 [2.1.0]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.0
 [2.1.1]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.1
+[2.1.2]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.2

@@ -51,6 +51,8 @@ export class AgGridHost implements GridHandle {
   _columnMeta: Record<string, Partial<ColumnMetaInput>>;
   _pageStateAdapter: AgGridPageStateAdapter | null;
   _themeObserverCleanup: ((event?: Event) => void) | null = null;
+  private readonly _configuredInitialState: AgGridHostGridOptions["initialState"];
+  private _filterStateResolvedBeforeCreation = false;
 
   constructor(
     gridId: string,
@@ -63,6 +65,7 @@ export class AgGridHost implements GridHandle {
     this.gridId = gridId;
     this.containerId = containerId;
     this.gridOptions = optionsVar ?? {};
+    this._configuredInitialState = this.gridOptions.initialState;
 
     if (!this.gridOptions.overlayLoadingTemplate) {
       this.gridOptions.overlayLoadingTemplate =
@@ -280,12 +283,24 @@ export class AgGridHost implements GridHandle {
   }
 
   _prepareUrlInitialState(): void {
+    this._filterStateResolvedBeforeCreation = false;
     const urlParams = this._readUrlGridParams();
-    if (!urlParams.hasFilterState) return;
+    const storedFilterState = this._readStoredGridState().filterState;
+    const filterState = urlParams.hasFilterState
+      ? urlParams.filterState ?? {}
+      : storedFilterState;
+    if (filterState === undefined) {
+      this._filterStateResolvedBeforeCreation = true;
+      return;
+    }
     this.gridOptions.initialState = {
       ...this.gridOptions.initialState,
-      filter: { filterModel: urlParams.filterState ?? {} },
+      filter: {
+        ...(this.gridOptions.initialState?.filter ?? { filterModel: {} }),
+        filterModel: filterState,
+      },
     };
+    this._filterStateResolvedBeforeCreation = true;
   }
 
   initGrid(): void {
@@ -321,6 +336,7 @@ export class AgGridHost implements GridHandle {
 
     this._extractColumnMeta();
     this._colSettings = null;
+    this.gridOptions.initialState = this._configuredInitialState;
     this._preparePageState(gridDiv);
     this._prepareUrlInitialState();
 
@@ -440,7 +456,11 @@ export class AgGridHost implements GridHandle {
     const urlParams = this._readUrlGridParams();
     const urlPageState = this._pageStateFromUrl();
     const filterState = urlParams.hasFilterState ? urlParams.filterState : state.filterState;
-    api.setFilterModel(filterState ?? null);
+    if (this._filterStateResolvedBeforeCreation) {
+      this._filterStateResolvedBeforeCreation = false;
+    } else {
+      api.setFilterModel(filterState ?? null);
+    }
 
     const qsInput = this._resolveSearchInput();
     if (urlParams.hasQ) {

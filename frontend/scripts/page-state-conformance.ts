@@ -184,8 +184,37 @@ function verifyAgGridInitialStateAndUrlPrecedence(): void {
     "URL filters did not override saved browser filters",
   );
   assertState(
+    JSON.stringify(objectAt(objectAt(initial, "filter"), "filterModel")) ===
+      JSON.stringify({ brand: { filter: "URL" } }),
+    "URL filters were not passed to AG Grid before grid creation",
+  );
+  assertState(
     browser.inputValue("ag-quick-filter-catalog") === "url query",
     "URL q did not override saved browser quick filter",
+  );
+
+  const savedFilterBrowser = new PageStateBrowserHarness();
+  const savedFilterRoot = savedFilterBrowser.specRoot("products", "pim.products");
+  const savedFilterGrid = savedFilterBrowser.child(savedFilterRoot, "saved-filter-grid");
+  const savedFilterHandle = PageState.forRoot(asDomElement(savedFilterRoot));
+  assertState(savedFilterHandle !== null, "Saved-filter root did not receive page state");
+  savedFilterHandle.put("grid.saved_filter.ag_grid", {
+    filterState: { brand: { filter: "stored" } },
+  });
+  new AgGridHost(
+    "saved_filter",
+    savedFilterGrid.id,
+    { context: { syncUrlState: false } },
+    null,
+    null,
+    null,
+  ).initGrid();
+  const savedFilterInitial = savedFilterBrowser.capturedGrid().initialState;
+  assertState(
+    isRecord(savedFilterInitial) &&
+      JSON.stringify(objectAt(objectAt(savedFilterInitial, "filter"), "filterModel")) ===
+        JSON.stringify({ brand: { filter: "stored" } }),
+    "Saved browser filters were not passed to AG Grid before grid creation",
   );
 
   const emptySortBrowser = new PageStateBrowserHarness();
@@ -206,6 +235,76 @@ function verifyAgGridInitialStateAndUrlPrecedence(): void {
   assertState(
     isRecord(emptyInitial) && JSON.stringify(emptyInitial.sort) === JSON.stringify({ sortModel: [] }),
     "An explicit empty saved sort was not passed to AG Grid as a clear",
+  );
+}
+
+/** Proves reinitialization drops transient URL filters and retains configured initial filters. */
+function verifyAgGridFilterStateReinitialization(): void {
+  const urlFilter = { brand: { filter: "URL" } };
+  const search = `?filters=${encodeURIComponent(JSON.stringify(urlFilter))}`;
+
+  const browser = new PageStateBrowserHarness(search);
+  const root = browser.specRoot("products", "pim.products");
+  const grid = browser.child(root, "reinitialized-grid");
+  const host = new AgGridHost(
+    "reinitialized",
+    grid.id,
+    { context: { syncUrlState: false } },
+    null,
+    null,
+    null,
+  );
+  host.initGrid();
+  assertState(
+    JSON.stringify(browser.capturedGrid().api.filterModel) === JSON.stringify(urlFilter),
+    "URL filters were not applied before the first grid creation",
+  );
+  host.clearAllFilters();
+  host.initGrid();
+
+  const emptyReinit = browser.capturedGrids()[1];
+  assertState(emptyReinit !== undefined, "The same host did not create a second grid");
+  assertState(
+    emptyReinit.api.filterModel === null && emptyReinit.initialState === null,
+    "A cleared URL filter remained in the reinitialized grid initial state",
+  );
+  assertState(
+    emptyReinit.api.setFilterModelCalls.length === 0,
+    "An empty filter state was cleared again after grid creation",
+  );
+
+  const configuredFilter = { brand: { filter: "configured" } };
+  const configuredBrowser = new PageStateBrowserHarness(search);
+  const configuredRoot = configuredBrowser.specRoot("products", "pim.products");
+  const configuredGrid = configuredBrowser.child(configuredRoot, "configured-grid");
+  const configuredHost = new AgGridHost(
+    "configured",
+    configuredGrid.id,
+    {
+      context: { syncUrlState: false },
+      initialState: { filter: { filterModel: configuredFilter } },
+    },
+    null,
+    null,
+    null,
+  );
+  configuredHost.initGrid();
+  assertState(
+    JSON.stringify(configuredBrowser.capturedGrid().api.filterModel) === JSON.stringify(urlFilter),
+    "URL filters did not override the configured initial filter",
+  );
+  configuredHost.clearAllFilters();
+  configuredHost.initGrid();
+
+  const configuredReinit = configuredBrowser.capturedGrids()[1];
+  assertState(configuredReinit !== undefined, "The configured host did not create a second grid");
+  assertState(
+    JSON.stringify(configuredReinit.api.filterModel) === JSON.stringify(configuredFilter),
+    "Reinitialization did not restore the configured initial filter",
+  );
+  assertState(
+    configuredReinit.api.setFilterModelCalls.length === 0,
+    "The configured initial filter was cleared after grid creation",
   );
 }
 
@@ -490,6 +589,7 @@ export async function verifyPageStateContract(): Promise<void> {
   verifyPageStateIdentityAndRecovery();
   verifyPortableColumnState();
   verifyAgGridInitialStateAndUrlPrecedence();
+  verifyAgGridFilterStateReinitialization();
   verifyQuickSearchBeforeGridCreation();
   verifyThemeObserverCleanup();
   verifyConfirmationPassThrough();

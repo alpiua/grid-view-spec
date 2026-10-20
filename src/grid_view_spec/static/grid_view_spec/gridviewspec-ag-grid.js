@@ -531,10 +531,12 @@
   var AgGridHost = class {
     constructor(gridId, containerId, optionsVar, initialPresets, initialSearches, groupsOrder) {
       this._themeObserverCleanup = null;
+      this._filterStateResolvedBeforeCreation = false;
       var _a;
       this.gridId = gridId;
       this.containerId = containerId;
       this.gridOptions = optionsVar != null ? optionsVar : {};
+      this._configuredInitialState = this.gridOptions.initialState;
       if (!this.gridOptions.overlayLoadingTemplate) {
         this.gridOptions.overlayLoadingTemplate = '<div class="flex flex-col items-center justify-center p-4"><div class="animate-spin rounded-full h-8 w-8 border-b-2 border-indigo-500 mb-2"></div><span class="text-sm text-gray-500 dark:text-gray-400">' + gridViewT("grid.loading", "Loading\u2026") + "</span></div>";
       }
@@ -722,13 +724,23 @@
       }
     }
     _prepareUrlInitialState() {
-      var _a;
+      var _a, _b, _c;
+      this._filterStateResolvedBeforeCreation = false;
       const urlParams = this._readUrlGridParams();
-      if (!urlParams.hasFilterState) return;
+      const storedFilterState = this._readStoredGridState().filterState;
+      const filterState = urlParams.hasFilterState ? (_a = urlParams.filterState) != null ? _a : {} : storedFilterState;
+      if (filterState === void 0) {
+        this._filterStateResolvedBeforeCreation = true;
+        return;
+      }
       this.gridOptions.initialState = {
         ...this.gridOptions.initialState,
-        filter: { filterModel: (_a = urlParams.filterState) != null ? _a : {} }
+        filter: {
+          ...(_c = (_b = this.gridOptions.initialState) == null ? void 0 : _b.filter) != null ? _c : { filterModel: {} },
+          filterModel: filterState
+        }
       };
+      this._filterStateResolvedBeforeCreation = true;
     }
     initGrid() {
       var _a, _b, _c, _d;
@@ -772,6 +784,7 @@
       document.addEventListener("htmx:beforeCleanupElement", cleanup);
       this._extractColumnMeta();
       this._colSettings = null;
+      this.gridOptions.initialState = this._configuredInitialState;
       this._preparePageState(gridDiv);
       this._prepareUrlInitialState();
       const agGridLib = window.agGrid;
@@ -882,7 +895,11 @@
       const urlParams = this._readUrlGridParams();
       const urlPageState = this._pageStateFromUrl();
       const filterState = urlParams.hasFilterState ? urlParams.filterState : state.filterState;
-      api.setFilterModel(filterState != null ? filterState : null);
+      if (this._filterStateResolvedBeforeCreation) {
+        this._filterStateResolvedBeforeCreation = false;
+      } else {
+        api.setFilterModel(filterState != null ? filterState : null);
+      }
       const qsInput = this._resolveSearchInput();
       if (urlParams.hasQ) {
         const urlQ = (_a = urlParams.q) != null ? _a : "";

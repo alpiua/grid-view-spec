@@ -4455,7 +4455,12 @@
   function pushFilterHistory(pageUrl, anchor) {
     const specRoot = anchor instanceof Element ? asHTMLElement(anchor.closest("[data-cm-grid-view-spec]")) : null;
     const state = isRecord(window.history.state) ? { ...window.history.state } : {};
-    if (specRoot == null ? void 0 : specRoot.dataset.specId) state.cmFilterSpecId = specRoot.dataset.specId;
+    const specId = (specRoot == null ? void 0 : specRoot.dataset.specId) || "";
+    if (specId && (typeof state.cmFilterSpecId !== "string" || !state.cmFilterSpecId)) {
+      state.cmFilterSpecId = specId;
+      window.history.replaceState(state, "", window.location.href);
+    }
+    if (specId) state.cmFilterSpecId = specId;
     window.history.pushState(state, "", pageUrl);
     latestFilterNavigationUrl = pageUrl;
   }

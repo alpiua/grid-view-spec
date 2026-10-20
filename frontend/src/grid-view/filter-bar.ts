@@ -318,7 +318,12 @@ function pushFilterHistory(pageUrl: string, anchor: Element | null | undefined):
     ? asHTMLElement(anchor.closest("[data-cm-grid-view-spec]"))
     : null;
   const state: Record<string, unknown> = isRecord(window.history.state) ? { ...window.history.state } : {};
-  if (specRoot?.dataset.specId) state.cmFilterSpecId = specRoot.dataset.specId;
+  const specId = specRoot?.dataset.specId || "";
+  if (specId && (typeof state.cmFilterSpecId !== "string" || !state.cmFilterSpecId)) {
+    state.cmFilterSpecId = specId;
+    window.history.replaceState(state, "", window.location.href);
+  }
+  if (specId) state.cmFilterSpecId = specId;
   window.history.pushState(state, "", pageUrl);
   latestFilterNavigationUrl = pageUrl;
 }

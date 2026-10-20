@@ -2103,6 +2103,15 @@ doc_type: guide
 
 # Changelog
 
+## 2.1.2 — 2026-10-20
+
+### Fixed
+
+- Filter navigation records the active spec id in browser history so Back and Forward restore the
+  correct grid view.
+- AG Grid applies saved browser filters and URL filters during grid creation to avoid a duplicate
+  datasource refresh; URL state takes precedence when both are present.
+
 ## 2.1.1 — 2026-10-13
 
 ### Added

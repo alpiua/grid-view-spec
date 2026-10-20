@@ -2,6 +2,7 @@ import type { ColumnStateItem } from "../src/column-settings/types";
 
 export interface GridApiCapture {
   filterModel: Record<string, unknown> | null;
+  setFilterModelCalls: (Record<string, unknown> | null)[];
 }
 
 export interface CreateGridCapture {
@@ -159,7 +160,7 @@ export class PageStateBrowserHarness {
   readonly storage = createStorage();
   readonly documentElement = new FakeHtmlElement();
   readonly elements = new Map<string, FakeHtmlElement>();
-  private capture: CreateGridCapture | null = null;
+  private readonly captures: CreateGridCapture[] = [];
 
   constructor(search = "") {
     const documentStub = {
@@ -179,16 +180,26 @@ export class PageStateBrowserHarness {
         return [];
       },
     };
+    const initialUrl = new URL(`http://example.test/catalog/${search}`);
     const location = {
-      href: `http://example.test/catalog/${search}`,
-      origin: "http://example.test",
-      pathname: "/catalog/",
-      search,
+      href: initialUrl.href,
+      origin: initialUrl.origin,
+      pathname: initialUrl.pathname,
+      search: initialUrl.search,
     };
     const windowStub = {
       localStorage: this.storage,
       location,
-      history: { replaceState(): void {} },
+      history: {
+        replaceState(_state: unknown, _title: string, nextUrl?: string | URL | null): void {
+          if (nextUrl == null) return;
+          const next = new URL(nextUrl.toString(), location.href);
+          location.href = next.href;
+          location.origin = next.origin;
+          location.pathname = next.pathname;
+          location.search = next.search;
+        },
+      },
       addEventListener(): void {},
       removeEventListener(): void {},
       setTimeout,
@@ -239,8 +250,13 @@ export class PageStateBrowserHarness {
   }
 
   capturedGrid(): CreateGridCapture {
-    assertState(this.capture !== null, "AG Grid createGrid was not called");
-    return this.capture;
+    const capture = this.captures[this.captures.length - 1];
+    assertState(capture !== undefined, "AG Grid createGrid was not called");
+    return capture;
+  }
+
+  capturedGrids(): readonly CreateGridCapture[] {
+    return this.captures;
   }
 
   private createGrid(options: { initialState?: unknown }): {
@@ -262,11 +278,17 @@ export class PageStateBrowserHarness {
     setColumnsVisible: () => void;
     resetColumnState: () => void;
   } {
-    const api: GridApiCapture = { filterModel: null };
-    this.capture = {
+    const initialFilter = isRecord(options.initialState) && isRecord(options.initialState.filter)
+      ? options.initialState.filter.filterModel
+      : undefined;
+    const api: GridApiCapture = {
+      filterModel: isRecord(initialFilter) ? initialFilter : null,
+      setFilterModelCalls: [],
+    };
+    this.captures.push({
       initialState: JSON.parse(JSON.stringify(options.initialState ?? null)) as unknown,
       api,
-    };
+    });
     return {
       getColumns: (): object[] => [{}],
       getColumnDefs: (): object[] => [],
@@ -274,6 +296,7 @@ export class PageStateBrowserHarness {
       applyColumnState(): void {},
       getFilterModel: (): Record<string, unknown> => api.filterModel ?? {},
       setFilterModel(model): void {
+        api.setFilterModelCalls.push(model);
         api.filterModel = model;
       },
       getDisplayedRowCount: (): number => 0,
