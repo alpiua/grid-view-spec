@@ -21,6 +21,7 @@ from grid_view_spec.types.actions import (
 )
 from grid_view_spec.types.assets import GridViewTemplateAsset
 from grid_view_spec.types.content import GridViewCardGroups
+from grid_view_spec.types.filters_v2 import GridViewFilters
 from grid_view_spec.types.formatters import DateTimeFormatter
 from grid_view_spec.types.layout import GridViewArea, GridViewLayout
 from grid_view_spec.types.lazy import GridViewLazyDefaults
@@ -89,6 +90,57 @@ def test_page_state_scope_survives_wire_roundtrip() -> None:
     )
 
     assert _roundtrip(spec).config.page_state_scope == "orders:active"
+
+
+def test_facets_refresh_mode_roundtrips_and_keeps_the_spec_default() -> None:
+    """The opt-in refresh mode survives JSON while old filter blocks keep spec refresh."""
+    default_filters = GridViewFilters(id="default_facets")
+    default_spec = GridViewSpec(
+        id="default_facets_refresh",
+        blocks=(default_filters,),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(default_filters.id,))),
+    )
+    assert default_filters.facets_refresh_mode == "spec"
+    assert _roundtrip(default_spec) == default_spec
+
+    in_place_filters = GridViewFilters(
+        id="in_place_facets",
+        facets=True,
+        facets_refresh_mode="in_place",
+    )
+    in_place_spec = GridViewSpec(
+        id="in_place_facets_refresh",
+        blocks=(in_place_filters,),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(in_place_filters.id,))),
+    )
+
+    restored = _roundtrip(in_place_spec)
+
+    assert restored == in_place_spec
+    assert isinstance(restored.blocks[0], GridViewFilters)
+    assert restored.blocks[0].facets_refresh_mode == "in_place"
+
+
+def test_in_place_facets_refresh_requires_facets() -> None:
+    """An in-place refresh is invalid unless the filter block computes facets."""
+    with pytest.raises(ValueError, match="requires facets=True"):
+        GridViewFilters(id="invalid_facets_refresh", facets_refresh_mode="in_place")
+
+    result = spec_from_wire(
+        {
+            "id": "invalid_facets_refresh_wire",
+            "blocks": [
+                {
+                    "id": "filters",
+                    "type": "filters",
+                    "facets_refresh_mode": "in_place",
+                }
+            ],
+        }
+    )
+
+    assert not result.ok
+    assert result.diagnostics[0].code == "INVALID_WIRE"
 
 
 def test_action_confirmation_and_select_none_roundtrip() -> None:

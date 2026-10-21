@@ -61,11 +61,14 @@ export type GridViewFilters = GridViewBlockBase & {
   auto_apply?: boolean;
   navigate_on_change?: boolean;
   facets?: boolean;
+  facets_refresh_mode?: "spec" | "in_place";
   drawer_layout?: "compact" | "workspace";
   drawer_sections?: GridViewFilterDrawerSection[];
   fragment_endpoint?: string;
   fragment_target?: string;
   fragment_swap?: string;
+} & {
+  [k: string]: unknown;
 };
 export type GridViewActions = GridViewBlockBase & {
   type?: "actions";

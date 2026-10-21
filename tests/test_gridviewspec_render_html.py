@@ -128,6 +128,49 @@ def test_root_renders_page_state_scope_attribute() -> None:
     assert 'data-cm-page-state-scope="orders:active"' in root.group()
 
 
+def test_facets_refresh_mode_renders_on_filter_bar_and_workspace_roots() -> None:
+    """Both filter presentations expose the opt-in mode while legacy bars default to spec."""
+    bar = GridViewFilters(id="faceted_bar", facets=True, facets_refresh_mode="in_place")
+    workspace = GridViewFilters(
+        id="faceted_workspace",
+        facets=True,
+        facets_refresh_mode="in_place",
+        presentation="drawer",
+        drawer_layout="workspace",
+        schema=(
+            GridViewFilter(
+                id="category",
+                label="Category",
+                param="category",
+                type="select",
+                options=(GridViewFilterOption(value="outdoor", label="Outdoor"),),
+            ),
+        ),
+        drawer_sections=(
+            GridViewFilterDrawerSection(
+                id="categories",
+                label="Categories",
+                filter_ids=("category",),
+            ),
+        ),
+    )
+    legacy = GridViewFilters(id="legacy_filter_bar")
+    spec = GridViewSpec(
+        id="facets_refresh_mode_render",
+        blocks=(bar, workspace, legacy),
+        layout=GridViewLayout(
+            root=GridViewArea(id="root", blocks=(bar.id, workspace.id, legacy.id))
+        ),
+    )
+
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+    roots = re.findall(r"<div\b[^>]*data-cm-filter-bar[^>]*>", html)
+
+    assert len(roots) == 3
+    assert sum('data-cm-facets-refresh-mode="in_place"' in root for root in roots) == 2
+    assert sum('data-cm-facets-refresh-mode="spec"' in root for root in roots) == 1
+
+
 def test_filter_drawer_renders_filter_search_and_target_settings_tab() -> None:
     """A target table exposes its column controls in the drawer's settings tab."""
     table = GridViewTable(

@@ -41,6 +41,7 @@ GridViewFilterType = Literal[
 
 GridViewFilterScope = Literal["server", "client"]
 GridViewFiltersPresentation = Literal["toolbar", "inline", "panel", "drawer"]
+GridViewFiltersFacetsRefreshMode = Literal["spec", "in_place"]
 GridViewFilterDrawerLayout = Literal["compact", "workspace"]
 GridViewFilterDrawerControl = Literal["default", "checklist", "tree", "range", "toggle"]
 GridViewFilterDrawerListSize = Literal["sm", "md", "lg"]
@@ -65,6 +66,9 @@ GRIDVIEW_FILTER_TYPES: frozenset[GridViewFilterType] = frozenset(
 GRIDVIEW_FILTER_SCOPES: frozenset[GridViewFilterScope] = frozenset({"server", "client"})
 GRIDVIEW_FILTERS_PRESENTATIONS: frozenset[GridViewFiltersPresentation] = frozenset(
     {"toolbar", "inline", "panel", "drawer"}
+)
+GRIDVIEW_FILTERS_FACETS_REFRESH_MODES: frozenset[GridViewFiltersFacetsRefreshMode] = frozenset(
+    {"spec", "in_place"}
 )
 GRIDVIEW_FILTER_DRAWER_LAYOUTS: frozenset[GridViewFilterDrawerLayout] = frozenset(
     {"compact", "workspace"}
@@ -197,6 +201,14 @@ class GridViewFilters(GridViewBlockBase):
     # against the currently filtered table, and filter/search changes refresh the
     # whole spec (bar + table) so counts stay in sync. See search/facets.py.
     facets: bool = False
+    facets_refresh_mode: GridViewFiltersFacetsRefreshMode = "spec"
     drawer_layout: GridViewFilterDrawerLayout = "compact"
     drawer_sections: tuple[GridViewFilterDrawerSection, ...] = ()
     drawer_search: bool = True
+
+    def __post_init__(self) -> None:
+        """Validate the refresh mode and require facets for in-place refresh."""
+        if self.facets_refresh_mode not in GRIDVIEW_FILTERS_FACETS_REFRESH_MODES:
+            raise ValueError("facets_refresh_mode must be 'spec' or 'in_place'")
+        if self.facets_refresh_mode == "in_place" and not self.facets:
+            raise ValueError("facets_refresh_mode='in_place' requires facets=True")

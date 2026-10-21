@@ -91,6 +91,7 @@
   {% if fb.auto_apply %}data-auto-apply="1"{% endif %}
   {% if not fb.navigate_on_change %}data-navigate-on-change="0"{% endif %}
   {% if fb.facets %}data-cm-facets="1"{% endif %}
+  data-cm-facets-refresh-mode="{{ fb.facets_refresh_mode | e }}"
   {% if fb.fragment_endpoint %}data-cm-fragment-endpoint="{{ fb.fragment_endpoint | e }}" data-cm-fragment-target="{{ fb.fragment_target | e }}" data-cm-fragment-swap="{{ fb.fragment_swap | e }}"{% endif %}
 >
   {% if active_workspace_panel == 'filters' and fb.drawer_search %}

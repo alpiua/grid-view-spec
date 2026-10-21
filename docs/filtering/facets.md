@@ -135,7 +135,7 @@ gridOptions.context = {
 };
 ```
 
-## Toolbar FilterBar facets (HTMX fragment)
+## Toolbar FilterBar facets
 
 For the page filter bar, set `facets=True` on `GridViewFilters` and provide a fragment
 endpoint that re-renders the spec (bar + table) with counted options:
@@ -147,6 +147,7 @@ GridViewFilters(
     presentation="panel",
     schema=(department_type_filter, care_filter),
     facets=True,
+    facets_refresh_mode="spec",
     fragment_endpoint="/doctors/fragment/filters/",
     fragment_target="#block-records_table",
     fragment_swap="outerHTML",
@@ -155,8 +156,8 @@ GridViewFilters(
 ```
 
 The frontend detects `data-cm-facets="1"` and, on any filter/search change, refreshes the
-**whole spec** (not just the table) so option counts recompute. The fragment handler rebuilds
-the filter schema with counts and returns the re-rendered spec/HTML:
+whole spec by default so option counts recompute. The fragment handler rebuilds the filter
+schema with counts and returns the re-rendered spec/HTML:
 
 ```python
 from grid_view_spec.search.facets import apply_faceted_options
@@ -175,6 +176,30 @@ def doctors_filters_fragment(request):
     page = build_doctors_page(request, filters_schema=faceted_schema)
     return render(request, "doctors/_spec_fragment.html", {"page": page})
 ```
+
+Hosts can opt into `facets_refresh_mode="in_place"` when a page needs the filter workspace
+to keep its current drawer, cards, option-list, search inputs, and scroll state while the
+server recomputes dependent facets. The host still returns its authoritative full-spec HTML;
+GVS reconciles the matching filter controls, selected options, counts, and disabled state in
+the existing workspace. After reconciliation, the current URL supplies dynamic column state
+and the existing AG-Grid path refreshes rows once. Filter changes and Reset push one URL
+entry; Back and Forward refresh from their current URL without pushing another entry.
+
+```python
+GridViewFilters(
+    id="stock_filters",
+    target="offers_table",
+    presentation="drawer",
+    drawer_layout="workspace",
+    schema=stock_filters,
+    facets=True,
+    facets_refresh_mode="in_place",
+)
+```
+
+`in_place` requires `facets=True`. A failed request, invalid response, or failed control
+reconciliation navigates to the current URL before applying partial facet state. Existing
+hosts retain `spec` refresh unless they opt in.
 
 ## Domain facet via callback — NSZU example
 

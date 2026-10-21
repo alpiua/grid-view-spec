@@ -65,6 +65,7 @@ from grid_view_spec.types.filters_v2 import (
     GRIDVIEW_FILTER_DRAWER_PANELS,
     GRIDVIEW_FILTER_SCOPES,
     GRIDVIEW_FILTER_TYPES,
+    GRIDVIEW_FILTERS_FACETS_REFRESH_MODES,
     GRIDVIEW_FILTERS_PRESENTATIONS,
     GridViewFilter,
     GridViewFilterDrawerSection,
@@ -1041,6 +1042,9 @@ def decode_block(raw: Mapping[str, object]) -> GridViewBlock:
             fragment_target=wire_str(raw.get("fragment_target")),
             fragment_swap=wire_str(raw.get("fragment_swap")) or "outerHTML",
             facets=wire_bool(raw.get("facets")),
+            facets_refresh_mode=wire_literal(
+                raw.get("facets_refresh_mode"), GRIDVIEW_FILTERS_FACETS_REFRESH_MODES, "spec"
+            ),
             drawer_layout=wire_literal(
                 raw.get("drawer_layout"), GRIDVIEW_FILTER_DRAWER_LAYOUTS, "compact"
             ),

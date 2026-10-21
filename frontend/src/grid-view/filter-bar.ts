@@ -40,6 +40,8 @@ const multiselectChangeTimers = new WeakMap<HTMLElement, number>();
 let multiselectPanelToRestore: { barId: string; filterId: string } | null = null;
 let filterHistoryBound = false;
 let latestFilterNavigationUrl = "";
+let facetRefreshGeneration = 0;
+let activeFacetRefreshController: AbortController | null = null;
 
 export function setMultiselectTriggerLabel(root: Element, text: string): void {
   const trigger = root.querySelector(".cm-multiselect-trigger");
@@ -252,6 +254,461 @@ function specWantsFacets(ref: Element | null | undefined): boolean {
   return !!el.closest("[data-cm-filter-bar][data-cm-facets]");
 }
 
+function usesInPlaceFacets(bar: HTMLElement | null | undefined): bar is HTMLElement {
+  return bar?.dataset.cmFacets === "1" && bar.dataset.cmFacetsRefreshMode === "in_place";
+}
+
+interface FilterScrollPosition {
+  element: HTMLElement;
+  top: number;
+  left: number;
+}
+
+interface FilterFocusSnapshot {
+  element: HTMLElement;
+  filterId: string;
+  tagName: string;
+  name: string;
+  value: string;
+  inputType: string;
+  selectionStart: number | null;
+  selectionEnd: number | null;
+}
+
+function filterControlRoots(bar: HTMLElement): Map<string, HTMLElement> {
+  const roots = new Map<string, HTMLElement>();
+  bar.querySelectorAll<HTMLElement>("[data-filter-id]").forEach((element) => {
+    const parent = element.parentElement?.closest<HTMLElement>("[data-filter-id]");
+    if (parent && bar.contains(parent)) return;
+    const id = element.dataset.filterId || "";
+    if (!id || roots.has(id)) throw new Error("Facet response has an ambiguous filter control");
+    roots.set(id, element);
+  });
+  return roots;
+}
+
+function syncAttribute(target: Element, source: Element, name: string): void {
+  const value = source.getAttribute(name);
+  if (value === null) target.removeAttribute(name);
+  else target.setAttribute(name, value);
+}
+
+function syncMultiselectAttributes(target: HTMLElement, source: HTMLElement): void {
+  [
+    "data-filter-scope",
+    "data-filter-param",
+    "data-filter-type",
+    "data-placeholder",
+    "data-all-label",
+    "data-select-all-option",
+    "data-select-all-value",
+    "data-exclusive-all",
+    "data-cm-singleselect",
+  ].forEach((name) => syncAttribute(target, source, name));
+}
+
+function prepareTreeOptionUpdates(
+  currentRoot: HTMLElement,
+  nextRoot: HTMLElement,
+  operations: Array<() => void>,
+): boolean {
+  const currentNodes = Array.from(
+    currentRoot.querySelectorAll<HTMLElement>("[data-cm-filter-tree-node]"),
+  );
+  const nextNodes = Array.from(nextRoot.querySelectorAll<HTMLElement>("[data-cm-filter-tree-node]"));
+  if (!currentNodes.length && !nextNodes.length) return false;
+  if (currentNodes.length !== nextNodes.length) {
+    throw new Error("Facet response changes the tree control structure");
+  }
+
+  currentNodes.forEach((currentNode, index) => {
+    const nextNode = nextNodes[index];
+    const currentValue = currentNode.dataset.cmFilterTreeValue || "";
+    const nextValue = nextNode.dataset.cmFilterTreeValue || "";
+    if (
+      currentValue !== nextValue ||
+      (currentNode.dataset.cmFilterTreeParent || "") !==
+        (nextNode.dataset.cmFilterTreeParent || "")
+    ) {
+      throw new Error("Facet response changes the tree control structure");
+    }
+    const currentInput = currentNode.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    const nextInput = nextNode.querySelector<HTMLInputElement>('input[type="checkbox"]');
+    if (!currentInput || !nextInput || currentInput.value !== nextInput.value) {
+      throw new Error("Facet response has a mismatched tree option");
+    }
+    const currentLabel = currentNode.querySelector<HTMLElement>(".cm-filter-drawer-option-label");
+    const nextLabel = nextNode.querySelector<HTMLElement>(".cm-filter-drawer-option-label");
+    const currentCount = currentNode.querySelector<HTMLElement>(".cm-filter-drawer-option-count");
+    const nextCount = nextNode.querySelector<HTMLElement>(".cm-filter-drawer-option-count");
+    const currentToggle = currentNode.querySelector<HTMLButtonElement>("[data-cm-filter-tree-toggle]");
+    const nextToggle = nextNode.querySelector<HTMLButtonElement>("[data-cm-filter-tree-toggle]");
+    const labelText = nextLabel?.textContent || "";
+    const countText = nextCount?.textContent;
+    const checked = nextInput.checked;
+    const disabled = nextInput.disabled;
+    const facetCount = nextInput.dataset.cmFacetCount;
+    const optionLabel = nextInput.dataset.label || "";
+    const exclusive = nextInput.dataset.exclusiveSolo;
+    const toggleLabel = nextToggle?.getAttribute("aria-label");
+
+    operations.push(() => {
+      currentNode.classList.toggle(
+        "cm-filter-drawer-option--disabled",
+        nextNode.classList.contains("cm-filter-drawer-option--disabled"),
+      );
+      currentInput.checked = checked;
+      currentInput.disabled = disabled;
+      currentInput.dataset.label = optionLabel;
+      if (facetCount === undefined) delete currentInput.dataset.cmFacetCount;
+      else currentInput.dataset.cmFacetCount = facetCount;
+      if (exclusive === undefined) delete currentInput.dataset.exclusiveSolo;
+      else currentInput.dataset.exclusiveSolo = exclusive;
+      if (currentLabel && nextLabel) currentLabel.textContent = labelText;
+      if (countText === undefined) {
+        currentCount?.remove();
+      } else if (currentCount) {
+        currentCount.textContent = countText;
+      } else {
+        const count = document.createElement("span");
+        count.className = "cm-filter-drawer-option-count";
+        count.textContent = countText;
+        currentNode.append(count);
+      }
+      if (currentToggle && toggleLabel !== null && toggleLabel !== undefined) {
+        currentToggle.setAttribute("aria-label", toggleLabel);
+      }
+    });
+  });
+  return true;
+}
+
+function prepareMultiselectUpdate(
+  currentRoot: HTMLElement,
+  nextRoot: HTMLElement,
+  operations: Array<() => void>,
+): void {
+  const currentPanel = currentRoot.querySelector<HTMLElement>(".cm-multiselect-panel");
+  const nextPanel = nextRoot.querySelector<HTMLElement>(".cm-multiselect-panel");
+  if (!!currentPanel !== !!nextPanel) {
+    throw new Error("Facet response changes the multiselect control structure");
+  }
+  const currentOptionsRoot = currentPanel || currentRoot;
+  const nextOptionsRoot = nextPanel || nextRoot;
+  const hasTree = prepareTreeOptionUpdates(currentOptionsRoot, nextOptionsRoot, operations);
+  if (hasTree) {
+    operations.push(() => syncMultiselectAttributes(currentRoot, nextRoot));
+    return;
+  }
+
+  const children = Array.from(nextOptionsRoot.childNodes).map((node) => node.cloneNode(true));
+  const emptyPanel = nextPanel?.classList.contains("cm-multiselect-panel--empty") || false;
+  operations.push(() => {
+    if (currentPanel) {
+      const wasOpen = currentPanel.classList.contains("is-open");
+      currentPanel.replaceChildren(...children);
+      currentPanel.classList.toggle("cm-multiselect-panel--empty", emptyPanel);
+      currentPanel.classList.toggle("is-open", wasOpen);
+    } else {
+      currentRoot.replaceChildren(...children);
+    }
+    syncMultiselectAttributes(currentRoot, nextRoot);
+    const updateLabel = currentRoot._cmUpdateLabel;
+    if (typeof updateLabel === "function") updateLabel();
+    else _updateMultiSelectLabel(currentRoot);
+  });
+}
+
+function prepareFilterControlUpdate(
+  currentRoot: HTMLElement,
+  nextRoot: HTMLElement,
+  operations: Array<() => void>,
+): void {
+  if (
+    currentRoot.dataset.filterId !== nextRoot.dataset.filterId ||
+    currentRoot.dataset.filterType !== nextRoot.dataset.filterType ||
+    currentRoot.dataset.filterParam !== nextRoot.dataset.filterParam ||
+    currentRoot.dataset.filterScope !== nextRoot.dataset.filterScope
+  ) {
+    throw new Error("Facet response does not match the current filter control");
+  }
+  const currentMultiselect = currentRoot.hasAttribute("data-cm-multiselect");
+  const nextMultiselect = nextRoot.hasAttribute("data-cm-multiselect");
+  if (currentMultiselect !== nextMultiselect) {
+    throw new Error("Facet response changes the filter control type");
+  }
+  if (currentMultiselect) {
+    prepareMultiselectUpdate(currentRoot, nextRoot, operations);
+    return;
+  }
+
+  const currentSelects = Array.from(currentRoot.querySelectorAll<HTMLSelectElement>("select"));
+  const nextSelects = Array.from(nextRoot.querySelectorAll<HTMLSelectElement>("select"));
+  const currentInputs = Array.from(currentRoot.querySelectorAll<HTMLInputElement>("input"));
+  const nextInputs = Array.from(nextRoot.querySelectorAll<HTMLInputElement>("input"));
+  const currentTextareas = Array.from(currentRoot.querySelectorAll<HTMLTextAreaElement>("textarea"));
+  const nextTextareas = Array.from(nextRoot.querySelectorAll<HTMLTextAreaElement>("textarea"));
+  if (
+    currentSelects.length !== nextSelects.length ||
+    currentInputs.length !== nextInputs.length ||
+    currentTextareas.length !== nextTextareas.length
+  ) {
+    throw new Error("Facet response changes the filter control structure");
+  }
+
+  currentSelects.forEach((currentSelect, index) => {
+    const nextSelect = nextSelects[index];
+    if (
+      currentSelect.name !== nextSelect.name ||
+      currentSelect.multiple !== nextSelect.multiple ||
+      currentSelect.hasAttribute("data-cm-grouped-select") !==
+        nextSelect.hasAttribute("data-cm-grouped-select")
+    ) {
+      throw new Error("Facet response changes the select control structure");
+    }
+    const children = Array.from(nextSelect.childNodes).map((node) => node.cloneNode(true));
+    const value = nextSelect.value;
+    const disabled = nextSelect.disabled;
+    operations.push(() => {
+      currentSelect.replaceChildren(...children);
+      currentSelect.value = value;
+      currentSelect.disabled = disabled;
+    });
+  });
+
+  currentInputs.forEach((currentInput, index) => {
+    const nextInput = nextInputs[index];
+    if (
+      currentInput.type !== nextInput.type ||
+      currentInput.name !== nextInput.name ||
+      currentInput.hasAttribute("data-cm-filter-input") !==
+        nextInput.hasAttribute("data-cm-filter-input")
+    ) {
+      throw new Error("Facet response changes the input control structure");
+    }
+    const value = nextInput.value;
+    const checked = nextInput.checked;
+    const disabled = nextInput.disabled;
+    const placeholder = nextInput.placeholder;
+    operations.push(() => {
+      currentInput.value = value;
+      currentInput.checked = checked;
+      currentInput.disabled = disabled;
+      currentInput.placeholder = placeholder;
+    });
+  });
+
+  currentTextareas.forEach((currentTextarea, index) => {
+    const nextTextarea = nextTextareas[index];
+    if (currentTextarea.name !== nextTextarea.name) {
+      throw new Error("Facet response changes the text control structure");
+    }
+    const value = nextTextarea.value;
+    const disabled = nextTextarea.disabled;
+    const placeholder = nextTextarea.placeholder;
+    operations.push(() => {
+      currentTextarea.value = value;
+      currentTextarea.disabled = disabled;
+      currentTextarea.placeholder = placeholder;
+    });
+  });
+}
+
+function captureFilterScroll(bar: HTMLElement): FilterScrollPosition[] {
+  const elements = [bar, ...Array.from(bar.querySelectorAll<HTMLElement>("*"))];
+  return elements.map((element) => ({ element, top: element.scrollTop, left: element.scrollLeft }));
+}
+
+function restoreFilterScroll(positions: FilterScrollPosition[]): void {
+  positions.forEach(({ element, top, left }) => {
+    if (!element.isConnected) return;
+    element.scrollTop = top;
+    element.scrollLeft = left;
+  });
+}
+
+function captureFilterFocus(bar: HTMLElement): FilterFocusSnapshot | null {
+  const active = document.activeElement;
+  if (!(active instanceof HTMLElement) || !bar.contains(active)) return null;
+  const input = active instanceof HTMLInputElement ? active : null;
+  const control = active instanceof HTMLSelectElement ? active : input;
+  return {
+    element: active,
+    filterId: active.closest<HTMLElement>("[data-filter-id]")?.dataset.filterId || "",
+    tagName: active.tagName,
+    name: control?.name || "",
+    value: control?.value || "",
+    inputType: input?.type || "",
+    selectionStart: input?.selectionStart ?? null,
+    selectionEnd: input?.selectionEnd ?? null,
+  };
+}
+
+function restoreFilterFocus(bar: HTMLElement, snapshot: FilterFocusSnapshot | null): void {
+  if (!snapshot || snapshot.element.isConnected) return;
+  const candidates = Array.from(bar.querySelectorAll<HTMLElement>("input, select, button"));
+  const filterCandidates = candidates.filter(
+    (element) => element.closest<HTMLElement>("[data-filter-id]")?.dataset.filterId === snapshot.filterId,
+  );
+  const target =
+    filterCandidates.find((element) => {
+      if (element.tagName !== snapshot.tagName) return false;
+      if (element instanceof HTMLInputElement) {
+        return element.name === snapshot.name && element.type === snapshot.inputType && element.value === snapshot.value;
+      }
+      if (element instanceof HTMLSelectElement) return element.name === snapshot.name;
+      return true;
+    }) || filterCandidates[0];
+  if (!target) return;
+  target.focus({ preventScroll: true });
+  if (
+    target instanceof HTMLInputElement &&
+    snapshot.selectionStart !== null &&
+    snapshot.selectionEnd !== null
+  ) {
+    try {
+      target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+    } catch {
+      // Inputs without a text selection keep focus without a selection range.
+    }
+  }
+}
+
+function prepareFacetReconciliation(liveBar: HTMLElement, incomingBar: HTMLElement): () => void {
+  const currentRoots = filterControlRoots(liveBar);
+  const nextRoots = filterControlRoots(incomingBar);
+  if (currentRoots.size === 0 || currentRoots.size !== nextRoots.size) {
+    throw new Error("Facet response does not contain the matching filter controls");
+  }
+  const operations: Array<() => void> = [];
+  currentRoots.forEach((currentRoot, id) => {
+    const nextRoot = nextRoots.get(id);
+    if (!nextRoot) throw new Error("Facet response is missing a filter control");
+    prepareFilterControlUpdate(currentRoot, nextRoot, operations);
+  });
+
+  const currentSearch = liveBar.querySelector<HTMLInputElement>("input[data-cm-search]");
+  const nextSearch = incomingBar.querySelector<HTMLInputElement>("input[data-cm-search]");
+  if (!!currentSearch !== !!nextSearch) {
+    throw new Error("Facet response changes the filter search control");
+  }
+  if (currentSearch && nextSearch) {
+    const value = nextSearch.value;
+    operations.push(() => {
+      currentSearch.value = value;
+    });
+  }
+
+  const scrollPositions = captureFilterScroll(liveBar);
+  const focus = captureFilterFocus(liveBar);
+  return () => {
+    operations.forEach((operation) => operation());
+    liveBar
+      .querySelectorAll<HTMLInputElement>("[data-cm-filter-workspace-search], [data-cm-filter-card-search]")
+      .forEach((input) => input.dispatchEvent(new Event("input", { bubbles: true })));
+    liveBar.dispatchEvent(new Event("change", { bubbles: true }));
+    liveBar.querySelectorAll<HTMLElement>("[data-cm-multiselect]").forEach((root) => {
+      const updateLabel = root._cmUpdateLabel;
+      if (typeof updateLabel === "function") updateLabel();
+      else _updateMultiSelectLabel(root);
+    });
+    restoreFilterScroll(scrollPositions);
+    restoreFilterFocus(liveBar, focus);
+  };
+}
+
+function findIncomingFacetBar(responseHtml: string, liveBar: HTMLElement): HTMLElement {
+  const liveSpec = asHTMLElement(liveBar.closest("[data-cm-grid-view-spec]"));
+  if (!liveSpec?.id || !liveBar.id) throw new Error("The current filter workspace has no stable identity");
+  const responseDocument = new DOMParser().parseFromString(responseHtml, "text/html");
+  const responseSpec = asHTMLElement(responseDocument.getElementById(liveSpec.id));
+  if (!responseSpec?.matches("[data-cm-grid-view-spec]")) {
+    throw new Error("Facet response does not contain the current GridViewSpec");
+  }
+  const responseBar = Array.from(responseSpec.querySelectorAll<HTMLElement>("[data-cm-filter-bar]")).find(
+    (bar) => bar.id === liveBar.id,
+  );
+  if (!usesInPlaceFacets(responseBar)) {
+    throw new Error("Facet response does not contain the matching in-place filter workspace");
+  }
+  return responseBar;
+}
+
+function applyClientFacetFilters(bar: HTMLElement, state: FilterState): void {
+  const clientParams = new Set(
+    Array.from(bar.querySelectorAll<HTMLElement>('[data-filter-scope="client"]')).map(
+      (filter) => filter.dataset.filterParam || filter.dataset.filterId || "",
+    ),
+  );
+  const clientState: FilterState = {};
+  Object.entries(state).forEach(([param, value]) => {
+    if (clientParams.has(param)) clientState[param] = value;
+  });
+  const target = asHTMLElement(bar.closest(".cm-filters, .cm-toolbar-unified"))?.dataset.target;
+  if (!target || !clientParams.size) return;
+  const escaped =
+    typeof CSS !== "undefined" && CSS.escape
+      ? CSS.escape(target)
+      : target.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  applyClientFilterState(document.querySelector("#cm-table-" + escaped), clientState);
+}
+
+function dispatchFacetRefreshComplete(bar: HTMLElement, state: FilterState, pageUrl: string): void {
+  const nextState: FilterState = { ...state, ...selectedFilterValues(bar) };
+  const page = new URL(pageUrl, window.location.origin).searchParams.get("page");
+  if (page) nextState.page = page;
+  applyClientFacetFilters(bar, nextState);
+  bar.dispatchEvent(
+    new CustomEvent("cm-filter-change", {
+      bubbles: true,
+      detail: { state: nextState, bar, facetsRefreshComplete: true },
+    }),
+  );
+}
+
+function cancelFacetRefresh(): void {
+  facetRefreshGeneration += 1;
+  activeFacetRefreshController?.abort();
+  activeFacetRefreshController = null;
+}
+
+async function refreshFacetsInPlace(
+  pageUrl: string,
+  state: FilterState,
+  bar: HTMLElement,
+): Promise<void> {
+  cancelFacetRefresh();
+  const generation = facetRefreshGeneration;
+  const controller = new AbortController();
+  activeFacetRefreshController = controller;
+  try {
+    const requestUrl = new URL(pageUrl, window.location.href);
+    if (requestUrl.origin !== window.location.origin) {
+      throw new Error("Facet refresh requires the current page origin");
+    }
+    const response = await fetch(requestUrl.href, {
+      credentials: "same-origin",
+      headers: { Accept: "text/html" },
+      signal: controller.signal,
+    });
+    if (generation !== facetRefreshGeneration) return;
+    if (!response.ok) throw new Error("Facet refresh returned an unsuccessful response");
+    const responseHtml = await response.text();
+    if (generation !== facetRefreshGeneration) return;
+    const incomingBar = findIncomingFacetBar(responseHtml, bar);
+    const reconcile = prepareFacetReconciliation(bar, incomingBar);
+    if (generation !== facetRefreshGeneration) return;
+    reconcile();
+    multiselectPanelToRestore = null;
+    dispatchFacetRefreshComplete(bar, state, requestUrl.href);
+  } catch {
+    if (generation !== facetRefreshGeneration) return;
+    window.location.href = pageUrl;
+  } finally {
+    if (generation === facetRefreshGeneration) activeFacetRefreshController = null;
+  }
+}
+
 function syncToolbarCounterFromTable(gridId: string): void {
   if (!gridId) return;
   const block = document.getElementById("block-" + gridId);
@@ -280,6 +737,16 @@ export function navigateFilterState(
   const gridId = resolveToolbarGridId(anchorEl || bar);
   const frag = tableFragmentConfig(gridId, bar);
   const wantsFacets = specWantsFacets(anchorEl || bar);
+  const filterBar =
+    bar instanceof HTMLElement
+      ? bar
+      : asHTMLElement((bar as Element | null | undefined)?.closest?.("[data-cm-filter-bar]"));
+  if (usesInPlaceFacets(filterBar)) {
+    pushFilterHistory(pageUrl, filterBar);
+    void refreshFacetsInPlace(pageUrl, state, filterBar);
+    return true;
+  }
+  cancelFacetRefresh();
   const htmx = getGlobal().htmx;
   if (htmx && typeof htmx.ajax === "function") {
     // Faceted pages refresh the whole spec (bar + table) so option counts
@@ -339,7 +806,10 @@ function restoreFilterHistorySpec(): void {
   filterHistoryBound = true;
   window.addEventListener("popstate", () => {
     const nextUrl = filterNavigateHref();
-    if (!isSameFilterPage(latestFilterNavigationUrl, nextUrl)) return;
+    if (!isSameFilterPage(latestFilterNavigationUrl, nextUrl)) {
+      cancelFacetRefresh();
+      return;
+    }
     latestFilterNavigationUrl = nextUrl;
     // HTMX restores its own cached snapshot during the same popstate dispatch.
     // Queue our canonical server-spec swap after that restore so URL and rows
@@ -351,6 +821,15 @@ function restoreFilterHistorySpec(): void {
       const specRoot = specId
         ? asHTMLElement(document.getElementById("cm-spec-" + specId))
         : roots.length === 1 ? roots[0] : null;
+      const filterBar = asHTMLElement(specRoot?.querySelector("[data-cm-filter-bar]"));
+      if (usesInPlaceFacets(filterBar)) {
+        const state = selectedFilterValues(filterBar);
+        const page = new URL(nextUrl, window.location.origin).searchParams.get("page");
+        if (page) state.page = page;
+        void refreshFacetsInPlace(nextUrl, state, filterBar);
+        return;
+      }
+      cancelFacetRefresh();
       const htmx = getGlobal().htmx;
       if (!specRoot?.id || !htmx || typeof htmx.ajax !== "function") return;
       const wrapId = "cm-spec-wrap-" + specRoot.dataset.specId;
@@ -454,10 +933,10 @@ export function initMultiSelectWidget(rootEl: Element): void {
     if (open) panel?.classList.add("is-open");
   });
   panel?.addEventListener("click", (e) => e.stopPropagation());
-  root.querySelectorAll('input[type="checkbox"]').forEach((cbEl) => {
-    if (!(cbEl instanceof HTMLInputElement)) return;
-    const cb = cbEl;
-    cb.addEventListener("change", () => {
+  root.addEventListener("change", (event) => {
+    const target = event.target;
+    if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+    const cb = target;
       if (root.dataset.cmSingleselect === "1" && cb.checked && cb.dataset.selectAll !== "1") {
         root.querySelectorAll('input[type="checkbox"]').forEach((otherEl) => {
           if (otherEl instanceof HTMLInputElement && otherEl !== cb) otherEl.checked = false;
@@ -503,7 +982,6 @@ export function initMultiSelectWidget(rootEl: Element): void {
         root.dispatchEvent(new CustomEvent("cm-filter-change", { bubbles: true }));
       }, MULTISELECT_CHANGE_DEBOUNCE_MS);
       multiselectChangeTimers.set(root, timer);
-    });
   });
   syncSelectAllState();
   updateLabel();
@@ -535,7 +1013,9 @@ export function bindFilterBar(barEl: Element, opts?: FilterBarOptions) {
   if (periodFilter && typeof periodFilter.bind === "function") {
     periodFilter.bind(bar);
   }
-  const onChange = () => {
+  const onChange = (event?: Event) => {
+    const eventDetail = event instanceof CustomEvent && isRecord(event.detail) ? event.detail : null;
+    if (eventDetail?.facetsRefreshComplete === true) return;
     const state = selectedFilterValues(bar);
     state.page = "1";
     const clientParams = new Set(
@@ -548,6 +1028,19 @@ export function bindFilterBar(barEl: Element, opts?: FilterBarOptions) {
       if (clientParams.has(param)) clientState[param] = value;
     });
       const target = asHTMLElement(bar.closest(".cm-filters, .cm-toolbar-unified"))?.dataset.target;
+    if (!options.onChange && usesInPlaceFacets(bar)) {
+      if (event?.type === "cm-filter-change") event.stopPropagation();
+      if (navigateOnChange) {
+        navigateFilterState(state, bar, bar);
+      } else {
+        const pageUrl = withActiveTableColumns(buildFilterUrl(filterNavigateHref(), state), bar);
+        const historyState = isRecord(window.history.state) ? { ...window.history.state } : {};
+        window.history.replaceState(historyState, "", pageUrl);
+        latestFilterNavigationUrl = pageUrl;
+        void refreshFacetsInPlace(pageUrl, state, bar);
+      }
+      return;
+    }
     if (target && clientParams.size) {
       const escaped =
         typeof CSS !== "undefined" && CSS.escape

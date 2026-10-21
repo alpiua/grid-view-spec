@@ -4213,6 +4213,8 @@
   var multiselectPanelToRestore = null;
   var filterHistoryBound = false;
   var latestFilterNavigationUrl = "";
+  var facetRefreshGeneration = 0;
+  var activeFacetRefreshController = null;
   function setMultiselectTriggerLabel(root, text) {
     const trigger = root.querySelector(".cm-multiselect-trigger");
     if (!trigger) return;
@@ -4401,6 +4403,374 @@
     if (spec == null ? void 0 : spec.querySelector("[data-cm-filter-bar][data-cm-facets]")) return true;
     return !!el.closest("[data-cm-filter-bar][data-cm-facets]");
   }
+  function usesInPlaceFacets(bar) {
+    return (bar == null ? void 0 : bar.dataset.cmFacets) === "1" && bar.dataset.cmFacetsRefreshMode === "in_place";
+  }
+  function filterControlRoots(bar) {
+    const roots = /* @__PURE__ */ new Map();
+    bar.querySelectorAll("[data-filter-id]").forEach((element) => {
+      var _a;
+      const parent = (_a = element.parentElement) == null ? void 0 : _a.closest("[data-filter-id]");
+      if (parent && bar.contains(parent)) return;
+      const id = element.dataset.filterId || "";
+      if (!id || roots.has(id)) throw new Error("Facet response has an ambiguous filter control");
+      roots.set(id, element);
+    });
+    return roots;
+  }
+  function syncAttribute(target, source, name) {
+    const value = source.getAttribute(name);
+    if (value === null) target.removeAttribute(name);
+    else target.setAttribute(name, value);
+  }
+  function syncMultiselectAttributes(target, source) {
+    [
+      "data-filter-scope",
+      "data-filter-param",
+      "data-filter-type",
+      "data-placeholder",
+      "data-all-label",
+      "data-select-all-option",
+      "data-select-all-value",
+      "data-exclusive-all",
+      "data-cm-singleselect"
+    ].forEach((name) => syncAttribute(target, source, name));
+  }
+  function prepareTreeOptionUpdates(currentRoot, nextRoot, operations) {
+    const currentNodes = Array.from(
+      currentRoot.querySelectorAll("[data-cm-filter-tree-node]")
+    );
+    const nextNodes = Array.from(nextRoot.querySelectorAll("[data-cm-filter-tree-node]"));
+    if (!currentNodes.length && !nextNodes.length) return false;
+    if (currentNodes.length !== nextNodes.length) {
+      throw new Error("Facet response changes the tree control structure");
+    }
+    currentNodes.forEach((currentNode, index) => {
+      const nextNode = nextNodes[index];
+      const currentValue = currentNode.dataset.cmFilterTreeValue || "";
+      const nextValue = nextNode.dataset.cmFilterTreeValue || "";
+      if (currentValue !== nextValue || (currentNode.dataset.cmFilterTreeParent || "") !== (nextNode.dataset.cmFilterTreeParent || "")) {
+        throw new Error("Facet response changes the tree control structure");
+      }
+      const currentInput = currentNode.querySelector('input[type="checkbox"]');
+      const nextInput = nextNode.querySelector('input[type="checkbox"]');
+      if (!currentInput || !nextInput || currentInput.value !== nextInput.value) {
+        throw new Error("Facet response has a mismatched tree option");
+      }
+      const currentLabel = currentNode.querySelector(".cm-filter-drawer-option-label");
+      const nextLabel = nextNode.querySelector(".cm-filter-drawer-option-label");
+      const currentCount = currentNode.querySelector(".cm-filter-drawer-option-count");
+      const nextCount = nextNode.querySelector(".cm-filter-drawer-option-count");
+      const currentToggle = currentNode.querySelector("[data-cm-filter-tree-toggle]");
+      const nextToggle = nextNode.querySelector("[data-cm-filter-tree-toggle]");
+      const labelText = (nextLabel == null ? void 0 : nextLabel.textContent) || "";
+      const countText = nextCount == null ? void 0 : nextCount.textContent;
+      const checked = nextInput.checked;
+      const disabled = nextInput.disabled;
+      const facetCount = nextInput.dataset.cmFacetCount;
+      const optionLabel = nextInput.dataset.label || "";
+      const exclusive = nextInput.dataset.exclusiveSolo;
+      const toggleLabel = nextToggle == null ? void 0 : nextToggle.getAttribute("aria-label");
+      operations.push(() => {
+        currentNode.classList.toggle(
+          "cm-filter-drawer-option--disabled",
+          nextNode.classList.contains("cm-filter-drawer-option--disabled")
+        );
+        currentInput.checked = checked;
+        currentInput.disabled = disabled;
+        currentInput.dataset.label = optionLabel;
+        if (facetCount === void 0) delete currentInput.dataset.cmFacetCount;
+        else currentInput.dataset.cmFacetCount = facetCount;
+        if (exclusive === void 0) delete currentInput.dataset.exclusiveSolo;
+        else currentInput.dataset.exclusiveSolo = exclusive;
+        if (currentLabel && nextLabel) currentLabel.textContent = labelText;
+        if (countText === void 0) {
+          currentCount == null ? void 0 : currentCount.remove();
+        } else if (currentCount) {
+          currentCount.textContent = countText;
+        } else {
+          const count = document.createElement("span");
+          count.className = "cm-filter-drawer-option-count";
+          count.textContent = countText;
+          currentNode.append(count);
+        }
+        if (currentToggle && toggleLabel !== null && toggleLabel !== void 0) {
+          currentToggle.setAttribute("aria-label", toggleLabel);
+        }
+      });
+    });
+    return true;
+  }
+  function prepareMultiselectUpdate(currentRoot, nextRoot, operations) {
+    const currentPanel = currentRoot.querySelector(".cm-multiselect-panel");
+    const nextPanel = nextRoot.querySelector(".cm-multiselect-panel");
+    if (!!currentPanel !== !!nextPanel) {
+      throw new Error("Facet response changes the multiselect control structure");
+    }
+    const currentOptionsRoot = currentPanel || currentRoot;
+    const nextOptionsRoot = nextPanel || nextRoot;
+    const hasTree = prepareTreeOptionUpdates(currentOptionsRoot, nextOptionsRoot, operations);
+    if (hasTree) {
+      operations.push(() => syncMultiselectAttributes(currentRoot, nextRoot));
+      return;
+    }
+    const children = Array.from(nextOptionsRoot.childNodes).map((node) => node.cloneNode(true));
+    const emptyPanel = (nextPanel == null ? void 0 : nextPanel.classList.contains("cm-multiselect-panel--empty")) || false;
+    operations.push(() => {
+      if (currentPanel) {
+        const wasOpen = currentPanel.classList.contains("is-open");
+        currentPanel.replaceChildren(...children);
+        currentPanel.classList.toggle("cm-multiselect-panel--empty", emptyPanel);
+        currentPanel.classList.toggle("is-open", wasOpen);
+      } else {
+        currentRoot.replaceChildren(...children);
+      }
+      syncMultiselectAttributes(currentRoot, nextRoot);
+      const updateLabel = currentRoot._cmUpdateLabel;
+      if (typeof updateLabel === "function") updateLabel();
+      else _updateMultiSelectLabel(currentRoot);
+    });
+  }
+  function prepareFilterControlUpdate(currentRoot, nextRoot, operations) {
+    if (currentRoot.dataset.filterId !== nextRoot.dataset.filterId || currentRoot.dataset.filterType !== nextRoot.dataset.filterType || currentRoot.dataset.filterParam !== nextRoot.dataset.filterParam || currentRoot.dataset.filterScope !== nextRoot.dataset.filterScope) {
+      throw new Error("Facet response does not match the current filter control");
+    }
+    const currentMultiselect = currentRoot.hasAttribute("data-cm-multiselect");
+    const nextMultiselect = nextRoot.hasAttribute("data-cm-multiselect");
+    if (currentMultiselect !== nextMultiselect) {
+      throw new Error("Facet response changes the filter control type");
+    }
+    if (currentMultiselect) {
+      prepareMultiselectUpdate(currentRoot, nextRoot, operations);
+      return;
+    }
+    const currentSelects = Array.from(currentRoot.querySelectorAll("select"));
+    const nextSelects = Array.from(nextRoot.querySelectorAll("select"));
+    const currentInputs = Array.from(currentRoot.querySelectorAll("input"));
+    const nextInputs = Array.from(nextRoot.querySelectorAll("input"));
+    const currentTextareas = Array.from(currentRoot.querySelectorAll("textarea"));
+    const nextTextareas = Array.from(nextRoot.querySelectorAll("textarea"));
+    if (currentSelects.length !== nextSelects.length || currentInputs.length !== nextInputs.length || currentTextareas.length !== nextTextareas.length) {
+      throw new Error("Facet response changes the filter control structure");
+    }
+    currentSelects.forEach((currentSelect, index) => {
+      const nextSelect = nextSelects[index];
+      if (currentSelect.name !== nextSelect.name || currentSelect.multiple !== nextSelect.multiple || currentSelect.hasAttribute("data-cm-grouped-select") !== nextSelect.hasAttribute("data-cm-grouped-select")) {
+        throw new Error("Facet response changes the select control structure");
+      }
+      const children = Array.from(nextSelect.childNodes).map((node) => node.cloneNode(true));
+      const value = nextSelect.value;
+      const disabled = nextSelect.disabled;
+      operations.push(() => {
+        currentSelect.replaceChildren(...children);
+        currentSelect.value = value;
+        currentSelect.disabled = disabled;
+      });
+    });
+    currentInputs.forEach((currentInput, index) => {
+      const nextInput = nextInputs[index];
+      if (currentInput.type !== nextInput.type || currentInput.name !== nextInput.name || currentInput.hasAttribute("data-cm-filter-input") !== nextInput.hasAttribute("data-cm-filter-input")) {
+        throw new Error("Facet response changes the input control structure");
+      }
+      const value = nextInput.value;
+      const checked = nextInput.checked;
+      const disabled = nextInput.disabled;
+      const placeholder = nextInput.placeholder;
+      operations.push(() => {
+        currentInput.value = value;
+        currentInput.checked = checked;
+        currentInput.disabled = disabled;
+        currentInput.placeholder = placeholder;
+      });
+    });
+    currentTextareas.forEach((currentTextarea, index) => {
+      const nextTextarea = nextTextareas[index];
+      if (currentTextarea.name !== nextTextarea.name) {
+        throw new Error("Facet response changes the text control structure");
+      }
+      const value = nextTextarea.value;
+      const disabled = nextTextarea.disabled;
+      const placeholder = nextTextarea.placeholder;
+      operations.push(() => {
+        currentTextarea.value = value;
+        currentTextarea.disabled = disabled;
+        currentTextarea.placeholder = placeholder;
+      });
+    });
+  }
+  function captureFilterScroll(bar) {
+    const elements = [bar, ...Array.from(bar.querySelectorAll("*"))];
+    return elements.map((element) => ({ element, top: element.scrollTop, left: element.scrollLeft }));
+  }
+  function restoreFilterScroll(positions) {
+    positions.forEach(({ element, top, left }) => {
+      if (!element.isConnected) return;
+      element.scrollTop = top;
+      element.scrollLeft = left;
+    });
+  }
+  function captureFilterFocus(bar) {
+    var _a, _b, _c;
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !bar.contains(active)) return null;
+    const input = active instanceof HTMLInputElement ? active : null;
+    const control = active instanceof HTMLSelectElement ? active : input;
+    return {
+      element: active,
+      filterId: ((_a = active.closest("[data-filter-id]")) == null ? void 0 : _a.dataset.filterId) || "",
+      tagName: active.tagName,
+      name: (control == null ? void 0 : control.name) || "",
+      value: (control == null ? void 0 : control.value) || "",
+      inputType: (input == null ? void 0 : input.type) || "",
+      selectionStart: (_b = input == null ? void 0 : input.selectionStart) != null ? _b : null,
+      selectionEnd: (_c = input == null ? void 0 : input.selectionEnd) != null ? _c : null
+    };
+  }
+  function restoreFilterFocus(bar, snapshot) {
+    if (!snapshot || snapshot.element.isConnected) return;
+    const candidates = Array.from(bar.querySelectorAll("input, select, button"));
+    const filterCandidates = candidates.filter(
+      (element) => {
+        var _a;
+        return ((_a = element.closest("[data-filter-id]")) == null ? void 0 : _a.dataset.filterId) === snapshot.filterId;
+      }
+    );
+    const target = filterCandidates.find((element) => {
+      if (element.tagName !== snapshot.tagName) return false;
+      if (element instanceof HTMLInputElement) {
+        return element.name === snapshot.name && element.type === snapshot.inputType && element.value === snapshot.value;
+      }
+      if (element instanceof HTMLSelectElement) return element.name === snapshot.name;
+      return true;
+    }) || filterCandidates[0];
+    if (!target) return;
+    target.focus({ preventScroll: true });
+    if (target instanceof HTMLInputElement && snapshot.selectionStart !== null && snapshot.selectionEnd !== null) {
+      try {
+        target.setSelectionRange(snapshot.selectionStart, snapshot.selectionEnd);
+      } catch (e) {
+      }
+    }
+  }
+  function prepareFacetReconciliation(liveBar, incomingBar) {
+    const currentRoots = filterControlRoots(liveBar);
+    const nextRoots = filterControlRoots(incomingBar);
+    if (currentRoots.size === 0 || currentRoots.size !== nextRoots.size) {
+      throw new Error("Facet response does not contain the matching filter controls");
+    }
+    const operations = [];
+    currentRoots.forEach((currentRoot, id) => {
+      const nextRoot = nextRoots.get(id);
+      if (!nextRoot) throw new Error("Facet response is missing a filter control");
+      prepareFilterControlUpdate(currentRoot, nextRoot, operations);
+    });
+    const currentSearch = liveBar.querySelector("input[data-cm-search]");
+    const nextSearch = incomingBar.querySelector("input[data-cm-search]");
+    if (!!currentSearch !== !!nextSearch) {
+      throw new Error("Facet response changes the filter search control");
+    }
+    if (currentSearch && nextSearch) {
+      const value = nextSearch.value;
+      operations.push(() => {
+        currentSearch.value = value;
+      });
+    }
+    const scrollPositions = captureFilterScroll(liveBar);
+    const focus = captureFilterFocus(liveBar);
+    return () => {
+      operations.forEach((operation) => operation());
+      liveBar.querySelectorAll("[data-cm-filter-workspace-search], [data-cm-filter-card-search]").forEach((input) => input.dispatchEvent(new Event("input", { bubbles: true })));
+      liveBar.dispatchEvent(new Event("change", { bubbles: true }));
+      liveBar.querySelectorAll("[data-cm-multiselect]").forEach((root) => {
+        const updateLabel = root._cmUpdateLabel;
+        if (typeof updateLabel === "function") updateLabel();
+        else _updateMultiSelectLabel(root);
+      });
+      restoreFilterScroll(scrollPositions);
+      restoreFilterFocus(liveBar, focus);
+    };
+  }
+  function findIncomingFacetBar(responseHtml, liveBar) {
+    const liveSpec = asHTMLElement(liveBar.closest("[data-cm-grid-view-spec]"));
+    if (!(liveSpec == null ? void 0 : liveSpec.id) || !liveBar.id) throw new Error("The current filter workspace has no stable identity");
+    const responseDocument = new DOMParser().parseFromString(responseHtml, "text/html");
+    const responseSpec = asHTMLElement(responseDocument.getElementById(liveSpec.id));
+    if (!(responseSpec == null ? void 0 : responseSpec.matches("[data-cm-grid-view-spec]"))) {
+      throw new Error("Facet response does not contain the current GridViewSpec");
+    }
+    const responseBar = Array.from(responseSpec.querySelectorAll("[data-cm-filter-bar]")).find(
+      (bar) => bar.id === liveBar.id
+    );
+    if (!usesInPlaceFacets(responseBar)) {
+      throw new Error("Facet response does not contain the matching in-place filter workspace");
+    }
+    return responseBar;
+  }
+  function applyClientFacetFilters(bar, state) {
+    var _a;
+    const clientParams = new Set(
+      Array.from(bar.querySelectorAll('[data-filter-scope="client"]')).map(
+        (filter) => filter.dataset.filterParam || filter.dataset.filterId || ""
+      )
+    );
+    const clientState = {};
+    Object.entries(state).forEach(([param, value]) => {
+      if (clientParams.has(param)) clientState[param] = value;
+    });
+    const target = (_a = asHTMLElement(bar.closest(".cm-filters, .cm-toolbar-unified"))) == null ? void 0 : _a.dataset.target;
+    if (!target || !clientParams.size) return;
+    const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(target) : target.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+    applyClientFilterState(document.querySelector("#cm-table-" + escaped), clientState);
+  }
+  function dispatchFacetRefreshComplete(bar, state, pageUrl) {
+    const nextState = { ...state, ...selectedFilterValues(bar) };
+    const page = new URL(pageUrl, window.location.origin).searchParams.get("page");
+    if (page) nextState.page = page;
+    applyClientFacetFilters(bar, nextState);
+    bar.dispatchEvent(
+      new CustomEvent("cm-filter-change", {
+        bubbles: true,
+        detail: { state: nextState, bar, facetsRefreshComplete: true }
+      })
+    );
+  }
+  function cancelFacetRefresh() {
+    facetRefreshGeneration += 1;
+    activeFacetRefreshController == null ? void 0 : activeFacetRefreshController.abort();
+    activeFacetRefreshController = null;
+  }
+  async function refreshFacetsInPlace(pageUrl, state, bar) {
+    cancelFacetRefresh();
+    const generation = facetRefreshGeneration;
+    const controller = new AbortController();
+    activeFacetRefreshController = controller;
+    try {
+      const requestUrl = new URL(pageUrl, window.location.href);
+      if (requestUrl.origin !== window.location.origin) {
+        throw new Error("Facet refresh requires the current page origin");
+      }
+      const response = await fetch(requestUrl.href, {
+        credentials: "same-origin",
+        headers: { Accept: "text/html" },
+        signal: controller.signal
+      });
+      if (generation !== facetRefreshGeneration) return;
+      if (!response.ok) throw new Error("Facet refresh returned an unsuccessful response");
+      const responseHtml = await response.text();
+      if (generation !== facetRefreshGeneration) return;
+      const incomingBar = findIncomingFacetBar(responseHtml, bar);
+      const reconcile = prepareFacetReconciliation(bar, incomingBar);
+      if (generation !== facetRefreshGeneration) return;
+      reconcile();
+      multiselectPanelToRestore = null;
+      dispatchFacetRefreshComplete(bar, state, requestUrl.href);
+    } catch (e) {
+      if (generation !== facetRefreshGeneration) return;
+      window.location.href = pageUrl;
+    } finally {
+      if (generation === facetRefreshGeneration) activeFacetRefreshController = null;
+    }
+  }
   function syncToolbarCounterFromTable(gridId) {
     var _a;
     if (!gridId) return;
@@ -4418,6 +4788,7 @@
     }
   }
   function navigateFilterState(state, anchorEl, bar) {
+    var _a;
     const pageUrl = withActiveTableColumns(
       buildFilterUrl(filterNavigateHref(), state),
       anchorEl || bar
@@ -4425,6 +4796,13 @@
     const gridId = resolveToolbarGridId(anchorEl || bar);
     const frag = tableFragmentConfig(gridId, bar);
     const wantsFacets = specWantsFacets(anchorEl || bar);
+    const filterBar = bar instanceof HTMLElement ? bar : asHTMLElement((_a = bar == null ? void 0 : bar.closest) == null ? void 0 : _a.call(bar, "[data-cm-filter-bar]"));
+    if (usesInPlaceFacets(filterBar)) {
+      pushFilterHistory(pageUrl, filterBar);
+      void refreshFacetsInPlace(pageUrl, state, filterBar);
+      return true;
+    }
+    cancelFacetRefresh();
     const htmx = getGlobal().htmx;
     if (htmx && typeof htmx.ajax === "function") {
       if (frag && !wantsFacets) {
@@ -4474,13 +4852,25 @@
     filterHistoryBound = true;
     window.addEventListener("popstate", () => {
       const nextUrl = filterNavigateHref();
-      if (!isSameFilterPage(latestFilterNavigationUrl, nextUrl)) return;
+      if (!isSameFilterPage(latestFilterNavigationUrl, nextUrl)) {
+        cancelFacetRefresh();
+        return;
+      }
       latestFilterNavigationUrl = nextUrl;
       window.setTimeout(() => {
         const historyState = isRecord(window.history.state) ? window.history.state : {};
         const specId = typeof historyState.cmFilterSpecId === "string" ? historyState.cmFilterSpecId : "";
         const roots = Array.from(document.querySelectorAll("[data-cm-grid-view-spec]"));
         const specRoot = specId ? asHTMLElement(document.getElementById("cm-spec-" + specId)) : roots.length === 1 ? roots[0] : null;
+        const filterBar = asHTMLElement(specRoot == null ? void 0 : specRoot.querySelector("[data-cm-filter-bar]"));
+        if (usesInPlaceFacets(filterBar)) {
+          const state = selectedFilterValues(filterBar);
+          const page = new URL(nextUrl, window.location.origin).searchParams.get("page");
+          if (page) state.page = page;
+          void refreshFacetsInPlace(nextUrl, state, filterBar);
+          return;
+        }
+        cancelFacetRefresh();
         const htmx = getGlobal().htmx;
         if (!(specRoot == null ? void 0 : specRoot.id) || !htmx || typeof htmx.ajax !== "function") return;
         const wrapId = "cm-spec-wrap-" + specRoot.dataset.specId;
@@ -4571,48 +4961,47 @@
       if (open) panel == null ? void 0 : panel.classList.add("is-open");
     });
     panel == null ? void 0 : panel.addEventListener("click", (e) => e.stopPropagation());
-    root.querySelectorAll('input[type="checkbox"]').forEach((cbEl) => {
-      if (!(cbEl instanceof HTMLInputElement)) return;
-      const cb = cbEl;
-      cb.addEventListener("change", () => {
-        if (root.dataset.cmSingleselect === "1" && cb.checked && cb.dataset.selectAll !== "1") {
-          root.querySelectorAll('input[type="checkbox"]').forEach((otherEl) => {
-            if (otherEl instanceof HTMLInputElement && otherEl !== cb) otherEl.checked = false;
-          });
-        }
-        if ((cb.dataset.selectAll === "1" || cb.dataset.exclusiveSolo === "1") && cb.checked) {
-          root.querySelectorAll('input[type="checkbox"]').forEach((oEl) => {
-            if (oEl instanceof HTMLInputElement && oEl !== cb) oEl.checked = false;
-          });
-        } else if (root.dataset.exclusiveAll === "1" && cb.dataset.periodAll === "1" && cb.checked) {
-          root.querySelectorAll('input[type="checkbox"]:not([data-period-all])').forEach((oEl) => {
-            if (oEl instanceof HTMLInputElement) oEl.checked = false;
-          });
-        } else if (cb.dataset.periodAll !== "1" && cb.checked) {
-          const allCb = root.querySelector("[data-period-all]");
-          if (allCb) allCb.checked = false;
-        }
-        if (cb.dataset.selectAll !== "1" && cb.dataset.exclusiveSolo !== "1" && cb.dataset.periodAll !== "1" && cb.checked) {
-          soloCheckboxes().forEach((o) => {
-            o.checked = false;
-          });
-        }
-        if (cb.dataset.selectAll !== "1") syncSelectAllState();
-        updateLabel();
-        if (root.dataset.cmSingleselect === "1") {
-          root.dispatchEvent(new CustomEvent("cm-filter-change", { bubbles: true }));
-          panel == null ? void 0 : panel.classList.remove("is-open");
-          return;
-        }
-        const pendingTimer = multiselectChangeTimers.get(root);
-        if (pendingTimer) window.clearTimeout(pendingTimer);
-        multiselectPanelToRestore = restoreKey;
-        const timer = window.setTimeout(() => {
-          multiselectChangeTimers.delete(root);
-          root.dispatchEvent(new CustomEvent("cm-filter-change", { bubbles: true }));
-        }, MULTISELECT_CHANGE_DEBOUNCE_MS);
-        multiselectChangeTimers.set(root, timer);
-      });
+    root.addEventListener("change", (event) => {
+      const target = event.target;
+      if (!(target instanceof HTMLInputElement) || target.type !== "checkbox") return;
+      const cb = target;
+      if (root.dataset.cmSingleselect === "1" && cb.checked && cb.dataset.selectAll !== "1") {
+        root.querySelectorAll('input[type="checkbox"]').forEach((otherEl) => {
+          if (otherEl instanceof HTMLInputElement && otherEl !== cb) otherEl.checked = false;
+        });
+      }
+      if ((cb.dataset.selectAll === "1" || cb.dataset.exclusiveSolo === "1") && cb.checked) {
+        root.querySelectorAll('input[type="checkbox"]').forEach((oEl) => {
+          if (oEl instanceof HTMLInputElement && oEl !== cb) oEl.checked = false;
+        });
+      } else if (root.dataset.exclusiveAll === "1" && cb.dataset.periodAll === "1" && cb.checked) {
+        root.querySelectorAll('input[type="checkbox"]:not([data-period-all])').forEach((oEl) => {
+          if (oEl instanceof HTMLInputElement) oEl.checked = false;
+        });
+      } else if (cb.dataset.periodAll !== "1" && cb.checked) {
+        const allCb = root.querySelector("[data-period-all]");
+        if (allCb) allCb.checked = false;
+      }
+      if (cb.dataset.selectAll !== "1" && cb.dataset.exclusiveSolo !== "1" && cb.dataset.periodAll !== "1" && cb.checked) {
+        soloCheckboxes().forEach((o) => {
+          o.checked = false;
+        });
+      }
+      if (cb.dataset.selectAll !== "1") syncSelectAllState();
+      updateLabel();
+      if (root.dataset.cmSingleselect === "1") {
+        root.dispatchEvent(new CustomEvent("cm-filter-change", { bubbles: true }));
+        panel == null ? void 0 : panel.classList.remove("is-open");
+        return;
+      }
+      const pendingTimer = multiselectChangeTimers.get(root);
+      if (pendingTimer) window.clearTimeout(pendingTimer);
+      multiselectPanelToRestore = restoreKey;
+      const timer = window.setTimeout(() => {
+        multiselectChangeTimers.delete(root);
+        root.dispatchEvent(new CustomEvent("cm-filter-change", { bubbles: true }));
+      }, MULTISELECT_CHANGE_DEBOUNCE_MS);
+      multiselectChangeTimers.set(root, timer);
     });
     syncSelectAllState();
     updateLabel();
@@ -4638,8 +5027,10 @@
     if (periodFilter && typeof periodFilter.bind === "function") {
       periodFilter.bind(bar);
     }
-    const onChange = () => {
+    const onChange = (event) => {
       var _a;
+      const eventDetail = event instanceof CustomEvent && isRecord(event.detail) ? event.detail : null;
+      if ((eventDetail == null ? void 0 : eventDetail.facetsRefreshComplete) === true) return;
       const state = selectedFilterValues(bar);
       state.page = "1";
       const clientParams = new Set(
@@ -4652,6 +5043,19 @@
         if (clientParams.has(param)) clientState[param] = value;
       });
       const target = (_a = asHTMLElement(bar.closest(".cm-filters, .cm-toolbar-unified"))) == null ? void 0 : _a.dataset.target;
+      if (!options.onChange && usesInPlaceFacets(bar)) {
+        if ((event == null ? void 0 : event.type) === "cm-filter-change") event.stopPropagation();
+        if (navigateOnChange) {
+          navigateFilterState(state, bar, bar);
+        } else {
+          const pageUrl = withActiveTableColumns(buildFilterUrl(filterNavigateHref(), state), bar);
+          const historyState = isRecord(window.history.state) ? { ...window.history.state } : {};
+          window.history.replaceState(historyState, "", pageUrl);
+          latestFilterNavigationUrl = pageUrl;
+          void refreshFacetsInPlace(pageUrl, state, bar);
+        }
+        return;
+      }
       if (target && clientParams.size) {
         const escaped = typeof CSS !== "undefined" && CSS.escape ? CSS.escape(target) : target.replace(/\\/g, "\\\\").replace(/\"/g, '\\"');
         applyClientFilterState(document.querySelector("#cm-table-" + escaped), clientState);
@@ -8049,11 +8453,15 @@
       const registry = gv2.byId;
       if (!registry) return;
       function getPageState() {
-        var _a3;
+        var _a3, _b3;
         const currentConfig = ((_a3 = specGridStates.get(gridId)) == null ? void 0 : _a3.config) || config;
         const url = new URL(window.location.href);
         const state = {};
         (currentConfig.urlPageStateKeys || []).forEach((key) => {
+          const val = url.searchParams.get(key);
+          if (val) state[key] = val;
+        });
+        (((_b3 = currentConfig.columnSource) == null ? void 0 : _b3.dependsOn) || []).forEach((key) => {
           const val = url.searchParams.get(key);
           if (val) state[key] = val;
         });
@@ -8199,7 +8607,7 @@
         specFilterListeners.add(gridId);
         document.addEventListener("cm-filter-change", (e) => {
           void (async () => {
-            var _a3, _b3, _c2, _d2, _e;
+            var _a3, _b3, _c2, _d2, _e, _f;
             const state = specGridStates.get(gridId);
             if (!state) return;
             const currentConfig = state.config;
@@ -8209,21 +8617,22 @@
             if (currentConfig.filtersSelector && !bar.closest(currentConfig.filtersSelector)) return;
             const filterBar = bar.closest("[data-cm-filter-bar]");
             const navigates = ((_a3 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _a3.navigateOnChange) !== "0";
-            if (((_b3 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _b3.autoApply) === "1" && navigates) return;
+            const refreshesFacetsInPlace = ((_b3 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _b3.cmFacets) === "1" && filterBar.dataset.cmFacetsRefreshMode === "in_place";
+            if (((_c2 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _c2.autoApply) === "1" && navigates && !refreshesFacetsInPlace) return;
             const current = registry.get(gridId);
             if (!current) return;
             const filterGeneration = ++state.filterGeneration;
             if (currentConfig.columnSource && current.gridApi) {
               try {
                 const nextDefs = await resolveColumnDefs(currentConfig, getPageState);
-                if (((_c2 = specGridStates.get(gridId)) == null ? void 0 : _c2.generation) !== state.generation || state.filterGeneration !== filterGeneration) return;
+                if (((_d2 = specGridStates.get(gridId)) == null ? void 0 : _d2.generation) !== state.generation || state.filterGeneration !== filterGeneration) return;
                 setColumnDefsPreservingState(current.gridApi, nextDefs);
               } catch (error) {
                 console.error("[GridView.AgGrid] column_source refresh failed:", error);
               }
             }
-            if (((_d2 = specGridStates.get(gridId)) == null ? void 0 : _d2.generation) !== state.generation || state.filterGeneration !== filterGeneration) return;
-            (_e = current.reloadData) == null ? void 0 : _e.call(current);
+            if (((_e = specGridStates.get(gridId)) == null ? void 0 : _e.generation) !== state.generation || state.filterGeneration !== filterGeneration) return;
+            (_f = current.reloadData) == null ? void 0 : _f.call(current);
             const syncExportLinks2 = agModule == null ? void 0 : agModule.syncExportLinks;
             syncExportLinks2 == null ? void 0 : syncExportLinks2(gridId, { getExtraParams: getPageState, exportColumns: true });
           })();

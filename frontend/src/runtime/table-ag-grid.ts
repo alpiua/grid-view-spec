@@ -405,6 +405,12 @@ function bootFromSpecConfig(config: AgGridSpecConfig): void {
         const val = url.searchParams.get(key);
         if (val) state[key] = val;
       });
+      // Dynamic column sources may depend on ordinary filter parameters outside
+      // the page-state allowlist; their current URL values drive each refresh.
+      (currentConfig.columnSource?.dependsOn || []).forEach((key) => {
+        const val = url.searchParams.get(key);
+        if (val) state[key] = val;
+      });
       if (currentConfig.filtersSelector) {
         const root = document.querySelector(currentConfig.filtersSelector);
         const filterBar = gv.FilterBar;
@@ -568,7 +574,10 @@ function bootFromSpecConfig(config: AgGridSpecConfig): void {
           if (currentConfig.filtersSelector && !bar.closest(currentConfig.filtersSelector)) return;
           const filterBar = bar.closest("[data-cm-filter-bar]") as HTMLElement | null;
           const navigates = filterBar?.dataset?.navigateOnChange !== "0";
-          if (filterBar?.dataset?.autoApply === "1" && navigates) return;
+          const refreshesFacetsInPlace =
+            filterBar?.dataset?.cmFacets === "1" &&
+            filterBar.dataset.cmFacetsRefreshMode === "in_place";
+          if (filterBar?.dataset?.autoApply === "1" && navigates && !refreshesFacetsInPlace) return;
           const current = registry.get(gridId) as AgGridHostHandle | null;
           if (!current) return;
           const filterGeneration = ++state.filterGeneration;
