@@ -53,6 +53,7 @@ def _spec(dealer: str = "", brand: str = "") -> GridViewSpec:
             depends_on=("dealer",),
         ),
         datasource=GridViewDataSource(endpoint="/rows/"),
+        settings=("drawer",),
     )
     selected_state: dict[str, GridViewFilterValue] = {
         "price_tier": f"{dealer or 'all'}-retail",
@@ -61,6 +62,54 @@ def _spec(dealer: str = "", brand: str = "") -> GridViewSpec:
         selected_state["dealer"] = dealer
     if brand:
         selected_state["brand"] = (brand,)
+    if dealer == "d2":
+        settings_filter = GridViewFilter(
+            id="price_columns",
+            label="Visible price columns",
+            param="price_columns",
+            type="multiselect",
+            options=(
+                GridViewFilterOption(value="d2-retail", label="Retail", count=3),
+                GridViewFilterOption(value="d2-wholesale", label="Wholesale", count=2),
+            ),
+        )
+        selected_state["price_columns"] = ("d2-retail", "d2-wholesale")
+    else:
+        settings_filter = GridViewFilter(
+            id="wholesale_price_columns",
+            label="Wholesale price columns",
+            param="wholesale_price_columns",
+            type="multiselect",
+            options=(
+                GridViewFilterOption(
+                    value=f"{dealer or 'all'}-wholesale",
+                    label="Wholesale",
+                    count=1,
+                ),
+            ),
+        )
+        selected_state["wholesale_price_columns"] = (f"{dealer or 'all'}-wholesale",)
+    price_basis_value = f"{dealer or 'all'}-retail"
+    price_basis_filter = GridViewFilter(
+        id="price_basis",
+        label="Price basis",
+        param="price_basis",
+        type="grouped_select",
+        options=(
+            GridViewFilterOption(
+                value="price-basis",
+                label="Price basis",
+                children=(
+                    GridViewFilterOption(value=price_basis_value, label="Retail basis"),
+                    GridViewFilterOption(
+                        value=f"{dealer or 'all'}-wholesale",
+                        label="Wholesale basis",
+                    ),
+                ),
+            ),
+        ),
+    )
+    selected_state["price_basis"] = (price_basis_value,)
     filters = GridViewFilters(
         id="stock_filters",
         presentation="drawer",
@@ -106,6 +155,8 @@ def _spec(dealer: str = "", brand: str = "") -> GridViewSpec:
                     ),
                 ),
             ),
+            settings_filter,
+            price_basis_filter,
         ),
         drawer_sections=(
             GridViewFilterDrawerSection(
@@ -119,6 +170,14 @@ def _spec(dealer: str = "", brand: str = "") -> GridViewSpec:
                 filter_ids=("brand", "price_tier"),
                 searchable=True,
                 list_size="lg",
+            ),
+            GridViewFilterDrawerSection(
+                id="price-settings",
+                label="Price columns",
+                filter_ids=(settings_filter.id, price_basis_filter.id),
+                searchable=True,
+                list_size="lg",
+                panel="settings",
             ),
         ),
         state=GridViewFilterState(values=selected_state),
@@ -147,6 +206,7 @@ window.addEventListener('beforeunload', () => {
   const dealer = document.querySelector('select[name="dealer"]');
   sessionStorage.setItem('facet-navigation-fallback', JSON.stringify({
     url: location.search,
+    requestUrl: window.__requests.facets.at(-1) || '',
     dealer: dealer?.value || '',
     brandValues: Array.from(
       brand?.querySelectorAll('input[type="checkbox"]') || []
@@ -172,11 +232,20 @@ window.addEventListener("load", async () => {
   const card = bar.querySelector('[data-cm-filter-card-id="brands"]');
   const cardSearch = card.querySelector('[data-cm-filter-card-search]');
   const cardList = card.querySelector('.cm-filter-drawer-card-controls');
+  const settingsBar = document.querySelector('[data-cm-filter-workspace-panel="settings"]');
+  const settingsCard = settingsBar.querySelector('[data-cm-filter-card-id="price-settings"]');
+  const settingsCardSearch = settingsCard.querySelector('[data-cm-filter-card-search]');
+  const settingsCardList = settingsCard.querySelector('.cm-filter-drawer-card-controls');
+  const priceBasisSelect = settingsCard.querySelector('select[data-cm-grouped-select]');
+  const originalWholesaleColumns = settingsCard.querySelector(
+    '[data-filter-id="wholesale_price_columns"][data-cm-multiselect]'
+  );
   brandList.style.height = '42px';
   brandList.style.overflowY = 'auto';
   brandList.scrollTop = 18;
   workspaceSearch.value = 'global query';
   cardSearch.value = 'brand query';
+  settingsCardSearch.value = 'price query';
   const original = {
     bar,
     dealer,
@@ -186,6 +255,12 @@ window.addEventListener("load", async () => {
     card,
     cardSearch,
     cardList,
+    settingsBar,
+    settingsCard,
+    settingsCardSearch,
+    settingsCardList,
+    priceBasisSelect,
+    originalWholesaleColumns,
     scrollTop: brandList.scrollTop,
     pushCount: 0,
     rowCount: window.__requests.rows.length,
@@ -199,12 +274,17 @@ window.addEventListener("load", async () => {
   document.addEventListener('cm-filter-change', event => {
     if (
       event.target === bar ||
-      event.target === bar.querySelector('.cm-filter-drawer-workspace-cards')
+      event.target === bar.querySelector('.cm-filter-drawer-workspace-cards') ||
+      event.target === settingsBar ||
+      event.target === settingsBar.querySelector('.cm-filter-drawer-workspace-cards')
     ) {
       original.filterEvents += 1;
     }
   });
   GridView.bootScope(document);
+  settingsBar.dataset.cmFbBound = '';
+  GridView.bootScope(document);
+  const groupedChangeListeners = window.__groupedServerChangeListeners;
   await wait(150);
   const initialRows = window.__requests.rows.length;
   dealer.value = 'd1';
@@ -216,6 +296,11 @@ window.addEventListener("load", async () => {
   const d2Brand = brandList.querySelector('input[value="d2-brand"]');
   const d2Unavailable = brandList.querySelector('input[value="d2-unavailable"]');
   const d2Tier = tierField.querySelector('select');
+  const settingsPriceColumns = settingsCard.querySelector(
+    '[data-filter-id="price_columns"][data-cm-multiselect]'
+  );
+  const settingsRetail = settingsPriceColumns?.querySelector('input[value="d2-retail"]');
+  const settingsWholesale = settingsPriceColumns?.querySelector('input[value="d2-wholesale"]');
   const afterLatest = {
     urlDealer: new URL(location.href).searchParams.get('dealer'),
     stableNodes: document.querySelector('[data-cm-filter-drawer-workspace]') === original.bar &&
@@ -227,6 +312,15 @@ window.addEventListener("load", async () => {
       card.querySelector('[data-cm-filter-card-search]') === original.cardSearch &&
       card.querySelector('.cm-filter-drawer-card-controls') === original.cardList,
     searchValues: workspaceSearch.value === 'global query' && cardSearch.value === 'brand query',
+    settingsNodes: settingsBar === original.settingsBar &&
+      settingsCard === original.settingsCard &&
+      settingsCardSearch === original.settingsCardSearch &&
+      settingsCardList === original.settingsCardList,
+    settingsSearchValue: settingsCardSearch.value === 'price query',
+    settingsFilterShape: !originalWholesaleColumns.isConnected && !!settingsPriceColumns &&
+      settingsRetail?.checked === true && settingsWholesale?.checked === true &&
+      !settingsCard.querySelector('[data-filter-id="wholesale_price_columns"]'),
+    settingsWidgetInitialized: settingsPriceColumns?.dataset.cmMsBound === '1',
     scrollPreserved: brandList.scrollTop === original.scrollTop && original.scrollTop > 0,
     dependentOptions: !!d2Brand && !!d2Unavailable && !!d2Tier &&
       d2Tier.value === 'd2-retail' &&
@@ -288,11 +382,70 @@ window.addEventListener("load", async () => {
     pushCount: original.pushCount,
   };
 
+  const rowsBeforeSettingsInsert = window.__requests.rows.length;
+  const eventsBeforeSettingsInsert = original.filterEvents;
+  const pushesBeforeSettingsInsert = original.pushCount;
+  const requestsBeforeSettingsInsert = window.__requests.facets.length;
+  dealer.value = 'd2';
+  dealer.dispatchEvent(new Event('change', { bubbles: true }));
+  await wait(220);
+  const insertedPriceColumns = settingsCard.querySelector(
+    '[data-filter-id="price_columns"][data-cm-multiselect]'
+  );
+  const insertedRetail = insertedPriceColumns?.querySelector('input[value="d2-retail"]');
+  const rowsBeforeSettingsClick = window.__requests.rows.length;
+  const eventsBeforeSettingsClick = original.filterEvents;
+  const pushesBeforeSettingsClick = original.pushCount;
+  const requestsBeforeSettingsClick = window.__requests.facets.length;
+  if (insertedRetail) insertedRetail.click();
+  await wait(720);
+  const afterInsertedSettingsControl = {
+    insertedControlWasCreated: !!insertedPriceColumns && !!insertedRetail,
+    insertRequestCount: requestsBeforeSettingsClick - requestsBeforeSettingsInsert,
+    insertRowRequests: rowsBeforeSettingsClick - rowsBeforeSettingsInsert,
+    insertAcceptedFilterEvents: eventsBeforeSettingsClick - eventsBeforeSettingsInsert,
+    insertPushCount: pushesBeforeSettingsClick - pushesBeforeSettingsInsert,
+    insertedControlStillLive: !!insertedPriceColumns &&
+      settingsCard.querySelector('[data-filter-id="price_columns"][data-cm-multiselect]') ===
+        insertedPriceColumns,
+    retailUnchecked:
+      insertedPriceColumns?.querySelector('input[value="d2-retail"]')?.checked === false,
+    wholesaleChecked:
+      insertedPriceColumns?.querySelector('input[value="d2-wholesale"]')?.checked === true,
+    requestCount: window.__requests.facets.length - requestsBeforeSettingsClick,
+    rowRequests: window.__requests.rows.length - rowsBeforeSettingsClick,
+    acceptedFilterEvents: original.filterEvents - eventsBeforeSettingsClick,
+    pushCount: original.pushCount - pushesBeforeSettingsClick,
+    selectedPriceColumns: new URL(
+      window.__requests.facets.at(-1) || '', window.location.origin
+    ).searchParams.get('price_columns'),
+  };
+
+  const rowsBeforeGroupedChange = window.__requests.rows.length;
+  const eventsBeforeGroupedChange = original.filterEvents;
+  const pushesBeforeGroupedChange = original.pushCount;
+  const requestsBeforeGroupedChange = window.__requests.facets.length;
+  priceBasisSelect.value = 'd2-wholesale';
+  priceBasisSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await wait(220);
+  const afterGroupedChange = {
+    requestCount: window.__requests.facets.length - requestsBeforeGroupedChange,
+    rowRequests: window.__requests.rows.length - rowsBeforeGroupedChange,
+    acceptedFilterEvents: original.filterEvents - eventsBeforeGroupedChange,
+    pushCount: original.pushCount - pushesBeforeGroupedChange,
+    groupedChangeListeners,
+    selectedPriceBasis: new URL(
+      window.__requests.facets.at(-1) || '', window.location.origin
+    ).searchParams.get('price_basis'),
+  };
+
   sessionStorage.setItem('facet-success-state', JSON.stringify({
     afterLatest,
     afterBack,
     afterForward,
     afterReset,
+    afterInsertedSettingsControl,
+    afterGroupedChange,
     filterUrls: window.__requests.facets,
   }));
   window.__responses.d1 = '<html><body>Invalid facet response</body></html>';
@@ -304,6 +457,8 @@ window.addEventListener("load", async () => {
     afterBack,
     afterForward,
     afterReset,
+    afterInsertedSettingsControl,
+    afterGroupedChange,
     afterFailure: {fullNavigationFallback: false},
     filterUrls: window.__requests.facets,
   });
@@ -314,6 +469,10 @@ window.addEventListener("load", async () => {
 
 def test_in_place_facets_keep_workspace_and_refresh_latest_table_state(tmp_path: Path) -> None:
     """The server updates dependent facets without replacing the live workspace."""
+    initial_filters = next(
+        block for block in _spec(brand="carry-brand").blocks if isinstance(block, GridViewFilters)
+    )
+    assert initial_filters.facets and initial_filters.facets_refresh_mode == "in_place"
     chromium = require_chromium()
     markup = _markup(brand="carry-brand")
     response_markup = {
@@ -335,6 +494,17 @@ def test_in_place_facets_keep_workspace_and_refresh_latest_table_state(tmp_path:
         + json.dumps(response_markup).replace("</script", "<\\/script")
         + ";"
         + r"""
+document.querySelectorAll('select[data-cm-grouped-select]').forEach(select => {
+  select.dataset.filterScope = 'server';
+});
+window.__groupedServerChangeListeners = 0;
+const nativeSelectAddEventListener = HTMLSelectElement.prototype.addEventListener;
+HTMLSelectElement.prototype.addEventListener = function(type, listener, options) {
+  if (type === 'change' && this.matches(
+    "select[data-filter-scope='server'][data-cm-grouped-select]"
+  )) window.__groupedServerChangeListeners += 1;
+  return nativeSelectAddEventListener.call(this, type, listener, options);
+};
 window.agGrid = {
   createGrid(_element, options) {
     const api = {
@@ -377,7 +547,26 @@ window.fetch = async input => {
   const dealer = url.searchParams.get('dealer') || 'default';
   if (dealer === 'd1') await new Promise(resolve => setTimeout(resolve, 120));
   else await new Promise(resolve => setTimeout(resolve, 10));
-  return htmlResponse(window.__responses[dealer]);
+  const responseDocument = new DOMParser().parseFromString(
+    window.__responses[dealer], 'text/html'
+  );
+  responseDocument.querySelectorAll('[data-filter-param]').forEach(root => {
+    const param = root.dataset.filterParam;
+    if (!param || !url.searchParams.has(param)) return;
+    const selectedValues = url.searchParams.getAll(param)
+      .flatMap(value => value.split(','));
+    root.querySelectorAll('input[type="checkbox"]').forEach(input => {
+      input.checked = selectedValues.includes(input.value);
+      input.toggleAttribute('checked', input.checked);
+    });
+    root.querySelectorAll('select').forEach(select => {
+      Array.from(select.options).forEach(option => {
+        option.selected = selectedValues.includes(option.value);
+        option.toggleAttribute('selected', option.selected);
+      });
+    });
+  });
+  return htmlResponse(responseDocument.documentElement.outerHTML);
 };
 """
         + "</script>"
@@ -406,6 +595,10 @@ window.fetch = async input => {
         "selectedBrand": True,
         "stableNodes": True,
         "searchValues": True,
+        "settingsNodes": True,
+        "settingsSearchValue": True,
+        "settingsFilterShape": True,
+        "settingsWidgetInitialized": True,
         "scrollPreserved": True,
         "dependentOptions": True,
         "dependentCountsAndDisabled": True,
@@ -443,10 +636,35 @@ window.fetch = async input => {
         "acceptedFilterEvents": 1,
         "pushCount": 3,
     }
+    assert state["afterInsertedSettingsControl"] == {
+        "insertedControlWasCreated": True,
+        "insertRequestCount": 1,
+        "insertRowRequests": 1,
+        "insertAcceptedFilterEvents": 1,
+        "insertPushCount": 1,
+        "insertedControlStillLive": True,
+        "retailUnchecked": True,
+        "wholesaleChecked": True,
+        "requestCount": 1,
+        "rowRequests": 1,
+        "acceptedFilterEvents": 1,
+        "pushCount": 1,
+        "selectedPriceColumns": "d2-wholesale",
+    }
+    assert state["afterGroupedChange"] == {
+        "requestCount": 1,
+        "rowRequests": 1,
+        "acceptedFilterEvents": 1,
+        "pushCount": 1,
+        "groupedChangeListeners": 1,
+        "selectedPriceBasis": "d2-wholesale",
+    }
     assert state["afterFailure"] == {
         "fullNavigationFallback": True,
-        "url": "?search=initial&page=1&dealer=d1&price_tier=all-retail",
+        "url": state["afterFailure"]["requestUrl"],
+        "requestUrl": state["afterFailure"]["requestUrl"],
         "dealer": "d1",
-        "brandValues": ["carry-brand", "all-brand", "all-unavailable"],
+        "brandValues": ["carry-brand", "d2-brand", "d2-unavailable"],
     }
-    assert len(state["filterUrls"]) == 5
+    assert state["afterFailure"]["url"].startswith("?search=initial&page=1&dealer=d1")
+    assert len(state["filterUrls"]) == 8

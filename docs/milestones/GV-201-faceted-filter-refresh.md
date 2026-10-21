@@ -71,10 +71,10 @@ scope:
 status: completed
 receipt:
   contract_revision: 4
-  passed_at: 2026-10-21T00:02:29.775952923+00:00
+  passed_at: 2026-10-21T20:06:05.416099240+00:00
   evidence:
     command_proof:
-      command: uv run --all-packages pytest
+      command: uv run --all-packages pytest -q
       exit_code: 0
       tests_passed: 563
       tests_failed: 0
@@ -84,19 +84,19 @@ receipt:
       contours:
         paths:
           applicable: true
-          evidence: 'All candidate changes in rev4 admitted scope. Prior F1 closed: snapshot 7ab53d2 adds wire_decode.py, and diff from d348bce4 changes only that file. Protected profile unchanged in worktree; no neighboring project edits.'
+          evidence: All 18 admitted files match frozen snapshot 77409e279bd29fb433802fdd1ac7a6ef5a1d2d62 by git object hash. Current working diff has only four scoped source and test paths plus the Forge generated milestone reopen projection. Schema mirrors are byte identical; no untracked or staged paths.
         claims:
           applicable: true
-          evidence: GridViewFilters default/validation, both rendered roots, wire decoder, schemas and generated carrier, in-place full-spec fetch/reconciliation and AG Grid refresh paths traced. Chromium production bundle seam checks identity, scroll, options/counts, one reload with dynamic columns, stale ordering, Back/Forward/Reset and invalid-response fallback. Exact 563-test Build proof passed.
+          evidence: Types, wire decoder, JSON schema, generated TypeScript, both templates and bundled runtime implement default spec and explicit in_place requiring facets. filter-bar.ts fetches authoritative same-origin full page spec, validates matching bars, reconciles changing controls, counts and selected states, and emits one completion event. table-ag-grid.ts resolves dynamic columns then reloads once. Production-bundle Chromium seam covers latest-only requests, both drawer panels, stable search and scroll, dynamic controls, Back, Forward, Reset and navigation fallback. Mandatory ci-gate passed archive 515ce625b04428cd; exact registered pytest 563 passed archive b45b3a638f5f000f.
         concurrency:
           applicable: true
-          evidence: filter-bar generation and AbortController discard obsolete success/failure; table-ag-grid filterGeneration fences stale dynamic-column refresh. Synchronous reconciliation precedes one completion event.
+          evidence: filter-bar.ts cancels prior AbortController and fences response and reconcile by facetRefreshGeneration. AG Grid listener fences asynchronous column resolution with filterGeneration before one row reload. Browser seam races d1 and d2 responses, checks latest d2 only, and checks one accepted row refresh per navigation. No task database or receipt mutation in candidate.
         project_isolation:
           applicable: true
-          evidence: Task lives in dedicated GVS worktree; same-origin fetch and matching spec/bar IDs gate responses. No Commerce or linked-workspace edits; schema mirrors byte-identical.
+          evidence: Refresh checks same-origin URL, finds response spec by live stable spec ID and drawer by drawer ID plus target, and rejects ambiguous or mismatched workspaces before reconciliation. Reviewed only dedicated GV-201 worktree; candidate contains no neighboring project paths or traversal handling changes.
         administration:
-          applicable: false
-          evidence: No task-store, migration, hook, profile, or privileged delivery implementation changed. Protected profile unchanged; Forge owns receipt and commit at deliver.
+          applicable: true
+          evidence: Profile file unchanged against task baseline, no migration, credential, or hook edits. Mirrored JSON schemas match. Generated JS and min bundle are in the frozen candidate, and mandatory ci-gate passed formatting, Ruff, BasedPyright, pytest, ESLint, frontend typechecks and generated type checks. Forge delivery receipt and Git commit remain the next stage.
   decision: pass
   rollup:
     verified_invariants:
@@ -111,7 +111,7 @@ receipt:
     review_summary:
       decision: pass
       contours:
-        administration: not_applicable
+        administration: accepted
         claims: accepted
         concurrency: accepted
         paths: accepted

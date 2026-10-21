@@ -4210,6 +4210,13 @@
   var MS_COUNTABLE = 'input[type="checkbox"]:not([data-period-all]):not([data-select-all]):not([data-ui-only]):not([data-exclusive-solo])';
   var MULTISELECT_CHANGE_DEBOUNCE_MS = 650;
   var multiselectChangeTimers = /* @__PURE__ */ new WeakMap();
+  var filterBarChangeHandlers = /* @__PURE__ */ new WeakMap();
+  var boundFilterBars = /* @__PURE__ */ new WeakSet();
+  var boundFilterSelects = /* @__PURE__ */ new WeakSet();
+  var boundFilterInputs = /* @__PURE__ */ new WeakSet();
+  var boundFilterInputKeydowns = /* @__PURE__ */ new WeakSet();
+  var boundFilterSearchInputs = /* @__PURE__ */ new WeakSet();
+  var boundPeriodFilterBars = /* @__PURE__ */ new WeakSet();
   var multiselectPanelToRestore = null;
   var filterHistoryBound = false;
   var latestFilterNavigationUrl = "";
@@ -4598,6 +4605,87 @@
       });
     });
   }
+  function canReuseFilterControlRoot(currentRoot, nextRoot) {
+    if (currentRoot.dataset.filterId !== nextRoot.dataset.filterId || currentRoot.dataset.filterType !== nextRoot.dataset.filterType || currentRoot.dataset.filterParam !== nextRoot.dataset.filterParam || currentRoot.dataset.filterScope !== nextRoot.dataset.filterScope) {
+      return false;
+    }
+    const currentMultiselect = currentRoot.hasAttribute("data-cm-multiselect");
+    const nextMultiselect = nextRoot.hasAttribute("data-cm-multiselect");
+    if (currentMultiselect !== nextMultiselect) return false;
+    if (currentMultiselect) {
+      const currentPanel = currentRoot.querySelector(".cm-multiselect-panel");
+      const nextPanel = nextRoot.querySelector(".cm-multiselect-panel");
+      if (!!currentPanel !== !!nextPanel) return false;
+      const currentOptionsRoot = currentPanel || currentRoot;
+      const nextOptionsRoot = nextPanel || nextRoot;
+      const currentNodes = Array.from(
+        currentOptionsRoot.querySelectorAll("[data-cm-filter-tree-node]")
+      );
+      const nextNodes = Array.from(
+        nextOptionsRoot.querySelectorAll("[data-cm-filter-tree-node]")
+      );
+      if (currentNodes.length !== nextNodes.length) return false;
+      return currentNodes.every((currentNode, index) => {
+        const nextNode = nextNodes[index];
+        const currentInput = currentNode.querySelector('input[type="checkbox"]');
+        const nextInput = nextNode.querySelector('input[type="checkbox"]');
+        return currentNode.dataset.cmFilterTreeValue === nextNode.dataset.cmFilterTreeValue && (currentNode.dataset.cmFilterTreeParent || "") === (nextNode.dataset.cmFilterTreeParent || "") && !!currentInput && !!nextInput && currentInput.value === nextInput.value;
+      });
+    }
+    const currentSelects = Array.from(currentRoot.querySelectorAll("select"));
+    const nextSelects = Array.from(nextRoot.querySelectorAll("select"));
+    const currentInputs = Array.from(currentRoot.querySelectorAll("input"));
+    const nextInputs = Array.from(nextRoot.querySelectorAll("input"));
+    const currentTextareas = Array.from(currentRoot.querySelectorAll("textarea"));
+    const nextTextareas = Array.from(nextRoot.querySelectorAll("textarea"));
+    if (currentSelects.length !== nextSelects.length || currentInputs.length !== nextInputs.length || currentTextareas.length !== nextTextareas.length) {
+      return false;
+    }
+    return currentSelects.every(
+      (currentSelect, index) => currentSelect.name === nextSelects[index].name && currentSelect.multiple === nextSelects[index].multiple && currentSelect.hasAttribute("data-cm-grouped-select") === nextSelects[index].hasAttribute("data-cm-grouped-select")
+    ) && currentInputs.every(
+      (currentInput, index) => currentInput.type === nextInputs[index].type && currentInput.name === nextInputs[index].name && currentInput.hasAttribute("data-cm-filter-input") === nextInputs[index].hasAttribute("data-cm-filter-input")
+    ) && currentTextareas.every((currentTextarea, index) => currentTextarea.name === nextTextareas[index].name);
+  }
+  function filterWorkspaceCards(bar) {
+    const cards = /* @__PURE__ */ new Map();
+    bar.querySelectorAll("[data-cm-filter-card]").forEach((card) => {
+      const id = card.dataset.cmFilterCardId || "";
+      if (!id || cards.has(id)) throw new Error("Facet response has an ambiguous filter card");
+      cards.set(id, card);
+    });
+    return cards;
+  }
+  function matchingFilterControlContainer(liveBar, incomingBar, incomingRoot, liveCards) {
+    const incomingCard = incomingRoot.closest("[data-cm-filter-card]");
+    if (incomingCard) {
+      const cardId = incomingCard.dataset.cmFilterCardId || "";
+      const liveCard = liveCards.get(cardId);
+      const liveContainer = liveCard == null ? void 0 : liveCard.querySelector(".cm-filter-drawer-card-controls");
+      if (!liveContainer || !incomingCard.querySelector(".cm-filter-drawer-card-controls")) {
+        throw new Error("Facet response changes a filter card control container");
+      }
+      return liveContainer;
+    }
+    let incomingContainer = incomingRoot.parentElement;
+    if (!incomingContainer) throw new Error("Facet response has a detached filter control");
+    if (incomingContainer === incomingBar) return liveBar;
+    while (incomingContainer && incomingContainer !== incomingBar) {
+      const { tagName, id, className } = incomingContainer;
+      const candidates = [liveBar, ...Array.from(liveBar.querySelectorAll("*"))].filter(
+        (candidate) => candidate.tagName === tagName && candidate.id === id && candidate.className === className
+      );
+      if (candidates.length === 1) return candidates[0];
+      incomingContainer = incomingContainer.parentElement;
+    }
+    if (incomingContainer === incomingBar) return liveBar;
+    throw new Error("Facet response changes a filter control container");
+  }
+  function hasExternallyBoundFilterBehavior(root) {
+    return root.matches(".cm-period-multiselect, [data-cm-period-multiselect]") || root.querySelector(
+      ".cm-period-multiselect, [data-cm-period-multiselect], [data-cm-filter-tree-toggle]"
+    ) !== null;
+  }
   function captureFilterScroll(bar) {
     const elements = [bar, ...Array.from(bar.querySelectorAll("*"))];
     return elements.map((element) => ({ element, top: element.scrollTop, left: element.scrollLeft }));
@@ -4655,14 +4743,48 @@
   function prepareFacetReconciliation(liveBar, incomingBar) {
     const currentRoots = filterControlRoots(liveBar);
     const nextRoots = filterControlRoots(incomingBar);
-    if (currentRoots.size === 0 || currentRoots.size !== nextRoots.size) {
+    if (currentRoots.size === 0 || nextRoots.size === 0) {
       throw new Error("Facet response does not contain the matching filter controls");
     }
+    const currentCards = filterWorkspaceCards(liveBar);
+    const nextCards = filterWorkspaceCards(incomingBar);
+    if (currentCards.size !== nextCards.size) {
+      throw new Error("Facet response changes the filter cards");
+    }
+    currentCards.forEach((_card, id) => {
+      if (!nextCards.has(id)) throw new Error("Facet response changes the filter cards");
+    });
     const operations = [];
-    currentRoots.forEach((currentRoot, id) => {
-      const nextRoot = nextRoots.get(id);
-      if (!nextRoot) throw new Error("Facet response is missing a filter control");
-      prepareFilterControlUpdate(currentRoot, nextRoot, operations);
+    const retainedRoots = /* @__PURE__ */ new Set();
+    const insertedRoots = /* @__PURE__ */ new Set();
+    const plannedRoots = /* @__PURE__ */ new Map();
+    nextRoots.forEach((nextRoot, id) => {
+      const currentRoot = currentRoots.get(id);
+      const container = matchingFilterControlContainer(
+        liveBar,
+        incomingBar,
+        nextRoot,
+        currentCards
+      );
+      let reconciledRoot;
+      if (currentRoot && canReuseFilterControlRoot(currentRoot, nextRoot)) {
+        prepareFilterControlUpdate(currentRoot, nextRoot, operations);
+        reconciledRoot = currentRoot;
+        retainedRoots.add(currentRoot);
+      } else {
+        if (hasExternallyBoundFilterBehavior(nextRoot)) {
+          throw new Error("Facet response adds a control that requires workspace-specific binding");
+        }
+        const clone = nextRoot.cloneNode(true);
+        if (!(clone instanceof HTMLElement)) {
+          throw new Error("Facet response contains a non-element filter control");
+        }
+        reconciledRoot = clone;
+        insertedRoots.add(clone);
+      }
+      const rootsForContainer = plannedRoots.get(container) || [];
+      rootsForContainer.push(reconciledRoot);
+      plannedRoots.set(container, rootsForContainer);
     });
     const currentSearch = liveBar.querySelector("input[data-cm-search]");
     const nextSearch = incomingBar.querySelector("input[data-cm-search]");
@@ -4675,10 +4797,34 @@
         currentSearch.value = value;
       });
     }
+    if (!filterBarChangeHandlers.has(liveBar)) {
+      throw new Error("The live filter workspace has no change handler");
+    }
+    currentRoots.forEach((currentRoot) => {
+      if (!retainedRoots.has(currentRoot)) {
+        operations.push(() => currentRoot.remove());
+      }
+    });
+    plannedRoots.forEach((rootsForContainer, container) => {
+      operations.push(() => {
+        let anchor = Array.from(container.children).find((child) => child.matches("[data-filter-id]")) || null;
+        rootsForContainer.forEach((root) => {
+          container.insertBefore(root, anchor);
+          anchor = root.nextSibling;
+        });
+      });
+    });
+    currentCards.forEach((card, id) => {
+      const nextCard = nextCards.get(id);
+      if (!nextCard) throw new Error("Facet response changes the filter cards");
+      operations.push(() => syncAttribute(card, nextCard, "data-cm-filter-card-filter-ids"));
+    });
     const scrollPositions = captureFilterScroll(liveBar);
     const focus = captureFilterFocus(liveBar);
     return () => {
       operations.forEach((operation) => operation());
+      insertedRoots.forEach(initMultiSelectWidget);
+      bindFilterControlListeners(liveBar);
       liveBar.querySelectorAll("[data-cm-filter-workspace-search], [data-cm-filter-card-search]").forEach((input) => input.dispatchEvent(new Event("input", { bubbles: true })));
       liveBar.dispatchEvent(new Event("change", { bubbles: true }));
       liveBar.querySelectorAll("[data-cm-multiselect]").forEach((root) => {
@@ -4690,7 +4836,7 @@
       restoreFilterFocus(liveBar, focus);
     };
   }
-  function findIncomingFacetBar(responseHtml, liveBar) {
+  function findIncomingFacetBars(responseHtml, liveBar) {
     const liveSpec = asHTMLElement(liveBar.closest("[data-cm-grid-view-spec]"));
     if (!(liveSpec == null ? void 0 : liveSpec.id) || !liveBar.id) throw new Error("The current filter workspace has no stable identity");
     const responseDocument = new DOMParser().parseFromString(responseHtml, "text/html");
@@ -4698,13 +4844,52 @@
     if (!(responseSpec == null ? void 0 : responseSpec.matches("[data-cm-grid-view-spec]"))) {
       throw new Error("Facet response does not contain the current GridViewSpec");
     }
-    const responseBar = Array.from(responseSpec.querySelectorAll("[data-cm-filter-bar]")).find(
-      (bar) => bar.id === liveBar.id
-    );
-    if (!usesInPlaceFacets(responseBar)) {
-      throw new Error("Facet response does not contain the matching in-place filter workspace");
+    const liveDrawer = asHTMLElement(liveBar.closest("[data-cm-filter-drawer]"));
+    if (!liveDrawer) {
+      const responseBar = Array.from(
+        responseSpec.querySelectorAll("[data-cm-filter-bar]")
+      ).find((candidate) => candidate.id === liveBar.id);
+      if (!usesInPlaceFacets(responseBar)) {
+        throw new Error("Facet response does not contain the matching in-place filter workspace");
+      }
+      return [[liveBar, responseBar]];
     }
-    return responseBar;
+    const drawerId = liveDrawer.dataset.cmFilterDrawerId || "";
+    const target = liveDrawer.dataset.target || "";
+    if (!drawerId || !target) throw new Error("The current filter drawer has no stable identity");
+    const incomingDrawers = Array.from(
+      responseSpec.querySelectorAll("[data-cm-filter-drawer]")
+    ).filter(
+      (candidate) => candidate.dataset.cmFilterDrawerId === drawerId && candidate.dataset.target === target
+    );
+    if (incomingDrawers.length !== 1) {
+      throw new Error("Facet response does not contain the matching filter drawer");
+    }
+    const liveBars = Array.from(liveDrawer.querySelectorAll("[data-cm-filter-bar]"));
+    const incomingBars = Array.from(
+      incomingDrawers[0].querySelectorAll("[data-cm-filter-bar]")
+    );
+    if (liveBars.length === 0 || liveBars.length !== incomingBars.length) {
+      throw new Error("Facet response changes the filter drawer workspaces");
+    }
+    const incomingById = /* @__PURE__ */ new Map();
+    incomingBars.forEach((candidate) => {
+      if (!candidate.id || incomingById.has(candidate.id)) {
+        throw new Error("Facet response has ambiguous filter workspaces");
+      }
+      incomingById.set(candidate.id, candidate);
+    });
+    const pairs = liveBars.map((current) => {
+      const incoming = incomingById.get(current.id);
+      if (!incoming || current.dataset.cmFilterWorkspacePanel !== incoming.dataset.cmFilterWorkspacePanel || !usesInPlaceFacets(incoming)) {
+        throw new Error("Facet response does not contain the matching filter workspaces");
+      }
+      return [current, incoming];
+    });
+    if (!pairs.some(([current]) => current === liveBar)) {
+      throw new Error("The current filter workspace is outside its drawer");
+    }
+    return pairs;
   }
   function applyClientFacetFilters(bar, state) {
     var _a;
@@ -4758,10 +4943,11 @@
       if (!response.ok) throw new Error("Facet refresh returned an unsuccessful response");
       const responseHtml = await response.text();
       if (generation !== facetRefreshGeneration) return;
-      const incomingBar = findIncomingFacetBar(responseHtml, bar);
-      const reconcile = prepareFacetReconciliation(bar, incomingBar);
+      const reconciliations = findIncomingFacetBars(responseHtml, bar).map(
+        ([liveBar, incomingBar]) => prepareFacetReconciliation(liveBar, incomingBar)
+      );
       if (generation !== facetRefreshGeneration) return;
-      reconcile();
+      reconciliations.forEach((reconcile) => reconcile());
       multiselectPanelToRestore = null;
       dispatchFacetRefreshComplete(bar, state, requestUrl.href);
     } catch (e) {
@@ -4928,6 +5114,44 @@
     else url.searchParams.delete("col_q");
     return url.pathname + url.search;
   }
+  function dispatchFilterBarChange(bar, event) {
+    var _a;
+    (_a = filterBarChangeHandlers.get(bar)) == null ? void 0 : _a(event);
+  }
+  function bindFilterControlListeners(bar) {
+    if (!boundFilterBars.has(bar)) {
+      bar.addEventListener("cm-filter-change", (event) => dispatchFilterBarChange(bar, event));
+      boundFilterBars.add(bar);
+    }
+    bar.querySelectorAll("select[data-filter-scope='server'], select[data-cm-grouped-select]").forEach((select) => {
+      if (boundFilterSelects.has(select)) return;
+      select.addEventListener("change", (event) => dispatchFilterBarChange(bar, event));
+      boundFilterSelects.add(select);
+    });
+    bar.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
+      if (!boundFilterInputs.has(input)) {
+        input.addEventListener("change", (event) => dispatchFilterBarChange(bar, event));
+        boundFilterInputs.add(input);
+      }
+      if (!boundFilterInputKeydowns.has(input)) {
+        input.addEventListener("keydown", (event) => {
+          if (event.key !== "Enter") return;
+          event.preventDefault();
+          dispatchFilterBarChange(bar);
+        });
+        boundFilterInputKeydowns.add(input);
+      }
+    });
+    const search = asHtmlInput(bar.querySelector("[data-cm-search]"));
+    if (search && !boundFilterSearchInputs.has(search)) {
+      search.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && search.dataset.searchScope === "server") {
+          dispatchFilterBarChange(bar);
+        }
+      });
+      boundFilterSearchInputs.add(search);
+    }
+  }
   function initMultiSelectWidget(rootEl) {
     const root = asHTMLElement(rootEl);
     if (!root) return;
@@ -5024,8 +5248,9 @@
     const navigateOnChange = options.navigate !== false && bar.dataset.navigateOnChange !== "0";
     bar.querySelectorAll("[data-cm-multiselect]").forEach(initMultiSelectWidget);
     const periodFilter = getGlobal().CMPeriodFilter;
-    if (periodFilter && typeof periodFilter.bind === "function") {
+    if (periodFilter && typeof periodFilter.bind === "function" && !boundPeriodFilterBars.has(bar)) {
       periodFilter.bind(bar);
+      boundPeriodFilterBars.add(bar);
     }
     const onChange = (event) => {
       var _a;
@@ -5071,28 +5296,8 @@
         navigateFilterState(state, bar, bar);
       }
     };
-    bar.addEventListener("cm-filter-change", onChange);
-    bar.querySelectorAll("select[data-filter-scope='server']").forEach((selEl) => {
-      if (selEl instanceof HTMLSelectElement) selEl.addEventListener("change", onChange);
-    });
-    bar.querySelectorAll("select[data-cm-grouped-select]").forEach((select) => {
-      select.addEventListener("change", onChange);
-    });
-    bar.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
-      input.addEventListener("change", onChange);
-      input.addEventListener("keydown", (event) => {
-        if (event.key === "Enter") {
-          event.preventDefault();
-          onChange();
-        }
-      });
-    });
-    const search = asHtmlInput(bar.querySelector("[data-cm-search]"));
-    if (search) {
-      search.addEventListener("keydown", (e) => {
-        if (e.key === "Enter" && search.dataset.searchScope === "server") onChange();
-      });
-    }
+    filterBarChangeHandlers.set(bar, onChange);
+    bindFilterControlListeners(bar);
     return { getState: () => selectedFilterValues(bar), buildUrl: buildFilterUrl };
   }
   function getCsrfToken() {
