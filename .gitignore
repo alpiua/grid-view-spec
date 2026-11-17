@@ -35,15 +35,18 @@ frontend/node_modules/
 frontend/scripts/dist/
 
 # Place this block after other ignore rules. It restores the configuration trees,
-# then leaves runtime state excluded by the final six patterns.
-!/.forge/
-!/.forge/acdd/
-!/.forge/acdd/**
-!/.forge/frameworks/
-!/.forge/frameworks/**
-.forge/*.sqlite*
-.forge/*.lock
-.forge/*.log
-.forge/*.jsonl
-.forge/tasks/
-.forge/checkpoints.json
+# then leaves runtime state excluded by the final patterns.
+/.worktrees/
+!/.acdd/
+!/.acdd/profile.yaml
+!/.acdd/profiles/
+!/.acdd/profiles/**
+!/.acdd/frameworks/
+!/.acdd/frameworks/**
+.acdd/*.sqlite*
+.acdd/*.lock
+.acdd/*.log
+.acdd/*.json
+.acdd/*.jsonl
+.acdd/run/
+.acdd/tmp/

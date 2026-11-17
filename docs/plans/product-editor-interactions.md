@@ -1,12 +1,15 @@
 ---
+id: PLAN-001
 title: "Declarative product editor host contract"
 doc_type: plan
-status: deferred
-area: gridviewspec
+profile: in_place
+status: planned
 ---
 
 
 # Declarative product editor host contract
+
+**Area:** `gridviewspec`
 
 GridViewSpec supplies the reusable declarative surface required by host-owned
 editors without becoming their client runtime. Commerce is the first consumer,

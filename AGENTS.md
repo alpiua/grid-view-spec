@@ -12,7 +12,7 @@ Repository-specific additions belong in `.agents/skills/<skill>/ADDON.md`; they
 must extend, not shadow, the global base skill.
 
 Claim and submit commands are in [docs/runbooks/acdd.md](docs/runbooks/acdd.md).
-Load `contextunity-forge` before code discovery or task operations, then follow the claim's `workflow_guidance`.
+Load `acdd` before code discovery or task operations, then follow the claim's `workflow_guidance`.
 
 ## Routes
 

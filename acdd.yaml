@@ -1,0 +1,34 @@
+roots:
+  - src
+  - frontend
+  - schema
+  - tests
+
+docs:
+  - docs
+  - "*.md"
+
+specs:
+  milestones:
+    path: docs/milestones
+    profile: workspace
+    prefixes:
+      - GV
+    digits: 3
+  plans:
+    path: docs/plans
+    profile: in_place
+    prefixes:
+      - PLAN
+    digits: 3
+
+state_db: .acdd/state.sqlite
+retain_traces: 20
+modules:
+  code: true
+  docs: true
+  state: true
+  blackboard: true
+
+# Package static assets are built from frontend sources or copied vendors.
+ignore: [static, vendor, vendors, dist, build]

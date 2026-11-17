@@ -258,7 +258,7 @@ Common host needs and their tokens:
 | Filter control always visible (not hover) | `--cm-th-filter-slot-flex: 0 0 auto; --cm-th-filter-slot-width: auto; --cm-th-filter-slot-overflow: visible` |
 | Lock a column's sort+filter controls | `--cm-th-controls-visibility` / `--cm-th-controls-pointer-events` set on `th[data-cm-col-key="…"]` |
 
-See [Table backend parity plan](../plans/archived/table-backend-parity-plan.md#header-control-hooks)
+See [Table backend parity plan](../plans/archive/table-backend-parity-plan.md#header-control-hooks)
 for the full token list and behavioral hooks.
 
 ## Checklist (new grid page)
