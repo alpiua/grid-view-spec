@@ -41,15 +41,17 @@ Run GridViewSpec runs directly inside this repository with `acdd start <spec>`, 
 
 ## Gates
 
-The profile in `.acdd/profile.yaml` (`version: 2`, `inherit: code`, `gates_merge: patch`) binds `test`, `build_check`, `verify_all`, and `pytest` commands alongside reviewer models.
-Unspecified gates follow the embedded `code` lifecycle: `blueprint_synthesis` -> `tasks` (`contract`, `build`, `review`, `deliver`) -> `verify` -> `polish` -> `integration_review` -> `handoff`.
+The profile in `.acdd/profile.yaml` (`version: 2`, `inherit: code`, `gates_merge: patch`) binds `test`, `build_check`, and `verify_all` commands alongside `architect`, author, builder, and reviewer models.
+Unspecified gates follow the embedded `code` lifecycle: `blueprint_synthesis` -> `tasks` (`contract`, `contract_review`, `build`, `review`, `deliver`) -> `verify` -> `polish` -> `integration_review` -> `handoff`.
 
 | Gate | Role | Proof |
 | --- | --- | --- |
+| `blueprint_synthesis` | `architect` / `independent_reviewer` | Architectural blueprint synthesis and independent review |
 | `contract` | `contract_author` | Failing `test` verification (`acdd verify <task>.contract --test <path>`) |
+| `contract_review` | `independent_reviewer` | Independent audit of contract seam and bounds |
 | `build` | `builder` | Passing `build_check` / `test` verification (`acdd verify <task>.build`) |
 | `review` | `independent_reviewer` | Review findings/decision across `paths`, `claims`, `concurrency`, `project_isolation`, `administration` |
-| `deliver` | `delivery_reviewer` | Scoped delivery receipt (`acdd submit <task>.deliver --action pass`) |
+| `deliver` | `independent_reviewer` | Scoped delivery receipt (`acdd submit <task>.deliver --action pass`) |
 
 Review and deliver use a `--worker` id distinct from the accepted builder.
 Follow the claim's `workflow_guidance`. Commands are in [docs/runbooks/acdd.md](runbooks/acdd.md).

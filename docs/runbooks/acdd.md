@@ -5,8 +5,8 @@ doc_type: guide
 
 # ACDD local execution
 
-ACDD `0.6.0` executes runs directly inside this repository using flat CLI commands (`acdd start`, `acdd claim`, `acdd verify`, `acdd submit`, `acdd integrate`) or the five MCP state tools (`acdd_state`, `acdd_claim`, `acdd_verify`, `acdd_submit`, `acdd_blackboard`).
-Gate identifiers inside a task are `contract`, `build`, `review`, and `deliver`.
+ACDD `0.6.1` executes runs directly inside this repository using flat CLI commands (`acdd start`, `acdd claim`, `acdd verify`, `acdd submit`, `acdd integrate`) or the five MCP state tools (`acdd_state`, `acdd_claim`, `acdd_verify`, `acdd_submit`, `acdd_blackboard`).
+Gate identifiers inside a task are `contract`, `contract_review`, `build`, `review`, and `deliver`.
 Plan taxonomy and gate rules are in [docs/AGENTS.md](../AGENTS.md).
 
 Start and inspect a run from this repository:

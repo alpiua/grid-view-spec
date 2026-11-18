@@ -2,7 +2,11 @@
 id: GV-201
 title: In-place faceted filter refresh
 doc_type: contract
-status: active
+status: completed
+closure:
+  status: completed
+  closed_at: "2026-10-21T20:06:05Z"
+  closed_commit: ead24b25d983d5b2bf3c37f9714b25fab3c4a897
 owners:
 - src/grid_view_spec/types/filters_v2.py
 - frontend/src/grid-view/filter-bar.ts
