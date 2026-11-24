@@ -499,6 +499,11 @@
               "enum": ["spec", "in_place"],
               "default": "spec"
             },
+            "facet_params": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 }
+            },
+            "facets_endpoint": { "type": "string" },
             "drawer_layout": { "enum": ["compact", "workspace"], "default": "compact" },
             "drawer_sections": {
               "type": "array",
@@ -515,6 +520,30 @@
               "facets_refresh_mode": { "const": "in_place" }
             },
             "required": ["facets_refresh_mode"]
+          },
+          "then": {
+            "properties": { "facets": { "const": true } },
+            "required": ["facets"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "facet_params": { "minItems": 1 }
+            },
+            "required": ["facet_params"]
+          },
+          "then": {
+            "properties": { "facets": { "const": true } },
+            "required": ["facets"]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "facets_endpoint": { "minLength": 1 }
+            },
+            "required": ["facets_endpoint"]
           },
           "then": {
             "properties": { "facets": { "const": true } },

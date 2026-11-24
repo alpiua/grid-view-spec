@@ -9,7 +9,7 @@
     fb_search — optional {param, value} → emits a hidden search input (toolbar use)
     fb_oob    — when truthy, marks the element for HTMX outerHTML out-of-band swap
 #}
-<div class="cm-filter-bar" id="cm-fbar-{{ fb.id | e }}" data-cm-filter-bar{% if fb.auto_apply %} data-auto-apply="1"{% endif %}{% if not fb.navigate_on_change %} data-navigate-on-change="0"{% endif %}{% if fb.facets %} data-cm-facets="1"{% endif %} data-cm-facets-refresh-mode="{{ fb.facets_refresh_mode | e }}"{% if fb.fragment_endpoint %} data-cm-fragment-endpoint="{{ fb.fragment_endpoint | e }}" data-cm-fragment-target="{{ fb.fragment_target | e }}" data-cm-fragment-swap="{{ fb.fragment_swap | e }}"{% endif %}{% if fb_oob %} hx-swap-oob="outerHTML"{% endif %}>
+<div class="cm-filter-bar" id="cm-fbar-{{ fb.id | e }}" data-cm-filter-bar{% if fb.auto_apply %} data-auto-apply="1"{% endif %}{% if not fb.navigate_on_change %} data-navigate-on-change="0"{% endif %}{% if fb.facets %} data-cm-facets="1"{% endif %} data-cm-facets-refresh-mode="{{ fb.facets_refresh_mode | e }}"{% if fb.facets and fb.facet_params %} data-cm-facet-params="{{ fb.facet_params | join(',') | e }}"{% endif %}{% if fb.facets and fb.facets_endpoint %} data-cm-facets-endpoint="{{ fb.facets_endpoint | e }}"{% endif %}{% if fb.fragment_endpoint %} data-cm-fragment-endpoint="{{ fb.fragment_endpoint | e }}" data-cm-fragment-target="{{ fb.fragment_target | e }}" data-cm-fragment-swap="{{ fb.fragment_swap | e }}"{% endif %}{% if fb_oob %} hx-swap-oob="outerHTML"{% endif %}>
   {% if fb_search %}
   <input type="hidden" data-cm-search name="{{ fb_search.param | e }}" value="{{ fb_search.value | e }}">
   {% endif %}

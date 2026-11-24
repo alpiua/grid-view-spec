@@ -24,7 +24,7 @@ import { initTableCellUi } from "./table-cell-ui";
 import { initSimpleTableColumnResize } from "./simple-table-column-resize";
 import { ChartsBridge } from "./charts-bridge";
 import { initSimpleTableColumnSettings } from "./actions";
-import { queryRecordCounters } from "./dom-utils";
+import { queryRecordCounters, replaceUrlPreservingState } from "./dom-utils";
 import { invokeAction } from "./registry-api";
 import { confirmAndInvokeFromElement } from "./action-confirmation";
 import { asHTMLElement, eventTargetElement, isRecord } from "./dom-guards";
@@ -419,7 +419,7 @@ export class SimpleTable {
       });
     const url = new URL(window.location.href);
     ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
-    window.history.replaceState({}, "", url);
+    replaceUrlPreservingState(url);
     const gridId = this._gridId();
     this.applyAllFilters();
     document.dispatchEvent(

@@ -20,6 +20,8 @@ interface SpecGridState {
   generation: number;
   filterGeneration: number;
   config: AgGridSpecConfig;
+  pollTimer?: number;
+  pollTimeout?: number;
 }
 
 /** One document listener per grid; state is replaced before async work starts. */
@@ -365,7 +367,10 @@ function bootFromSpecConfig(config: AgGridSpecConfig): void {
   if (!gv || !config.gridId) return;
 
   const gridId = config.gridId;
-  const generation = (specGridStates.get(gridId)?.generation || 0) + 1;
+  const previousState = specGridStates.get(gridId);
+  if (previousState?.pollTimer !== undefined) window.clearInterval(previousState.pollTimer);
+  if (previousState?.pollTimeout !== undefined) window.clearTimeout(previousState.pollTimeout);
+  const generation = (previousState?.generation || 0) + 1;
   specGridStates.set(gridId, { generation, filterGeneration: 0, config });
   const isCurrent = (): boolean => specGridStates.get(gridId)?.generation === generation;
   const containerId = config.containerId || `cm-ag-grid-container-${gridId}`;
@@ -551,13 +556,24 @@ function bootFromSpecConfig(config: AgGridSpecConfig): void {
       if (typeof getGlobal().agGrid !== "undefined") {
         host.initGrid?.();
       } else {
+        const currentState = specGridStates.get(gridId);
         const poll = window.setInterval(() => {
+          if (!isCurrent()) {
+            window.clearInterval(poll);
+            if (currentState?.pollTimeout !== undefined) window.clearTimeout(currentState.pollTimeout);
+            return;
+          }
           if (typeof getGlobal().agGrid !== "undefined") {
             window.clearInterval(poll);
-            host?.initGrid?.();
+            if (currentState?.pollTimeout !== undefined) window.clearTimeout(currentState.pollTimeout);
+            if (document.getElementById(containerId)) host?.initGrid?.();
           }
         }, 50);
-        window.setTimeout(() => window.clearInterval(poll), 15000);
+        const pollTimeout = window.setTimeout(() => window.clearInterval(poll), 15000);
+        if (currentState) {
+          currentState.pollTimer = poll;
+          currentState.pollTimeout = pollTimeout;
+        }
       }
     }
 

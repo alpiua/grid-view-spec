@@ -171,6 +171,55 @@ def test_facets_refresh_mode_renders_on_filter_bar_and_workspace_roots() -> None
     assert sum('data-cm-facets-refresh-mode="spec"' in root for root in roots) == 1
 
 
+def test_facet_params_and_endpoint_render_on_filter_bar_and_workspace() -> None:
+    """Scoped facet params and dedicated fragment endpoints render onto both bar templates."""
+    bar = GridViewFilters(
+        id="scoped_bar",
+        facets=True,
+        facets_refresh_mode="in_place",
+        facet_params=("category_id",),
+        facets_endpoint="/catalog/filters-fragment/",
+    )
+    workspace = GridViewFilters(
+        id="scoped_workspace",
+        facets=True,
+        facets_refresh_mode="in_place",
+        facet_params=("category_id", "brand"),
+        facets_endpoint="/catalog/filters-fragment/",
+        presentation="drawer",
+        drawer_layout="workspace",
+        schema=(
+            GridViewFilter(
+                id="category_id",
+                label="Category",
+                param="category_id",
+                type="select",
+                options=(GridViewFilterOption(value="outdoor", label="Outdoor"),),
+            ),
+        ),
+        drawer_sections=(
+            GridViewFilterDrawerSection(
+                id="categories",
+                label="Categories",
+                filter_ids=("category_id",),
+            ),
+        ),
+    )
+    spec = GridViewSpec(
+        id="scoped_facets_render",
+        blocks=(bar, workspace),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(bar.id, workspace.id))),
+    )
+
+    html = render_grid_view_spec(spec, (), host=InMemoryHost(), backend="html")
+    roots = re.findall(r"<div\b[^>]*data-cm-filter-bar[^>]*>", html)
+
+    assert len(roots) == 2
+    assert 'data-cm-facet-params="category_id"' in roots[0]
+    assert 'data-cm-facet-params="category_id,brand"' in roots[1]
+    assert all('data-cm-facets-endpoint="/catalog/filters-fragment/"' in root for root in roots)
+
+
 def test_filter_drawer_renders_filter_search_and_target_settings_tab() -> None:
     """A target table exposes its column controls in the drawer's settings tab."""
     table = GridViewTable(

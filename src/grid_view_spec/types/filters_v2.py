@@ -202,6 +202,8 @@ class GridViewFilters(GridViewBlockBase):
     # whole spec (bar + table) so counts stay in sync. See search/facets.py.
     facets: bool = False
     facets_refresh_mode: GridViewFiltersFacetsRefreshMode = "spec"
+    facet_params: tuple[str, ...] = ()
+    facets_endpoint: str = ""
     drawer_layout: GridViewFilterDrawerLayout = "compact"
     drawer_sections: tuple[GridViewFilterDrawerSection, ...] = ()
     drawer_search: bool = True
@@ -212,3 +214,9 @@ class GridViewFilters(GridViewBlockBase):
             raise ValueError("facets_refresh_mode must be 'spec' or 'in_place'")
         if self.facets_refresh_mode == "in_place" and not self.facets:
             raise ValueError("facets_refresh_mode='in_place' requires facets=True")
+        if any(not param.strip() for param in self.facet_params):
+            raise ValueError("facet_params entries must be non-empty strings")
+        if self.facet_params and not self.facets:
+            raise ValueError("facet_params requires facets=True")
+        if self.facets_endpoint.strip() and not self.facets:
+            raise ValueError("facets_endpoint requires facets=True")

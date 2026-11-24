@@ -11,6 +11,16 @@ export function getGlobal(): Window {
   return window;
 }
 
+/** Update browser URL via ``replaceState`` while preserving existing history state metadata. */
+export function replaceUrlPreservingState(url: string | URL): void {
+  const currentState = window.history.state;
+  const nextState =
+    currentState !== null && typeof currentState === "object" && !Array.isArray(currentState)
+      ? { ...(currentState as Record<string, unknown>) }
+      : {};
+  window.history.replaceState(nextState, "", url);
+}
+
 export function positionFixedOverlay(
   overlay: HTMLElement,
   trigger: HTMLElement,

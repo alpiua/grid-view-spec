@@ -1,8 +1,9 @@
-import { getGlobal } from "./dom-utils";
+import { getGlobal, replaceUrlPreservingState } from "./dom-utils";
 import { invokeGridAction } from "./registry";
 import { invokeAction } from "./registry-api";
 import { asHtmlInput, asHTMLElement, eventTargetElement } from "./dom-guards";
 import {
+  cancelPendingFilterTimers,
   navigateFilterState,
   selectedFilterValues,
   ToolbarSearch,
@@ -44,13 +45,14 @@ function clearUrlFilterState(): void {
     url.searchParams.delete(key);
     changed = true;
   });
-  if (changed) window.history.replaceState({}, "", url);
+  if (changed) replaceUrlPreservingState(url);
 }
 
 function clearToolbarSearchState(
   scope: Element | null,
   gridId: string,
   filterBar: Element | null,
+  replaceUrl = true,
 ): void {
   const inputs = new Set<HTMLInputElement>();
   const collect = (root: ParentNode | null | undefined): void => {
@@ -74,7 +76,7 @@ function clearToolbarSearchState(
     delete input.dataset.cmSearchCommitted;
     syncToolbarSearchChrome(input);
   });
-  clearUrlFilterState();
+  if (replaceUrl) clearUrlFilterState();
 }
 
 function syncClearAllButtons(): void {
@@ -124,29 +126,66 @@ export function handleToolbarSavedSearchClick(e: Event): void {
   else if (action === "clearAllFilters") {
     const clearGridId = gridBtn.getAttribute("data-cm-grid-id") || scopeId;
     const toolbar = gridBtn.closest(".cm-toolbar-unified");
-    const filterBar =
-      toolbar?.querySelector<HTMLElement>("[data-cm-filter-bar]") ||
-      Array.from(document.querySelectorAll<HTMLElement>("[data-cm-filter-bar]")).find(
-        (bar) => asHTMLElement(bar.closest(".cm-filters"))?.dataset.target === clearGridId,
-      );
-    clearToolbarSearchState(toolbar, clearGridId, filterBar || null);
-    if (filterBar) {
-      filterBar.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((input) => {
-        input.checked = false;
+    const matchingBars = new Set<HTMLElement>();
+    toolbar?.querySelectorAll<HTMLElement>("[data-cm-filter-bar]").forEach((bar) => matchingBars.add(bar));
+    document.querySelectorAll<HTMLElement>("[data-cm-filter-bar]").forEach((bar) => {
+      if (asHTMLElement(bar.closest(".cm-filters, .cm-toolbar-unified"))?.dataset.target === clearGridId) {
+        matchingBars.add(bar);
+      }
+    });
+    const filterBars = Array.from(matchingBars);
+    const primaryBar =
+      filterBars.find((bar) => bar.dataset.cmFilterWorkspacePanel !== "settings") || filterBars[0] || null;
+    const willNavigate = !!filterBars.length && primaryBar?.dataset.navigateOnChange !== "0";
+    clearToolbarSearchState(toolbar, clearGridId, primaryBar, !willNavigate);
+    if (filterBars.length) {
+      const isDisplayControl = (el: Element): boolean =>
+        el.closest("[data-cm-filter-display-setting='1']") !== null;
+      filterBars.forEach((bar) => {
+        cancelPendingFilterTimers(bar);
+        bar.querySelectorAll<HTMLInputElement>('input[type="checkbox"]').forEach((input) => {
+          if (!isDisplayControl(input)) input.checked = false;
+        });
+        bar
+          .querySelectorAll<HTMLElement & { _cmUpdateLabel?: () => void }>("[data-cm-multiselect]")
+          .forEach((root) => root._cmUpdateLabel?.());
+        bar.querySelectorAll<HTMLInputElement>("[data-cm-search]").forEach((input) => {
+          input.value = "";
+        });
+        bar.querySelectorAll<HTMLInputElement>("[data-cm-filter-input]").forEach((input) => {
+          if (isDisplayControl(input)) return;
+          if (input.type === "checkbox" || input.type === "radio") input.checked = false;
+          else input.value = "";
+        });
+        bar.querySelectorAll<HTMLSelectElement>("select[data-cm-grouped-select]").forEach((select) => {
+          if (isDisplayControl(select)) return;
+          const defaultOption = Array.from(select.options).find((option) => !option.disabled);
+          select.value = defaultOption?.value || "";
+        });
+        bar.querySelectorAll<HTMLSelectElement>("select:not([data-cm-grouped-select])").forEach((select) => {
+          if (isDisplayControl(select)) return;
+          select.value = "";
+        });
       });
-      filterBar.querySelectorAll<HTMLInputElement>("[data-cm-search]").forEach((input) => {
-        input.value = "";
+      invokeGridAction(clearGridId, "clearAllFilters", {
+        purgeInfiniteCache: false,
+        replaceUrl: !willNavigate,
       });
-      filterBar.querySelectorAll<HTMLInputElement>("[data-cm-filter-input]").forEach((input) => {
-        if (input.type === "checkbox") input.checked = false;
-        else input.value = "";
+      const activeBar = primaryBar || filterBars[0];
+      if (!willNavigate) {
+        activeBar.dispatchEvent(new CustomEvent("cm-filter-change", { bubbles: true }));
+      } else {
+        const mergedState: Record<string, string | string[]> = {};
+        filterBars.forEach((bar) => Object.assign(mergedState, selectedFilterValues(bar)));
+        mergedState.q = "";
+        mergedState.filters = "";
+        mergedState.col_q = "";
+        navigateFilterState(mergedState, gridBtn, activeBar);
+      }
+      filterBars.forEach((bar) => {
+        bar.dispatchEvent(new Event("change", { bubbles: true }));
       });
-      filterBar.querySelectorAll<HTMLSelectElement>("select[data-cm-grouped-select]").forEach((select) => {
-        const defaultOption = Array.from(select.options).find((option) => !option.disabled);
-        select.value = defaultOption?.value || "";
-      });
-      invokeGridAction(clearGridId, "clearAllFilters", { purgeInfiniteCache: false });
-      navigateFilterState(selectedFilterValues(filterBar), gridBtn, filterBar);
+      window.setTimeout(syncClearAllButtons, 0);
       return;
     }
     // AG-Grid host (registered in byId) handles its own clear; simple tables are

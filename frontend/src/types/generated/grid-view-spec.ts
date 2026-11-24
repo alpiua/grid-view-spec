@@ -62,6 +62,8 @@ export type GridViewFilters = GridViewBlockBase & {
   navigate_on_change?: boolean;
   facets?: boolean;
   facets_refresh_mode?: "spec" | "in_place";
+  facet_params?: string[];
+  facets_endpoint?: string;
   drawer_layout?: "compact" | "workspace";
   drawer_sections?: GridViewFilterDrawerSection[];
   fragment_endpoint?: string;

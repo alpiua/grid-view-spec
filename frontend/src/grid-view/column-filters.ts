@@ -9,7 +9,7 @@
  */
 
 import { i18n } from "./i18n";
-import { getGlobal } from "./dom-utils";
+import { getGlobal, replaceUrlPreservingState } from "./dom-utils";
 import {
   selectedFilterValues,
   buildFilterUrl,
@@ -152,7 +152,7 @@ export function updateTableFilterUrl(anchorEl: Element | null | undefined): void
     url = buildFilterUrl(window.location.href, state);
   }
   url = withActiveTableColumns(url, anchorEl || shell || undefined);
-  window.history.replaceState({}, "", url);
+  replaceUrlPreservingState(url);
   var gridId = shell?.dataset?.gridId;
   getGlobal().GridView?.AgGrid?.syncExportLinks?.(gridId || "");
 }

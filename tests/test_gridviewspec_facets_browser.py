@@ -7,8 +7,9 @@ import json
 import re
 from pathlib import Path
 
+from grid_view_spec.backends.fragment.html import render_block_fragment
 from grid_view_spec.hosts.memory import InMemoryHost
-from grid_view_spec.render import render_grid_view_spec
+from grid_view_spec.render import build_render_context, render_grid_view_spec
 from grid_view_spec.types.filters_v2 import (
     GridViewFilter,
     GridViewFilterDrawerSection,
@@ -243,7 +244,7 @@ window.addEventListener("load", async () => {
   brandList.style.height = '42px';
   brandList.style.overflowY = 'auto';
   brandList.scrollTop = 18;
-  workspaceSearch.value = 'global query';
+  workspaceSearch.value = 'Brands';
   cardSearch.value = 'brand query';
   settingsCardSearch.value = 'price query';
   const original = {
@@ -311,7 +312,7 @@ window.addEventListener("load", async () => {
       bar.querySelector('[data-cm-filter-card-id="brands"]') === original.card &&
       card.querySelector('[data-cm-filter-card-search]') === original.cardSearch &&
       card.querySelector('.cm-filter-drawer-card-controls') === original.cardList,
-    searchValues: workspaceSearch.value === 'global query' && cardSearch.value === 'brand query',
+    searchValues: workspaceSearch.value === 'Brands' && cardSearch.value === 'brand query',
     settingsNodes: settingsBar === original.settingsBar &&
       settingsCard === original.settingsCard &&
       settingsCardSearch === original.settingsCardSearch &&
@@ -668,3 +669,452 @@ window.fetch = async input => {
     }
     assert state["afterFailure"]["url"].startswith("?search=initial&page=1&dealer=d1")
     assert len(state["filterUrls"]) == 8
+
+
+def test_facet_params_endpoint_dedup_and_dynamic_cards(tmp_path: Path) -> None:
+    """Verify facet_params, facets_endpoint, Enter+blur dedup, and dynamic card reconciliation."""
+    chromium = require_chromium()
+    base_filters = GridViewFilters(
+        id="catalog_filters",
+        target="catalog_grid",
+        presentation="drawer",
+        drawer_layout="workspace",
+        facets=True,
+        facets_refresh_mode="in_place",
+        facet_params=("category_id",),
+        facets_endpoint="/catalog/filters-fragment/",
+        schema=(
+            GridViewFilter(
+                id="category_id",
+                label="Category",
+                param="category_id",
+                type="select",
+                options=(
+                    GridViewFilterOption(value="", label="All"),
+                    GridViewFilterOption(value="tents", label="Tents"),
+                ),
+            ),
+            GridViewFilter(
+                id="min_price",
+                label="Minimum price",
+                param="min_price",
+                type="number",
+            ),
+        ),
+        drawer_sections=(
+            GridViewFilterDrawerSection(
+                id="category",
+                label="Category",
+                filter_ids=("category_id",),
+            ),
+            GridViewFilterDrawerSection(
+                id="price",
+                label="Price",
+                filter_ids=("min_price",),
+            ),
+        ),
+    )
+    table = GridViewTable(
+        id="catalog_grid",
+        backend="ag_grid",
+        columns=(GridViewColumn(id="title", label="Title", field="title"),),
+        datasource=GridViewDataSource(endpoint="/catalog/rows/"),
+        settings=("drawer",),
+        extra={"filtersSelector": '[data-cm-filter-drawer][data-target="catalog_grid"]'},
+    )
+    base_spec = GridViewSpec(
+        id="catalog_scoped_spec",
+        blocks=(base_filters, table),
+        layout=GridViewLayout(
+            root=GridViewArea(
+                id="root",
+                blocks=("catalog_filters", "catalog_grid"),
+            )
+        ),
+    )
+    scoped_filters = GridViewFilters(
+        id="catalog_filters",
+        target="catalog_grid",
+        presentation="drawer",
+        drawer_layout="workspace",
+        facets=True,
+        facets_refresh_mode="in_place",
+        facet_params=("category_id",),
+        facets_endpoint="/catalog/filters-fragment/",
+        schema=(
+            *base_filters.schema,
+            GridViewFilter(
+                id="color",
+                label="Color",
+                param="color",
+                type="multiselect",
+                options=(GridViewFilterOption(value="green", label="Green", count=3),),
+            ),
+        ),
+        drawer_sections=(
+            *base_filters.drawer_sections,
+            GridViewFilterDrawerSection(
+                id="attributes",
+                label="Attributes",
+                filter_ids=("color",),
+            ),
+        ),
+    )
+    scoped_spec = GridViewSpec(
+        id="catalog_scoped_spec",
+        blocks=(scoped_filters, table),
+        layout=base_spec.layout,
+    )
+
+    host = InMemoryHost()
+    initial_html = render_grid_view_spec(base_spec, (), host=host)
+    ctx_scoped = build_render_context(scoped_spec, (), host=host)
+    fragment_html = render_block_fragment(ctx_scoped, "catalog_filters", host=host, wrap=True)
+    bundle_root = Path(__file__).resolve().parents[1] / "src/grid_view_spec/static/grid_view_spec"
+    page = tmp_path / "scoped-facets.html"
+    fragment_json = json.dumps(fragment_html).replace("</script", "<\\/script")
+    page.write_text(
+        "<!doctype html><html><body>"
+        + initial_html
+        + "<script>"
+        + f"window.__fragmentHtml = {fragment_json};"
+        + """
+window.__requests = {facets: [], rows: [], fullPage: []};
+window.agGrid = {
+  createGrid(_el, options) {
+    const requestRows = () => options.datasource?.getRows({
+      startRow: 0, endRow: 25, successCallback() {}, failCallback() {},
+    });
+    window.setTimeout(requestRows, 0);
+    return {
+      addEventListener() {}, removeEventListener() {}, destroy() {},
+      getFilterModel: () => null, setFilterModel() {},
+      getColumnState: () => [], applyColumnState: () => true,
+      getColumnDefs: () => options.columnDefs || [],
+      getSelectedRows: () => [], forEachNode() {}, getDisplayedRowCount: () => 0,
+      getGridOption: key => key === 'rowModelType' ? 'infinite' : undefined,
+      setGridOption() {}, showLoadingOverlay() {}, hideOverlay() {},
+      purgeInfiniteCache() { requestRows(); },
+    };
+  },
+};
+window.fetch = async input => {
+  const url = new URL(String(input), window.location.href);
+  if (url.pathname.endsWith('/rows/')) {
+    window.__requests.rows.push(url.search);
+    return {ok: true, json: async () => ({data: [], lastRow: 0, totalCount: 0})};
+  }
+  if (url.pathname.endsWith('/catalog/filters-fragment/')) {
+    window.__requests.facets.push(url.pathname + url.search);
+    return {ok: true, text: async () => window.__fragmentHtml};
+  }
+  window.__requests.fullPage.push(url.pathname + url.search);
+  return {ok: false, text: async () => ''};
+};
+</script>
+"""
+        + f'<script src="{(bundle_root / "gridviewspec.js").as_uri()}"></script>'
+        + f'<script src="{(bundle_root / "gridviewspec-ag-grid.js").as_uri()}"></script>'
+        + f'<script src="{(bundle_root / "gridviewspec-filter-workspace.js").as_uri()}"></script>'
+        + r"""
+<pre id="result"></pre>
+<script>
+window.addEventListener("load", async () => {
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  let unloaded = false;
+  window.addEventListener("beforeunload", () => { unloaded = true; });
+  GridView.bootScope(document);
+  await wait(120);
+
+  const initialRows = window.__requests.rows.length;
+  const minPrice = document.querySelector('[data-filter-param="min_price"] input');
+  minPrice.value = '150';
+  minPrice.dispatchEvent(new Event('input', { bubbles: true }));
+  minPrice.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  minPrice.dispatchEvent(new Event('change', { bubbles: true }));
+  await wait(80);
+  const afterMinPrice = {
+    rowsAdded: window.__requests.rows.length - initialRows,
+    facetsCount: window.__requests.facets.length,
+    fullPageCount: window.__requests.fullPage.length,
+    urlMinPrice: new URL(location.href).searchParams.get('min_price'),
+  };
+
+  const rowsBeforeCategory = window.__requests.rows.length;
+  const categorySelect = document.querySelector('select[name="category_id"]');
+  const categoryCardBefore = document.querySelector('[data-cm-filter-card-id="category"]');
+  categorySelect.value = 'tents';
+  categorySelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await wait(120);
+  const catSel = '[data-cm-filter-card-id="category"]';
+  const attrSel = '[data-cm-filter-card-id="attributes"] [data-filter-param="color"]';
+  const afterCategory = {
+    rowsAdded: window.__requests.rows.length - rowsBeforeCategory,
+    facetsRequests: [...window.__requests.facets],
+    fullPageCount: window.__requests.fullPage.length,
+    categoryCardPreserved: document.querySelector(catSel) === categoryCardBefore,
+    attributesCardAdded: Boolean(document.querySelector(attrSel)),
+    unloaded,
+  };
+
+  document.getElementById('result').textContent = JSON.stringify({ afterMinPrice, afterCategory });
+});
+</script>
+</body></html>""",
+        encoding="utf-8",
+    )
+    result = run_headless_chromium(
+        chromium,
+        page,
+        tmp_path,
+        virtual_time_budget=3000,
+    )
+    assert result.returncode == 0, result.stderr
+    match = re.search(r'<pre id="result">(.*?)</pre>', result.stdout, re.S)
+    assert match is not None, result.stdout
+    state = json.loads(html.unescape(match.group(1)))
+    assert state["afterMinPrice"] == {
+        "rowsAdded": 1,
+        "facetsCount": 0,
+        "fullPageCount": 0,
+        "urlMinPrice": "150",
+    }
+    assert state["afterCategory"]["rowsAdded"] == 1
+    assert len(state["afterCategory"]["facetsRequests"]) == 1
+    assert state["afterCategory"]["facetsRequests"][0].startswith("/catalog/filters-fragment/?")
+    assert state["afterCategory"]["fullPageCount"] == 0
+    assert state["afterCategory"]["categoryCardPreserved"] is True
+    assert state["afterCategory"]["attributesCardAdded"] is True
+    assert state["afterCategory"]["unloaded"] is False
+
+
+def test_lifecycle_hardening_history_clear_all_search_and_polling(tmp_path: Path) -> None:
+    """Verify preserved history state, display-safe clearAll, search coordination, and polling."""
+    chromium = require_chromium()
+    filters = GridViewFilters(
+        id="life_filters",
+        target="life_grid",
+        presentation="drawer",
+        drawer_layout="workspace",
+        facets=True,
+        facets_refresh_mode="in_place",
+        schema=(
+            GridViewFilter(
+                id="brand",
+                label="Brand",
+                param="brand",
+                type="multiselect",
+                options=(
+                    GridViewFilterOption(value="alpha", label="Alpha Brand", count=2),
+                    GridViewFilterOption(value="beta", label="Beta Gear", count=1),
+                ),
+            ),
+            GridViewFilter(
+                id="wholesale_price_columns",
+                label="Wholesale",
+                param="wholesale_price_columns",
+                type="grouped_select",
+                options=(
+                    GridViewFilterOption(
+                        value="g1",
+                        label="Prices",
+                        children=(
+                            GridViewFilterOption(value="col_a", label="Column A"),
+                            GridViewFilterOption(value="col_b", label="Column B"),
+                        ),
+                    ),
+                ),
+            ),
+        ),
+        drawer_sections=(
+            GridViewFilterDrawerSection(
+                id="brands",
+                label="Brands",
+                filter_ids=("brand",),
+                searchable=True,
+            ),
+            GridViewFilterDrawerSection(
+                id="price_display",
+                label="Price display",
+                filter_ids=("wholesale_price_columns",),
+                panel="settings",
+            ),
+        ),
+    )
+    table = GridViewTable(
+        id="life_grid",
+        backend="ag_grid",
+        columns=(GridViewColumn(id="title", label="Title", field="title"),),
+        datasource=GridViewDataSource(endpoint="/life/rows/"),
+        settings=("drawer",),
+        extra={"filtersSelector": '[data-cm-filter-drawer][data-target="life_grid"]'},
+    )
+    spec = GridViewSpec(
+        id="life_spec",
+        blocks=(filters, table),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=("life_filters", "life_grid"))),
+    )
+    rendered = render_grid_view_spec(spec, (), host=InMemoryHost())
+    toolbar_html = (
+        '<div data-cm-toolbar-search-root data-cm-search-scope-id="life_scope"'
+        ' data-cm-table-grid-id="life_grid">'
+        '<input data-cm-toolbar-search data-cm-search-backend="ag_grid" name="q" value="">'
+        '<button type="button" data-cm-grid-action="clearAllFilters" data-cm-grid-id="life_grid">'
+        "Clear</button></div>"
+    )
+    prefix, closing = rendered.rsplit("</div>", 1)
+    rendered_with_toolbar = f"{prefix}{toolbar_html}</div>{closing}"
+    rendered_json = json.dumps(rendered_with_toolbar).replace("</script", "<\\/script")
+    bundle_root = Path(__file__).resolve().parents[1] / "src/grid_view_spec/static/grid_view_spec"
+    page = tmp_path / "life-hardening.html"
+    page.write_text(
+        "<!doctype html><html><body>"
+        + rendered_with_toolbar
+        + "<script>"
+        + f"window.__specMarkup = {rendered_json};"
+        + """
+window.__requests = {facets: [], rows: []};
+window.__initCount = 0;
+window.fetch = async input => {
+  const url = new URL(String(input), window.location.href);
+  if (url.pathname.endsWith('/rows/')) {
+    window.__requests.rows.push(url.search);
+    return {ok: true, json: async () => ({data: [], lastRow: 0, totalCount: 0})};
+  }
+  window.__requests.facets.push(url.search);
+  const doc = new DOMParser().parseFromString(window.__specMarkup, 'text/html');
+  const colParam = url.searchParams.get('wholesale_price_columns');
+  if (colParam) {
+    doc.querySelectorAll('select[name="wholesale_price_columns"] option').forEach(opt => {
+      opt.selected = opt.value === colParam;
+      opt.toggleAttribute('selected', opt.selected);
+    });
+  }
+  return {ok: true, text: async () => doc.documentElement.outerHTML};
+};
+</script>
+"""
+        + f'<script src="{(bundle_root / "gridviewspec.js").as_uri()}"></script>'
+        + f'<script src="{(bundle_root / "gridviewspec-ag-grid.js").as_uri()}"></script>'
+        + f'<script src="{(bundle_root / "gridviewspec-filter-workspace.js").as_uri()}"></script>'
+        + r"""
+<pre id="result"></pre>
+<script>
+window.addEventListener("load", async () => {
+  try {
+  const wait = ms => new Promise(resolve => setTimeout(resolve, ms));
+  GridView.bootScope(document);
+  // Simulate second HTMX spec boot before window.agGrid finishes loading.
+  const cfg = document.querySelector('script[data-cm-ag-grid-spec]');
+  if (cfg) GridView.bootScope(document);
+  await wait(80);
+  window.agGrid = {
+    createGrid(_el, options) {
+      window.__initCount += 1;
+      const requestRows = () => options.datasource?.getRows({
+        startRow: 0, endRow: 25, successCallback() {}, failCallback() {},
+      });
+      window.setTimeout(requestRows, 0);
+      return {
+        addEventListener() {}, removeEventListener() {}, destroy() {},
+        getFilterModel: () => null, setFilterModel() {},
+        getColumnState: () => [], applyColumnState: () => true,
+        getColumnDefs: () => options.columnDefs || [],
+        getSelectedRows: () => [], forEachNode() {}, getDisplayedRowCount: () => 0,
+        getGridOption: key => key === 'rowModelType' ? 'infinite' : undefined,
+        setGridOption() {}, showLoadingOverlay() {}, hideOverlay() {},
+        purgeInfiniteCache() { requestRows(); },
+      };
+    },
+  };
+  await wait(120);
+  const initCountAfterAsyncLoad = window.__initCount;
+
+  // Test workspace search + card search coordination
+  const wsSearch = document.querySelector('[data-cm-filter-workspace-search]');
+  const cardSearch = document.querySelector('[data-cm-filter-card-search]');
+  wsSearch.value = 'alpha';
+  wsSearch.dispatchEvent(new Event('input', { bubbles: true }));
+  cardSearch.value = 'brand';
+  cardSearch.dispatchEvent(new Event('input', { bubbles: true }));
+  cardSearch.value = '';
+  cardSearch.dispatchEvent(new Event('input', { bubbles: true }));
+  const alphaHiddenAfterCardClear = document.querySelector(
+    'input[value="alpha"]'
+  ).closest('[data-cm-filter-option]').hidden;
+  const betaHiddenAfterCardClear = document.querySelector(
+    'input[value="beta"]'
+  ).closest('[data-cm-filter-option]').hidden;
+  wsSearch.value = '';
+  wsSearch.dispatchEvent(new Event('input', { bubbles: true }));
+
+  // Test ag_grid toolbar search triggers facet refresh and syncs input on popstate
+  const searchInput = document.querySelector('[data-cm-toolbar-search]');
+  const beforeFacets = window.__requests.facets.length;
+  searchInput.value = 'lamp';
+  searchInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+  await wait(120);
+  const facetsAfterSearch = window.__requests.facets.length - beforeFacets;
+  const specIdInHistory = history.state && history.state.cmFilterSpecId;
+  history.back();
+  await wait(120);
+  const searchAfterBack = searchInput.value;
+  const urlHasQAfterBack = new URLSearchParams(window.location.search).has('q');
+
+  // Test Clear all preserves settings, cancels pending multiselect timers, clears brand/search
+  const settingsSelect = document.querySelector('select[name="wholesale_price_columns"]');
+  settingsSelect.value = 'col_b';
+  settingsSelect.dispatchEvent(new Event('change', { bubbles: true }));
+  await wait(80);
+  const alphaCb = document.querySelector('[data-filter-param="brand"] input[value="alpha"]');
+  alphaCb.checked = true;
+  alphaCb.dispatchEvent(new Event('change', { bubbles: true }));
+  const beforeClearFacets = window.__requests.facets.length;
+  const beforeClearRows = window.__requests.rows.length;
+  document.querySelector('[data-cm-grid-action="clearAllFilters"]').click();
+  await wait(750);
+  const facetsAfterClear = window.__requests.facets.length - beforeClearFacets;
+  const rowsAfterClear = window.__requests.rows.length - beforeClearRows;
+
+  document.getElementById('result').textContent = JSON.stringify({
+    initCountAfterAsyncLoad,
+    alphaHiddenAfterCardClear,
+    betaHiddenAfterCardClear,
+    facetsAfterSearch,
+    specIdInHistory,
+    searchAfterBack,
+    urlHasQAfterBack,
+    facetsAfterClear,
+    rowsAfterClear,
+    searchAfterClear: searchInput.value,
+    brandCheckedAfterClear: alphaCb.checked,
+    displaySettingPreserved: settingsSelect.value === 'col_b',
+  });
+  } catch (err) {
+    const msg = String(err && err.stack ? err.stack : err);
+    document.getElementById('result').textContent = JSON.stringify({ error: msg });
+  }
+});
+</script>
+</body></html>""",
+        encoding="utf-8",
+    )
+    result = run_headless_chromium(chromium, page, tmp_path, virtual_time_budget=5000)
+    assert result.returncode == 0, result.stderr
+    match = re.search(r'<pre id="result">(.*?)</pre>', result.stdout, re.S)
+    assert match is not None, result.stdout
+    state = json.loads(html.unescape(match.group(1)))
+    assert state == {
+        "initCountAfterAsyncLoad": 1,
+        "alphaHiddenAfterCardClear": False,
+        "betaHiddenAfterCardClear": True,
+        "facetsAfterSearch": 1,
+        "specIdInHistory": "life_spec",
+        "searchAfterBack": "",
+        "urlHasQAfterBack": False,
+        "facetsAfterClear": 1,
+        "rowsAfterClear": 1,
+        "searchAfterClear": "",
+        "brandCheckedAfterClear": False,
+        "displaySettingPreserved": True,
+    }

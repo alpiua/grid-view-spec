@@ -91,6 +91,9 @@ function resetControls(scope: ParentNode): void {
     }
     control.value = "";
   });
+  scope
+    .querySelectorAll<HTMLElement & { _cmUpdateLabel?: () => void }>("[data-cm-multiselect]")
+    .forEach((root) => root._cmUpdateLabel?.());
 }
 
 function treeNodes(scope: ParentNode): HTMLElement[] {
@@ -123,22 +126,26 @@ function writeCollapsedTreeNodes(workspace: HTMLElement, collapsed: Set<string>)
   PageState.forRoot(workspace)?.put(treePreferenceKey(workspace), { version: 1, collapsed: [...collapsed] });
 }
 
+const workspaceQueries = new WeakMap<HTMLElement, string>();
+const cardQueries = new WeakMap<HTMLElement, string>();
+
 function updateTreeVisibility(
   workspace: HTMLElement,
   collapsed: Set<string>,
-  searchQuery = "",
+  requiredQueries: readonly string[] = [],
   scope: ParentNode = workspace,
 ): void {
   const nodes = treeNodes(scope);
   const byValue = new Map(nodes.map((node) => [node.dataset.cmFilterTreeValue || "", node]));
   const matching = new Set<string>();
-  const query = searchQuery.trim().toLocaleLowerCase();
+  const terms = requiredQueries.map((term) => term.trim().toLocaleLowerCase()).filter(Boolean);
+  const hasSearch = terms.length > 0;
 
-  if (query) {
+  if (hasSearch) {
     nodes.forEach((node) => {
       const value = node.dataset.cmFilterTreeValue || "";
       const label = node.querySelector(".cm-filter-drawer-option-label")?.textContent?.toLocaleLowerCase() || "";
-      if (label.includes(query)) matching.add(value);
+      if (terms.every((term) => label.includes(term))) matching.add(value);
     });
     [...matching].forEach((value) => {
       let node = byValue.get(value);
@@ -156,13 +163,13 @@ function updateTreeVisibility(
     let parentValue = node.dataset.cmFilterTreeParent || "";
     let hiddenByAncestor = false;
     while (parentValue) {
-      if (collapsed.has(parentValue) && !query) {
+      if (collapsed.has(parentValue) && !hasSearch) {
         hiddenByAncestor = true;
         break;
       }
       parentValue = byValue.get(parentValue)?.dataset.cmFilterTreeParent || "";
     }
-    node.hidden = hiddenByAncestor || (query !== "" && !matching.has(value));
+    node.hidden = hiddenByAncestor || (hasSearch && !matching.has(value));
     node.classList.toggle("is-tree-collapsed", collapsed.has(value));
     node.querySelector<HTMLButtonElement>("[data-cm-filter-tree-toggle]")?.setAttribute(
       "aria-expanded",
@@ -171,19 +178,35 @@ function updateTreeVisibility(
   });
 }
 
-function updateCardOptionVisibility(card: HTMLElement, workspace: HTMLElement, collapsed: Set<string>, query: string): boolean {
-  const cardMatches = (card.querySelector("h3")?.textContent || "").toLocaleLowerCase().includes(query);
+function updateCardOptionVisibility(card: HTMLElement, workspace: HTMLElement, collapsed: Set<string>): boolean {
+  const workspaceQuery = workspaceQueries.get(workspace) || "";
+  const cardQuery = cardQueries.get(card) || "";
+  const cardMatchesWorkspace =
+    workspaceQuery !== "" && (card.querySelector("h3")?.textContent || "").toLocaleLowerCase().includes(workspaceQuery);
   const searchable = card.dataset.cmFilterCardSearchable === "1";
-  let optionMatches = false;
-  card.querySelectorAll<HTMLElement>("[data-cm-filter-drawer-option]").forEach((option) => {
+  const applyWorkspaceFilterToOptions = workspaceQuery !== "" && !cardMatchesWorkspace;
+  let workspaceOptionMatches = false;
+  card.querySelectorAll<HTMLElement>("[data-cm-filter-option]").forEach((option) => {
     if (option.matches("[data-cm-filter-tree-node]")) return;
-    const matches =
-      query === "" || cardMatches || (searchable && (option.textContent || "").toLocaleLowerCase().includes(query));
-    option.hidden = !matches;
-    optionMatches ||= matches;
+    const label = (option.textContent || "").toLocaleLowerCase();
+    const matchesWorkspace = !applyWorkspaceFilterToOptions || (searchable && label.includes(workspaceQuery));
+    const matchesCard = cardQuery === "" || label.includes(cardQuery);
+    option.hidden = !(matchesWorkspace && matchesCard);
+    if (matchesWorkspace) workspaceOptionMatches = true;
   });
-  updateTreeVisibility(workspace, collapsed, query, card);
-  return cardMatches || optionMatches || !!card.querySelector("[data-cm-filter-tree-node]:not([hidden])");
+  const requiredTreeQueries: string[] = [];
+  if (applyWorkspaceFilterToOptions && searchable) requiredTreeQueries.push(workspaceQuery);
+  else if (applyWorkspaceFilterToOptions) requiredTreeQueries.push("\u0000__no_tree_match__");
+  if (cardQuery) requiredTreeQueries.push(cardQuery);
+  updateTreeVisibility(workspace, collapsed, requiredTreeQueries, card);
+  const workspaceTreeMatches =
+    !applyWorkspaceFilterToOptions ||
+    !!Array.from(card.querySelectorAll<HTMLElement>("[data-cm-filter-tree-node]")).some((node) => {
+      if (!searchable) return false;
+      const label = node.querySelector(".cm-filter-drawer-option-label")?.textContent?.toLocaleLowerCase() || "";
+      return label.includes(workspaceQuery);
+    });
+  return workspaceQuery === "" || cardMatchesWorkspace || workspaceOptionMatches || workspaceTreeMatches;
 }
 
 function bindWorkspaceSearch(workspace: HTMLElement, collapsed: Set<string>): void {
@@ -191,8 +214,9 @@ function bindWorkspaceSearch(workspace: HTMLElement, collapsed: Set<string>): vo
   if (!search) return;
   search.addEventListener("input", () => {
     const query = search.value.trim().toLocaleLowerCase();
+    workspaceQueries.set(workspace, query);
     workspace.querySelectorAll<HTMLElement>("[data-cm-filter-card], .cm-filter-drawer-card").forEach((card) => {
-      card.hidden = query !== "" && !updateCardOptionVisibility(card, workspace, collapsed, query);
+      card.hidden = query !== "" && !updateCardOptionVisibility(card, workspace, collapsed);
     });
   });
 }
@@ -201,47 +225,70 @@ function bindCardSearch(workspace: HTMLElement, card: HTMLElement, collapsed: Se
   const search = card.querySelector<HTMLInputElement>("[data-cm-filter-card-search]");
   if (!search) return;
   search.addEventListener("input", () => {
-    updateCardOptionVisibility(card, workspace, collapsed, search.value.trim().toLocaleLowerCase());
-    card.hidden = false;
+    cardQueries.set(card, search.value.trim().toLocaleLowerCase());
+    const matchesWorkspace = updateCardOptionVisibility(card, workspace, collapsed);
+    card.hidden = (workspaceQueries.get(workspace) || "") !== "" && !matchesWorkspace;
   });
 }
 
-function bindTree(workspace: HTMLElement, collapsed: Set<string>): void {
-  updateTreeVisibility(workspace, collapsed);
-  workspace.querySelectorAll<HTMLButtonElement>("[data-cm-filter-tree-toggle]").forEach((toggle) => {
-    toggle.addEventListener("click", (event) => {
-      event.preventDefault();
-      event.stopPropagation();
-      const node = asHTMLElement(toggle.closest("[data-cm-filter-tree-node]"));
-      const value = node?.dataset.cmFilterTreeValue || "";
-      if (!value) return;
-      if (collapsed.has(value)) collapsed.delete(value);
-      else collapsed.add(value);
-      writeCollapsedTreeNodes(workspace, collapsed);
-      updateTreeVisibility(workspace, collapsed);
-    });
+const collapsedByWorkspace = new WeakMap<HTMLElement, Set<string>>();
+
+function bindWorkspaceCards(workspace: HTMLElement, collapsed: Set<string>): void {
+  workspace.querySelectorAll<HTMLElement>("[data-cm-filter-card]").forEach((card) => {
+    if (card.dataset.cmFilterCardBound) return;
+    card.dataset.cmFilterCardBound = "1";
+    bindCardSearch(workspace, card, collapsed);
   });
 }
 
 function bindWorkspace(workspace: HTMLElement): void {
-  if (workspace.dataset.cmFilterWorkspaceBound) return;
-  workspace.dataset.cmFilterWorkspaceBound = "1";
-  const collapsed = readCollapsedTreeNodes(workspace);
+  let collapsed = collapsedByWorkspace.get(workspace);
+  if (!workspace.dataset.cmFilterWorkspaceBound || !collapsed) {
+    workspace.dataset.cmFilterWorkspaceBound = "1";
+    collapsed = readCollapsedTreeNodes(workspace);
+    collapsedByWorkspace.set(workspace, collapsed);
 
-  bindTree(workspace, collapsed);
-  bindWorkspaceSearch(workspace, collapsed);
-  workspace.querySelectorAll<HTMLElement>("[data-cm-filter-card]").forEach((card) => {
-    bindCardSearch(workspace, card, collapsed);
-    card.querySelector<HTMLButtonElement>("[data-cm-filter-card-reset]")?.addEventListener("click", () => {
-      resetControls(card);
+    workspace.addEventListener("click", (event) => {
+      const target = event.target instanceof Element ? event.target : null;
+      if (!target) return;
+      const toggle = target.closest<HTMLButtonElement>("[data-cm-filter-tree-toggle]");
+      if (toggle && workspace.contains(toggle)) {
+        event.preventDefault();
+        event.stopPropagation();
+        const node = asHTMLElement(toggle.closest("[data-cm-filter-tree-node]"));
+        const value = node?.dataset.cmFilterTreeValue || "";
+        if (!value || !collapsed) return;
+        if (collapsed.has(value)) collapsed.delete(value);
+        else collapsed.add(value);
+        writeCollapsedTreeNodes(workspace, collapsed);
+        const card = asHTMLElement(toggle.closest("[data-cm-filter-card], .cm-filter-drawer-card"));
+        if (card) {
+          const matchesWorkspace = updateCardOptionVisibility(card, workspace, collapsed);
+          card.hidden = (workspaceQueries.get(workspace) || "") !== "" && !matchesWorkspace;
+        } else {
+          updateTreeVisibility(workspace, collapsed);
+        }
+        return;
+      }
+      const cardReset = target.closest<HTMLButtonElement>("[data-cm-filter-card-reset]");
+      if (cardReset && workspace.contains(cardReset)) {
+        const card = asHTMLElement(cardReset.closest("[data-cm-filter-card]"));
+        if (!card) return;
+        resetControls(card);
+        dispatchFilterChange(workspace);
+      }
+    });
+    bindWorkspaceSearch(workspace, collapsed);
+    workspace.querySelector<HTMLButtonElement>("[data-cm-filter-drawer-reset-all]")?.addEventListener("click", () => {
+      resetControls(workspace);
       dispatchFilterChange(workspace);
     });
-  });
-  workspace.querySelector<HTMLButtonElement>("[data-cm-filter-drawer-reset-all]")?.addEventListener("click", () => {
-    resetControls(workspace);
-    dispatchFilterChange(workspace);
-  });
-  workspace.addEventListener("change", () => updateCardChrome(workspace));
+    workspace.addEventListener("change", () => updateCardChrome(workspace));
+    workspace.addEventListener("cm-filter-change", () => updateCardChrome(workspace));
+  }
+
+  bindWorkspaceCards(workspace, collapsed);
+  updateTreeVisibility(workspace, collapsed);
   updateCardChrome(workspace);
 }
 

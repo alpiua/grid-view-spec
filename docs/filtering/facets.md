@@ -179,11 +179,14 @@ def doctors_filters_fragment(request):
 
 Hosts can opt into `facets_refresh_mode="in_place"` when a page needs the filter workspace
 to keep its current drawer, cards, option-list, search inputs, and scroll state while the
-server recomputes dependent facets. The host still returns its authoritative full-spec HTML;
-GVS reconciles the matching filter controls, selected options, counts, and disabled state in
-the existing workspace. After reconciliation, the current URL supplies dynamic column state
-and the existing AG-Grid path refreshes rows once. Filter changes and Reset push one URL
-entry; Back and Forward refresh from their current URL without pushing another entry.
+server recomputes dependent facets. The host returns either its authoritative full-spec HTML
+or, when `facets_endpoint` is set, a lightweight HTML fragment containing the filter drawer or
+bar. `facet_params` declares which URL parameters trigger facet recomputation; when only
+non-facet parameters (including display settings) change, GVS updates the URL and triggers
+one table reload directly without fetching facet HTML. After reconciliation, the current URL
+supplies dynamic column state and the existing AG-Grid path refreshes rows once. Filter
+changes and Reset push one URL entry; Back and Forward refresh from their current URL without
+pushing another entry.
 
 ```python
 GridViewFilters(
@@ -194,10 +197,12 @@ GridViewFilters(
     schema=stock_filters,
     facets=True,
     facets_refresh_mode="in_place",
+    facet_params=("dealer", "brand"),
+    facets_endpoint="/stock/filters-fragment/",
 )
 ```
 
-`in_place` requires `facets=True`. A failed request, invalid response, or failed control
+`in_place`, `facet_params`, and `facets_endpoint` require `facets=True`. A failed request, invalid response, or failed control
 reconciliation navigates to the current URL before applying partial facet state. Existing
 hosts retain `spec` refresh unless they opt in.
 

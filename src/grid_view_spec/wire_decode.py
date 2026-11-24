@@ -1028,6 +1028,7 @@ def decode_block(raw: Mapping[str, object]) -> GridViewBlock:
             target=wire_optional_str(raw.get("target")),
         )
     if block_type == "filters":
+        facet_params = wire_str_tuple(raw.get("facet_params"))
         return GridViewFilters(
             **common,
             presentation=wire_literal(
@@ -1045,6 +1046,8 @@ def decode_block(raw: Mapping[str, object]) -> GridViewBlock:
             facets_refresh_mode=wire_literal(
                 raw.get("facets_refresh_mode"), GRIDVIEW_FILTERS_FACETS_REFRESH_MODES, "spec"
             ),
+            facet_params=facet_params,
+            facets_endpoint=wire_str(raw.get("facets_endpoint")),
             drawer_layout=wire_literal(
                 raw.get("drawer_layout"), GRIDVIEW_FILTER_DRAWER_LAYOUTS, "compact"
             ),

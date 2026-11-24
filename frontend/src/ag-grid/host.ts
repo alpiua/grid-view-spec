@@ -22,6 +22,7 @@ import {
 } from "./types";
 import type { GridHandle } from "../grid-view/types";
 import { toolbarSearchScopeForTable } from "../grid-view/toolbar-search-input";
+import { replaceUrlPreservingState } from "../grid-view/dom-utils";
 
 function isColumnSettingsHandle(value: unknown): value is ColumnSettingsHandle {
   if (!value || typeof value !== "object") return false;
@@ -263,7 +264,7 @@ export class AgGridHost implements GridHandle {
     const next = url.pathname + url.search;
     const current = window.location.pathname + window.location.search;
     if (next !== current) {
-      window.history.replaceState(null, "", next);
+      replaceUrlPreservingState(next);
     }
   }
 
@@ -639,7 +640,7 @@ export class AgGridHost implements GridHandle {
     const url = new URL(window.location.href);
     if (url.searchParams.has("q")) {
       url.searchParams.delete("q");
-      window.history.replaceState({}, "", url);
+      replaceUrlPreservingState(url);
     }
     if (wasEmpty && this.gridApi) {
       this.gridApi.setFilterModel(null);
@@ -674,7 +675,7 @@ export class AgGridHost implements GridHandle {
     }
   }
 
-  clearAllFilters(options: { purgeInfiniteCache?: boolean } = {}): void {
+  clearAllFilters(options: { purgeInfiniteCache?: boolean; replaceUrl?: boolean } = {}): void {
     const api = this.gridApi;
     if (!api) return;
     api.setFilterModel(null);
@@ -682,9 +683,11 @@ export class AgGridHost implements GridHandle {
     this._searchText = "";
     if (!isInfiniteRowModel(api)) api.setGridOption("quickFilterText", "");
 
-    const url = new URL(window.location.href);
-    ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
-    window.history.replaceState({}, "", url);
+    if (options.replaceUrl !== false) {
+      const url = new URL(window.location.href);
+      ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
+      replaceUrlPreservingState(url);
+    }
     if (this._pageStateAdapter) {
       this._pageStateAdapter.clear();
     }

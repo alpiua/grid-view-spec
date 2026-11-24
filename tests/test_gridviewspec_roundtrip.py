@@ -143,6 +143,45 @@ def test_in_place_facets_refresh_requires_facets() -> None:
     assert result.diagnostics[0].code == "INVALID_WIRE"
 
 
+def test_facet_params_and_facets_endpoint_roundtrip_and_require_facets() -> None:
+    """Facet dependency params and endpoint survive JSON roundtrip and reject facets=False."""
+    filters = GridViewFilters(
+        id="scoped_facets",
+        facets=True,
+        facets_refresh_mode="in_place",
+        facet_params=("category_id", "brand"),
+        facets_endpoint="/products/filters-fragment/",
+    )
+    spec = GridViewSpec(
+        id="scoped_facets_roundtrip",
+        blocks=(filters,),
+        layout=GridViewLayout(root=GridViewArea(id="root", blocks=(filters.id,))),
+    )
+
+    restored = _roundtrip(spec)
+
+    assert restored == spec
+    assert isinstance(restored.blocks[0], GridViewFilters)
+    assert restored.blocks[0].facet_params == ("category_id", "brand")
+    assert restored.blocks[0].facets_endpoint == "/products/filters-fragment/"
+
+    with pytest.raises(ValueError, match="requires facets=True"):
+        GridViewFilters(id="invalid_facet_params", facet_params=("category_id",))
+    with pytest.raises(ValueError, match="requires facets=True"):
+        GridViewFilters(id="invalid_facets_endpoint", facets_endpoint="/products/filters-fragment/")
+    with pytest.raises(ValueError, match="non-empty strings"):
+        GridViewFilters(id="empty_facet_param", facets=True, facet_params=("",))
+
+    bad_wire = spec_from_wire(
+        {
+            "id": "invalid_facet_params_wire",
+            "blocks": [{"id": "filters", "type": "filters", "facet_params": ["category_id"]}],
+        }
+    )
+    assert not bad_wire.ok
+    assert bad_wire.diagnostics[0].code == "INVALID_WIRE"
+
+
 def test_action_confirmation_and_select_none_roundtrip() -> None:
     """Every action variant keeps confirmation, and an absent select default stays absent."""
     confirm = GridViewConfirmConfig(message="Delete this record", tone="danger")

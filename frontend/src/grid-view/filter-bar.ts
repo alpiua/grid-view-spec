@@ -1,6 +1,6 @@
 import { i18n } from "./i18n";
 import { byId, invokeGridAction } from "./registry";
-import { getGlobal, positionFixedOverlay } from "./dom-utils";
+import { cssEscape, getGlobal, positionFixedOverlay, replaceUrlPreservingState } from "./dom-utils";
 import { parseSmartQuery } from "./search/smart-query";
 import { collectColumnFiltersObject, serializeColumnFilters, matchColumnFilter } from "./search/column-filter-state";
 import { initColumnFilters, navigateWithTableFilters } from "./column-filters";
@@ -42,6 +42,7 @@ const boundFilterBars = new WeakSet<HTMLElement>();
 const boundFilterSelects = new WeakSet<HTMLSelectElement>();
 const boundFilterInputs = new WeakSet<HTMLInputElement>();
 const boundFilterInputKeydowns = new WeakSet<HTMLInputElement>();
+const lastCommittedInputValues = new WeakMap<HTMLInputElement, string>();
 const boundFilterSearchInputs = new WeakSet<HTMLInputElement>();
 const boundPeriodFilterBars = new WeakSet<HTMLElement>();
 let multiselectPanelToRestore: { barId: string; filterId: string } | null = null;
@@ -263,6 +264,63 @@ function specWantsFacets(ref: Element | null | undefined): boolean {
 
 function usesInPlaceFacets(bar: HTMLElement | null | undefined): bar is HTMLElement {
   return bar?.dataset.cmFacets === "1" && bar.dataset.cmFacetsRefreshMode === "in_place";
+}
+
+function declaredFacetParams(bar: HTMLElement): string[] {
+  const raw = bar.dataset.cmFacetParams?.trim();
+  if (!raw) return [];
+  return raw
+    .split(",")
+    .map((param) => param.trim())
+    .filter(Boolean);
+}
+
+function facetParamSignature(urlString: string, params: readonly string[]): string {
+  const url = new URL(urlString, window.location.origin);
+  return params
+    .map((param) => {
+      const normalized = url.searchParams
+        .getAll(param)
+        .reduce<string[]>((acc, item) => acc.concat(item.split(",")), [])
+        .map((value) => value.trim())
+        .filter(Boolean)
+        .sort()
+        .join("\u001f");
+      return `${param}=${normalized}`;
+    })
+    .join("\u001e");
+}
+
+function shouldRefreshFacetsForTransition(
+  bar: HTMLElement,
+  currentUrl: string,
+  nextUrl: string,
+): boolean {
+  if (activeFacetRefreshController) return true;
+  const params = declaredFacetParams(bar);
+  if (!params.length) return true;
+  return facetParamSignature(currentUrl, params) !== facetParamSignature(nextUrl, params);
+}
+
+function resolveFacetsFetchUrl(bar: HTMLElement, pageUrl: string): URL {
+  const pageRequestUrl = new URL(pageUrl, window.location.origin);
+  if (pageRequestUrl.origin !== window.location.origin) {
+    throw new Error("Facet refresh requires the current page origin");
+  }
+  const endpoint = bar.dataset.cmFacetsEndpoint?.trim();
+  if (!endpoint) return pageRequestUrl;
+  const endpointUrl = new URL(endpoint, window.location.origin);
+  if (endpointUrl.origin !== window.location.origin) {
+    throw new Error("Facet endpoint requires the current page origin");
+  }
+  const merged = new URLSearchParams(endpointUrl.search);
+  const pageKeys = new Set<string>();
+  pageRequestUrl.searchParams.forEach((_value, key) => pageKeys.add(key));
+  pageKeys.forEach((key) => merged.delete(key));
+  pageRequestUrl.searchParams.forEach((value, key) => merged.append(key, value));
+  const mergedSearch = merged.toString();
+  endpointUrl.search = mergedSearch ? `?${mergedSearch}` : "";
+  return endpointUrl;
 }
 
 interface FilterScrollPosition {
@@ -607,13 +665,13 @@ function matchingFilterControlContainer(
   liveBar: HTMLElement,
   incomingBar: HTMLElement,
   incomingRoot: HTMLElement,
-  liveCards: Map<string, HTMLElement>,
+  targetCards: Map<string, HTMLElement>,
 ): HTMLElement {
   const incomingCard = incomingRoot.closest<HTMLElement>("[data-cm-filter-card]");
   if (incomingCard) {
     const cardId = incomingCard.dataset.cmFilterCardId || "";
-    const liveCard = liveCards.get(cardId);
-    const liveContainer = liveCard?.querySelector<HTMLElement>(".cm-filter-drawer-card-controls");
+    const targetCard = targetCards.get(cardId);
+    const liveContainer = targetCard?.querySelector<HTMLElement>(".cm-filter-drawer-card-controls");
     if (!liveContainer || !incomingCard.querySelector(".cm-filter-drawer-card-controls")) {
       throw new Error("Facet response changes a filter card control container");
     }
@@ -641,9 +699,7 @@ function matchingFilterControlContainer(
 function hasExternallyBoundFilterBehavior(root: HTMLElement): boolean {
   return (
     root.matches(".cm-period-multiselect, [data-cm-period-multiselect]") ||
-    root.querySelector(
-      ".cm-period-multiselect, [data-cm-period-multiselect], [data-cm-filter-tree-toggle]",
-    ) !== null
+    root.querySelector(".cm-period-multiselect, [data-cm-period-multiselect]") !== null
   );
 }
 
@@ -715,14 +771,36 @@ function prepareFacetReconciliation(liveBar: HTMLElement, incomingBar: HTMLEleme
   }
   const currentCards = filterWorkspaceCards(liveBar);
   const nextCards = filterWorkspaceCards(incomingBar);
-  if (currentCards.size !== nextCards.size) {
+  const targetCards = new Map<string, HTMLElement>();
+  const addedCards = new Set<string>();
+  const cardsContainer = liveBar.querySelector<HTMLElement>(".cm-filter-drawer-workspace-cards");
+  const nextCardsContainer = incomingBar.querySelector<HTMLElement>(".cm-filter-drawer-workspace-cards");
+  if ((currentCards.size > 0 || nextCards.size > 0) && (!cardsContainer || !nextCardsContainer)) {
     throw new Error("Facet response changes the filter cards");
   }
-  currentCards.forEach((_card, id) => {
-    if (!nextCards.has(id)) throw new Error("Facet response changes the filter cards");
+  const operations: Array<() => void> = [];
+  currentCards.forEach((card, id) => {
+    if (nextCards.has(id)) {
+      targetCards.set(id, card);
+    } else {
+      operations.push(() => card.remove());
+    }
+  });
+  nextCards.forEach((nextCard, id) => {
+    if (targetCards.has(id)) return;
+    const clonedCard = nextCard.cloneNode(true);
+    if (!(clonedCard instanceof HTMLElement)) {
+      throw new Error("Facet response contains a non-element filter card");
+    }
+    const controlsContainer = clonedCard.querySelector<HTMLElement>(".cm-filter-drawer-card-controls");
+    if (!controlsContainer) {
+      throw new Error("Facet response changes a filter card control container");
+    }
+    controlsContainer.querySelectorAll("[data-filter-id]").forEach((el) => el.remove());
+    targetCards.set(id, clonedCard);
+    addedCards.add(id);
   });
 
-  const operations: Array<() => void> = [];
   const retainedRoots = new Set<HTMLElement>();
   const insertedRoots = new Set<HTMLElement>();
   const plannedRoots = new Map<HTMLElement, HTMLElement[]>();
@@ -732,7 +810,7 @@ function prepareFacetReconciliation(liveBar: HTMLElement, incomingBar: HTMLEleme
       liveBar,
       incomingBar,
       nextRoot,
-      currentCards,
+      targetCards,
     );
     let reconciledRoot: HTMLElement;
     if (currentRoot && canReuseFilterControlRoot(currentRoot, nextRoot)) {
@@ -785,9 +863,23 @@ function prepareFacetReconciliation(liveBar: HTMLElement, incomingBar: HTMLEleme
       });
     });
   });
-  currentCards.forEach((card, id) => {
+  if (cardsContainer && nextCards.size > 0) {
+    operations.push(() => {
+      let anchor: Element | null = cardsContainer.querySelector("[data-cm-filter-card]");
+      nextCards.forEach((_nextCard, id) => {
+        const card = targetCards.get(id);
+        if (!card) return;
+        if (card !== anchor) {
+          cardsContainer.insertBefore(card, anchor);
+        } else {
+          anchor = anchor.nextElementSibling;
+        }
+      });
+    });
+  }
+  targetCards.forEach((card, id) => {
     const nextCard = nextCards.get(id);
-    if (!nextCard) throw new Error("Facet response changes the filter cards");
+    if (!nextCard) return;
     operations.push(() => syncAttribute(card, nextCard, "data-cm-filter-card-filter-ids"));
   });
 
@@ -796,6 +888,9 @@ function prepareFacetReconciliation(liveBar: HTMLElement, incomingBar: HTMLEleme
   return () => {
     operations.forEach((operation) => operation());
     insertedRoots.forEach(initMultiSelectWidget);
+    if (addedCards.size > 0 || insertedRoots.size > 0) {
+      getGlobal().GridView?.FilterDrawerWorkspace?.init?.(liveBar);
+    }
     bindFilterControlListeners(liveBar);
     liveBar
       .querySelectorAll<HTMLInputElement>("[data-cm-filter-workspace-search], [data-cm-filter-card-search]")
@@ -819,14 +914,19 @@ function findIncomingFacetBars(
   if (!liveSpec?.id || !liveBar.id) throw new Error("The current filter workspace has no stable identity");
   const responseDocument = new DOMParser().parseFromString(responseHtml, "text/html");
   const responseSpec = asHTMLElement(responseDocument.getElementById(liveSpec.id));
-  if (!responseSpec?.matches("[data-cm-grid-view-spec]")) {
+  const hasFullSpec = responseSpec !== null && responseSpec.matches("[data-cm-grid-view-spec]");
+  if (!hasFullSpec && !liveBar.dataset.cmFacetsEndpoint) {
     throw new Error("Facet response does not contain the current GridViewSpec");
   }
+  const searchRoot: ParentNode =
+    responseSpec !== null && responseSpec.matches("[data-cm-grid-view-spec]")
+      ? responseSpec
+      : responseDocument;
 
   const liveDrawer = asHTMLElement(liveBar.closest("[data-cm-filter-drawer]"));
   if (!liveDrawer) {
     const responseBar = Array.from(
-      responseSpec.querySelectorAll<HTMLElement>("[data-cm-filter-bar]"),
+      searchRoot.querySelectorAll<HTMLElement>("[data-cm-filter-bar]"),
     ).find((candidate) => candidate.id === liveBar.id);
     if (!usesInPlaceFacets(responseBar)) {
       throw new Error("Facet response does not contain the matching in-place filter workspace");
@@ -838,7 +938,7 @@ function findIncomingFacetBars(
   const target = liveDrawer.dataset.target || "";
   if (!drawerId || !target) throw new Error("The current filter drawer has no stable identity");
   const incomingDrawers = Array.from(
-    responseSpec.querySelectorAll<HTMLElement>("[data-cm-filter-drawer]"),
+    searchRoot.querySelectorAll<HTMLElement>("[data-cm-filter-drawer]"),
   ).filter(
     (candidate) =>
       candidate.dataset.cmFilterDrawerId === drawerId && candidate.dataset.target === target,
@@ -926,10 +1026,8 @@ async function refreshFacetsInPlace(
   const controller = new AbortController();
   activeFacetRefreshController = controller;
   try {
-    const requestUrl = new URL(pageUrl, window.location.href);
-    if (requestUrl.origin !== window.location.origin) {
-      throw new Error("Facet refresh requires the current page origin");
-    }
+    const pageRequestUrl = new URL(pageUrl, window.location.href);
+    const requestUrl = resolveFacetsFetchUrl(bar, pageUrl);
     const response = await fetch(requestUrl.href, {
       credentials: "same-origin",
       headers: { Accept: "text/html" },
@@ -945,7 +1043,7 @@ async function refreshFacetsInPlace(
     if (generation !== facetRefreshGeneration) return;
     reconciliations.forEach((reconcile) => reconcile());
     multiselectPanelToRestore = null;
-    dispatchFacetRefreshComplete(bar, state, requestUrl.href);
+    dispatchFacetRefreshComplete(bar, state, pageRequestUrl.href);
   } catch {
     if (generation !== facetRefreshGeneration) return;
     window.location.href = pageUrl;
@@ -975,8 +1073,9 @@ export function navigateFilterState(
   anchorEl: Element | null | undefined,
   bar: Element | null | undefined
 ): boolean {
+  const currentUrl = filterNavigateHref();
   const pageUrl = withActiveTableColumns(
-    buildFilterUrl(filterNavigateHref(), state),
+    buildFilterUrl(currentUrl, state),
     anchorEl || bar
   );
   const gridId = resolveToolbarGridId(anchorEl || bar);
@@ -987,8 +1086,14 @@ export function navigateFilterState(
       ? bar
       : asHTMLElement((bar as Element | null | undefined)?.closest?.("[data-cm-filter-bar]"));
   if (usesInPlaceFacets(filterBar)) {
+    const refreshFacets = shouldRefreshFacetsForTransition(filterBar, currentUrl, pageUrl);
     pushFilterHistory(pageUrl, filterBar);
-    void refreshFacetsInPlace(pageUrl, state, filterBar);
+    if (refreshFacets) {
+      void refreshFacetsInPlace(pageUrl, state, filterBar);
+    } else {
+      cancelFacetRefresh();
+      dispatchFacetRefreshComplete(filterBar, state, pageUrl);
+    }
     return true;
   }
   cancelFacetRefresh();
@@ -1046,6 +1151,45 @@ function isSameFilterPage(previousUrl: string, nextUrl: string): boolean {
   return previous.pathname === next.pathname && previous.searchParams.get("tab") === next.searchParams.get("tab");
 }
 
+function syncToolbarSearchFromUrl(
+  nextUrl: string,
+  specRoot: HTMLElement | null,
+  filterBar: HTMLElement | null,
+): void {
+  const nextSearch = new URL(nextUrl, window.location.origin).searchParams;
+  const gridId =
+    asHTMLElement(filterBar?.closest(".cm-filters, .cm-toolbar-unified"))?.dataset.target ||
+    asHTMLElement(specRoot?.querySelector("[data-grid-id]"))?.dataset.gridId ||
+    "";
+  const inputs = new Set<HTMLInputElement>();
+  const collect = (root: ParentNode | null | undefined): void => {
+    root
+      ?.querySelectorAll<HTMLInputElement>("[data-cm-toolbar-search]")
+      .forEach((input) => inputs.add(input));
+  };
+  collect(specRoot);
+  if (gridId) {
+    collect(
+      document.querySelector(
+        `[data-cm-toolbar-search-root][data-cm-table-grid-id="${cssEscape(gridId)}"]`,
+      ),
+    );
+    collect(
+      document.querySelector(
+        `[data-cm-toolbar-search-root][data-cm-search-scope-id="${cssEscape(gridId)}"]`,
+      ),
+    );
+  }
+  inputs.forEach((input) => {
+    const paramName = input.name || "q";
+    const value = nextSearch.get(paramName) ?? "";
+    input.value = value;
+    if (value) input.dataset.cmSearchCommitted = value;
+    else delete input.dataset.cmSearchCommitted;
+    syncToolbarSearchChrome(input);
+  });
+}
+
 function restoreFilterHistorySpec(): void {
   if (filterHistoryBound) return;
   filterHistoryBound = true;
@@ -1067,6 +1211,7 @@ function restoreFilterHistorySpec(): void {
         ? asHTMLElement(document.getElementById("cm-spec-" + specId))
         : roots.length === 1 ? roots[0] : null;
       const filterBar = asHTMLElement(specRoot?.querySelector("[data-cm-filter-bar]"));
+      syncToolbarSearchFromUrl(nextUrl, specRoot, filterBar);
       if (usesInPlaceFacets(filterBar)) {
         const state = selectedFilterValues(filterBar);
         const page = new URL(nextUrl, window.location.origin).searchParams.get("page");
@@ -1142,7 +1287,36 @@ export function withActiveTableColumns(urlString: string, scopeEl: Element | nul
   return url.pathname + url.search;
 }
 
+export function cancelPendingFilterTimers(
+  scope: ParentNode | null | undefined,
+  clearInputHistory = true,
+): void {
+  if (!scope) return;
+  scope.querySelectorAll<HTMLElement>("[data-cm-multiselect]").forEach((root) => {
+    const timer = multiselectChangeTimers.get(root);
+    if (timer !== undefined) {
+      window.clearTimeout(timer);
+      multiselectChangeTimers.delete(root);
+    }
+  });
+  if (clearInputHistory) {
+    scope.querySelectorAll<HTMLInputElement>("[data-cm-filter-input]").forEach((input) => {
+      lastCommittedInputValues.delete(input);
+    });
+  }
+}
+
 function dispatchFilterBarChange(bar: HTMLElement, event?: Event): void {
+  const detail = event instanceof CustomEvent ? (event.detail as Record<string, unknown> | undefined) : undefined;
+  if (!detail?.facetsRefreshComplete) {
+    const target = event?.target;
+    if (!(target instanceof Element) || !target.closest("[data-cm-multiselect], [data-cm-filter-input]")) {
+      const isWorkspaceReset =
+        target instanceof Element &&
+        (target === bar || target.matches("[data-cm-filter-drawer-workspace]"));
+      cancelPendingFilterTimers(bar, isWorkspaceReset);
+    }
+  }
   filterBarChangeHandlers.get(bar)?.(event);
 }
 
@@ -1160,14 +1334,27 @@ function bindFilterControlListeners(bar: HTMLElement): void {
     });
   bar.querySelectorAll<HTMLInputElement>("[data-cm-filter-input]").forEach((input) => {
     if (!boundFilterInputs.has(input)) {
-      input.addEventListener("change", (event) => dispatchFilterBarChange(bar, event));
+      input.addEventListener("input", () => {
+        lastCommittedInputValues.delete(input);
+      });
+      input.addEventListener("change", (event) => {
+        if (input.type !== "checkbox" && input.type !== "radio") {
+          if (lastCommittedInputValues.get(input) === input.value) return;
+          lastCommittedInputValues.set(input, input.value);
+        }
+        dispatchFilterBarChange(bar, event);
+      });
       boundFilterInputs.add(input);
     }
     if (!boundFilterInputKeydowns.has(input)) {
       input.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
         event.preventDefault();
-        dispatchFilterBarChange(bar);
+        if (input.type !== "checkbox" && input.type !== "radio") {
+          if (lastCommittedInputValues.get(input) === input.value) return;
+          lastCommittedInputValues.set(input, input.value);
+        }
+        dispatchFilterBarChange(bar, event);
       });
       boundFilterInputKeydowns.add(input);
     }
@@ -1176,7 +1363,7 @@ function bindFilterControlListeners(bar: HTMLElement): void {
   if (search && !boundFilterSearchInputs.has(search)) {
     search.addEventListener("keydown", (event) => {
       if (event.key === "Enter" && search.dataset.searchScope === "server") {
-        dispatchFilterBarChange(bar);
+        dispatchFilterBarChange(bar, event);
       }
     });
     boundFilterSearchInputs.add(search);
@@ -1324,11 +1511,17 @@ export function bindFilterBar(barEl: Element, opts?: FilterBarOptions) {
       if (navigateOnChange) {
         navigateFilterState(state, bar, bar);
       } else {
-        const pageUrl = withActiveTableColumns(buildFilterUrl(filterNavigateHref(), state), bar);
-        const historyState = isRecord(window.history.state) ? { ...window.history.state } : {};
-        window.history.replaceState(historyState, "", pageUrl);
+        const currentUrl = filterNavigateHref();
+        const pageUrl = withActiveTableColumns(buildFilterUrl(currentUrl, state), bar);
+        const refreshFacets = shouldRefreshFacetsForTransition(bar, currentUrl, pageUrl);
+        replaceUrlPreservingState(pageUrl);
         latestFilterNavigationUrl = pageUrl;
-        void refreshFacetsInPlace(pageUrl, state, bar);
+        if (refreshFacets) {
+          void refreshFacetsInPlace(pageUrl, state, bar);
+        } else {
+          cancelFacetRefresh();
+          dispatchFacetRefreshComplete(bar, state, pageUrl);
+        }
       }
       return;
     }
@@ -1345,7 +1538,7 @@ export function bindFilterBar(barEl: Element, opts?: FilterBarOptions) {
     // when the cm-filter-change listener triggers a datasource reload.
     if (typeof options.onChange !== "function" && !navigateOnChange) {
       const nextUrl = withActiveTableColumns(buildFilterUrl(filterNavigateHref(), state), bar);
-      window.history.replaceState({}, "", nextUrl);
+      replaceUrlPreservingState(nextUrl);
     }
     document.dispatchEvent(new CustomEvent("cm-filter-change", { detail: { state, bar } }));
     if (target && !navigateOnChange) invokeGridAction(target, "reloadData");
@@ -1749,7 +1942,43 @@ export function initToolbarSearch(scope: Document | Element | null | undefined):
     const clearBtn = wrap?.querySelector(".cm-toolbar-search-clear");
     let searchReloadTimer = 0;
 
+    function facetedBarForAgGridSearch(): HTMLElement | null {
+      const targetDrawer = tableGridId
+        ? document.querySelector(`.cm-filters[data-target="${cssEscape(tableGridId)}"]`)
+        : null;
+      const scopeRoot =
+        input.closest("[data-cm-grid-view-spec]") ||
+        targetDrawer ||
+        input.closest(".cm-dashboard-page, .cm-page-table-layout") ||
+        (specWantsFacets(input) ? document : null);
+      if (!scopeRoot) return null;
+      return (
+        asHTMLElement(
+          scopeRoot.querySelector(
+            '[data-cm-filter-bar][data-cm-facets="1"][data-cm-filter-workspace-panel="filters"]',
+          ),
+        ) || asHTMLElement(scopeRoot.querySelector('[data-cm-filter-bar][data-cm-facets="1"]'))
+      );
+    }
+
+    function maybeRefreshFacetsForSearch(): boolean {
+      const bar = facetedBarForAgGridSearch();
+      if (!bar) return false;
+      const searchName = input.name || "q";
+      const nextState = selectedFilterValues(bar);
+      nextState[searchName] = input.value.trim();
+      nextState.page = "1";
+      const currentUrl = filterNavigateHref();
+      const nextUrl = withActiveTableColumns(buildFilterUrl(currentUrl, nextState), input);
+      if (usesInPlaceFacets(bar) && !shouldRefreshFacetsForTransition(bar, currentUrl, nextUrl)) {
+        return false;
+      }
+      navigateFilterState(nextState, input, bar);
+      return true;
+    }
+
     function reloadGridSearch() {
+      if (maybeRefreshFacetsForSearch()) return;
       if (!tableGridId) return;
       invokeGridAction(tableGridId, "onQuickFilterChanged");
     }
@@ -1763,12 +1992,15 @@ export function initToolbarSearch(scope: Document | Element | null | undefined):
       if (event.key !== "Enter") return;
       event.preventDefault();
       window.clearTimeout(searchReloadTimer);
+      if (maybeRefreshFacetsForSearch()) return;
       invokeGridAction(tableGridId, "reloadData");
     });
     clearBtn?.addEventListener("click", (event) => {
       event.preventDefault();
+      window.clearTimeout(searchReloadTimer);
       input.value = "";
       syncToolbarSearchChrome(input);
+      if (maybeRefreshFacetsForSearch()) return;
       invokeGridAction(tableGridId, "clearSearch");
     });
     syncToolbarSearchChrome(input);
@@ -1866,7 +2098,7 @@ export function initTabGroups(scope: Document | Element | null | undefined): voi
       if (urlParam && tabSlug) {
         const url = new URL(window.location.href);
         url.searchParams.set(urlParam, tabSlug);
-        window.history.replaceState({}, "", url.toString());
+        replaceUrlPreservingState(url.toString());
       }
       const gv = (window as Window & { GridView?: { bootScope?: (el: Element) => void } }).GridView;
       if (shownPane && gv?.bootScope) {

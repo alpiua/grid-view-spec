@@ -12,6 +12,11 @@
   function getGlobal() {
     return window;
   }
+  function replaceUrlPreservingState(url) {
+    const currentState = window.history.state;
+    const nextState = currentState !== null && typeof currentState === "object" && !Array.isArray(currentState) ? { ...currentState } : {};
+    window.history.replaceState(nextState, "", url);
+  }
   function positionFixedOverlay(overlay2, trigger, align, shrinkToStartEdge = false) {
     const padding = 12;
     const triggerRect = trigger.getBoundingClientRect();
@@ -2477,7 +2482,7 @@
       });
       const url = new URL(window.location.href);
       ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
-      window.history.replaceState({}, "", url);
+      replaceUrlPreservingState(url);
       const gridId = this._gridId();
       this.applyAllFilters();
       document.dispatchEvent(
@@ -3505,7 +3510,7 @@
       url = buildFilterUrl(window.location.href, state);
     }
     url = withActiveTableColumns(url, anchorEl || shell || void 0);
-    window.history.replaceState({}, "", url);
+    replaceUrlPreservingState(url);
     var gridId = (_e = shell == null ? void 0 : shell.dataset) == null ? void 0 : _e.gridId;
     (_h = (_g = (_f = getGlobal().GridView) == null ? void 0 : _f.AgGrid) == null ? void 0 : _g.syncExportLinks) == null ? void 0 : _h.call(_g, gridId || "");
   }
@@ -4215,6 +4220,7 @@
   var boundFilterSelects = /* @__PURE__ */ new WeakSet();
   var boundFilterInputs = /* @__PURE__ */ new WeakSet();
   var boundFilterInputKeydowns = /* @__PURE__ */ new WeakSet();
+  var lastCommittedInputValues = /* @__PURE__ */ new WeakMap();
   var boundFilterSearchInputs = /* @__PURE__ */ new WeakSet();
   var boundPeriodFilterBars = /* @__PURE__ */ new WeakSet();
   var multiselectPanelToRestore = null;
@@ -4412,6 +4418,46 @@
   }
   function usesInPlaceFacets(bar) {
     return (bar == null ? void 0 : bar.dataset.cmFacets) === "1" && bar.dataset.cmFacetsRefreshMode === "in_place";
+  }
+  function declaredFacetParams(bar) {
+    var _a;
+    const raw = (_a = bar.dataset.cmFacetParams) == null ? void 0 : _a.trim();
+    if (!raw) return [];
+    return raw.split(",").map((param) => param.trim()).filter(Boolean);
+  }
+  function facetParamSignature(urlString, params) {
+    const url = new URL(urlString, window.location.origin);
+    return params.map((param) => {
+      const normalized = url.searchParams.getAll(param).reduce((acc, item) => acc.concat(item.split(",")), []).map((value) => value.trim()).filter(Boolean).sort().join("");
+      return `${param}=${normalized}`;
+    }).join("");
+  }
+  function shouldRefreshFacetsForTransition(bar, currentUrl, nextUrl) {
+    if (activeFacetRefreshController) return true;
+    const params = declaredFacetParams(bar);
+    if (!params.length) return true;
+    return facetParamSignature(currentUrl, params) !== facetParamSignature(nextUrl, params);
+  }
+  function resolveFacetsFetchUrl(bar, pageUrl) {
+    var _a;
+    const pageRequestUrl = new URL(pageUrl, window.location.origin);
+    if (pageRequestUrl.origin !== window.location.origin) {
+      throw new Error("Facet refresh requires the current page origin");
+    }
+    const endpoint = (_a = bar.dataset.cmFacetsEndpoint) == null ? void 0 : _a.trim();
+    if (!endpoint) return pageRequestUrl;
+    const endpointUrl = new URL(endpoint, window.location.origin);
+    if (endpointUrl.origin !== window.location.origin) {
+      throw new Error("Facet endpoint requires the current page origin");
+    }
+    const merged = new URLSearchParams(endpointUrl.search);
+    const pageKeys = /* @__PURE__ */ new Set();
+    pageRequestUrl.searchParams.forEach((_value, key) => pageKeys.add(key));
+    pageKeys.forEach((key) => merged.delete(key));
+    pageRequestUrl.searchParams.forEach((value, key) => merged.append(key, value));
+    const mergedSearch = merged.toString();
+    endpointUrl.search = mergedSearch ? `?${mergedSearch}` : "";
+    return endpointUrl;
   }
   function filterControlRoots(bar) {
     const roots = /* @__PURE__ */ new Map();
@@ -4656,12 +4702,12 @@
     });
     return cards;
   }
-  function matchingFilterControlContainer(liveBar, incomingBar, incomingRoot, liveCards) {
+  function matchingFilterControlContainer(liveBar, incomingBar, incomingRoot, targetCards) {
     const incomingCard = incomingRoot.closest("[data-cm-filter-card]");
     if (incomingCard) {
       const cardId = incomingCard.dataset.cmFilterCardId || "";
-      const liveCard = liveCards.get(cardId);
-      const liveContainer = liveCard == null ? void 0 : liveCard.querySelector(".cm-filter-drawer-card-controls");
+      const targetCard = targetCards.get(cardId);
+      const liveContainer = targetCard == null ? void 0 : targetCard.querySelector(".cm-filter-drawer-card-controls");
       if (!liveContainer || !incomingCard.querySelector(".cm-filter-drawer-card-controls")) {
         throw new Error("Facet response changes a filter card control container");
       }
@@ -4682,9 +4728,7 @@
     throw new Error("Facet response changes a filter control container");
   }
   function hasExternallyBoundFilterBehavior(root) {
-    return root.matches(".cm-period-multiselect, [data-cm-period-multiselect]") || root.querySelector(
-      ".cm-period-multiselect, [data-cm-period-multiselect], [data-cm-filter-tree-toggle]"
-    ) !== null;
+    return root.matches(".cm-period-multiselect, [data-cm-period-multiselect]") || root.querySelector(".cm-period-multiselect, [data-cm-period-multiselect]") !== null;
   }
   function captureFilterScroll(bar) {
     const elements = [bar, ...Array.from(bar.querySelectorAll("*"))];
@@ -4748,13 +4792,35 @@
     }
     const currentCards = filterWorkspaceCards(liveBar);
     const nextCards = filterWorkspaceCards(incomingBar);
-    if (currentCards.size !== nextCards.size) {
+    const targetCards = /* @__PURE__ */ new Map();
+    const addedCards = /* @__PURE__ */ new Set();
+    const cardsContainer = liveBar.querySelector(".cm-filter-drawer-workspace-cards");
+    const nextCardsContainer = incomingBar.querySelector(".cm-filter-drawer-workspace-cards");
+    if ((currentCards.size > 0 || nextCards.size > 0) && (!cardsContainer || !nextCardsContainer)) {
       throw new Error("Facet response changes the filter cards");
     }
-    currentCards.forEach((_card, id) => {
-      if (!nextCards.has(id)) throw new Error("Facet response changes the filter cards");
-    });
     const operations = [];
+    currentCards.forEach((card, id) => {
+      if (nextCards.has(id)) {
+        targetCards.set(id, card);
+      } else {
+        operations.push(() => card.remove());
+      }
+    });
+    nextCards.forEach((nextCard, id) => {
+      if (targetCards.has(id)) return;
+      const clonedCard = nextCard.cloneNode(true);
+      if (!(clonedCard instanceof HTMLElement)) {
+        throw new Error("Facet response contains a non-element filter card");
+      }
+      const controlsContainer = clonedCard.querySelector(".cm-filter-drawer-card-controls");
+      if (!controlsContainer) {
+        throw new Error("Facet response changes a filter card control container");
+      }
+      controlsContainer.querySelectorAll("[data-filter-id]").forEach((el) => el.remove());
+      targetCards.set(id, clonedCard);
+      addedCards.add(id);
+    });
     const retainedRoots = /* @__PURE__ */ new Set();
     const insertedRoots = /* @__PURE__ */ new Set();
     const plannedRoots = /* @__PURE__ */ new Map();
@@ -4764,7 +4830,7 @@
         liveBar,
         incomingBar,
         nextRoot,
-        currentCards
+        targetCards
       );
       let reconciledRoot;
       if (currentRoot && canReuseFilterControlRoot(currentRoot, nextRoot)) {
@@ -4814,16 +4880,34 @@
         });
       });
     });
-    currentCards.forEach((card, id) => {
+    if (cardsContainer && nextCards.size > 0) {
+      operations.push(() => {
+        let anchor = cardsContainer.querySelector("[data-cm-filter-card]");
+        nextCards.forEach((_nextCard, id) => {
+          const card = targetCards.get(id);
+          if (!card) return;
+          if (card !== anchor) {
+            cardsContainer.insertBefore(card, anchor);
+          } else {
+            anchor = anchor.nextElementSibling;
+          }
+        });
+      });
+    }
+    targetCards.forEach((card, id) => {
       const nextCard = nextCards.get(id);
-      if (!nextCard) throw new Error("Facet response changes the filter cards");
+      if (!nextCard) return;
       operations.push(() => syncAttribute(card, nextCard, "data-cm-filter-card-filter-ids"));
     });
     const scrollPositions = captureFilterScroll(liveBar);
     const focus = captureFilterFocus(liveBar);
     return () => {
+      var _a, _b, _c;
       operations.forEach((operation) => operation());
       insertedRoots.forEach(initMultiSelectWidget);
+      if (addedCards.size > 0 || insertedRoots.size > 0) {
+        (_c = (_b = (_a = getGlobal().GridView) == null ? void 0 : _a.FilterDrawerWorkspace) == null ? void 0 : _b.init) == null ? void 0 : _c.call(_b, liveBar);
+      }
       bindFilterControlListeners(liveBar);
       liveBar.querySelectorAll("[data-cm-filter-workspace-search], [data-cm-filter-card-search]").forEach((input) => input.dispatchEvent(new Event("input", { bubbles: true })));
       liveBar.dispatchEvent(new Event("change", { bubbles: true }));
@@ -4841,13 +4925,15 @@
     if (!(liveSpec == null ? void 0 : liveSpec.id) || !liveBar.id) throw new Error("The current filter workspace has no stable identity");
     const responseDocument = new DOMParser().parseFromString(responseHtml, "text/html");
     const responseSpec = asHTMLElement(responseDocument.getElementById(liveSpec.id));
-    if (!(responseSpec == null ? void 0 : responseSpec.matches("[data-cm-grid-view-spec]"))) {
+    const hasFullSpec = responseSpec !== null && responseSpec.matches("[data-cm-grid-view-spec]");
+    if (!hasFullSpec && !liveBar.dataset.cmFacetsEndpoint) {
       throw new Error("Facet response does not contain the current GridViewSpec");
     }
+    const searchRoot = responseSpec !== null && responseSpec.matches("[data-cm-grid-view-spec]") ? responseSpec : responseDocument;
     const liveDrawer = asHTMLElement(liveBar.closest("[data-cm-filter-drawer]"));
     if (!liveDrawer) {
       const responseBar = Array.from(
-        responseSpec.querySelectorAll("[data-cm-filter-bar]")
+        searchRoot.querySelectorAll("[data-cm-filter-bar]")
       ).find((candidate) => candidate.id === liveBar.id);
       if (!usesInPlaceFacets(responseBar)) {
         throw new Error("Facet response does not contain the matching in-place filter workspace");
@@ -4858,7 +4944,7 @@
     const target = liveDrawer.dataset.target || "";
     if (!drawerId || !target) throw new Error("The current filter drawer has no stable identity");
     const incomingDrawers = Array.from(
-      responseSpec.querySelectorAll("[data-cm-filter-drawer]")
+      searchRoot.querySelectorAll("[data-cm-filter-drawer]")
     ).filter(
       (candidate) => candidate.dataset.cmFilterDrawerId === drawerId && candidate.dataset.target === target
     );
@@ -4930,10 +5016,8 @@
     const controller = new AbortController();
     activeFacetRefreshController = controller;
     try {
-      const requestUrl = new URL(pageUrl, window.location.href);
-      if (requestUrl.origin !== window.location.origin) {
-        throw new Error("Facet refresh requires the current page origin");
-      }
+      const pageRequestUrl = new URL(pageUrl, window.location.href);
+      const requestUrl = resolveFacetsFetchUrl(bar, pageUrl);
       const response = await fetch(requestUrl.href, {
         credentials: "same-origin",
         headers: { Accept: "text/html" },
@@ -4949,7 +5033,7 @@
       if (generation !== facetRefreshGeneration) return;
       reconciliations.forEach((reconcile) => reconcile());
       multiselectPanelToRestore = null;
-      dispatchFacetRefreshComplete(bar, state, requestUrl.href);
+      dispatchFacetRefreshComplete(bar, state, pageRequestUrl.href);
     } catch (e) {
       if (generation !== facetRefreshGeneration) return;
       window.location.href = pageUrl;
@@ -4975,8 +5059,9 @@
   }
   function navigateFilterState(state, anchorEl, bar) {
     var _a;
+    const currentUrl = filterNavigateHref();
     const pageUrl = withActiveTableColumns(
-      buildFilterUrl(filterNavigateHref(), state),
+      buildFilterUrl(currentUrl, state),
       anchorEl || bar
     );
     const gridId = resolveToolbarGridId(anchorEl || bar);
@@ -4984,8 +5069,14 @@
     const wantsFacets = specWantsFacets(anchorEl || bar);
     const filterBar = bar instanceof HTMLElement ? bar : asHTMLElement((_a = bar == null ? void 0 : bar.closest) == null ? void 0 : _a.call(bar, "[data-cm-filter-bar]"));
     if (usesInPlaceFacets(filterBar)) {
+      const refreshFacets = shouldRefreshFacetsForTransition(filterBar, currentUrl, pageUrl);
       pushFilterHistory(pageUrl, filterBar);
-      void refreshFacetsInPlace(pageUrl, state, filterBar);
+      if (refreshFacets) {
+        void refreshFacetsInPlace(pageUrl, state, filterBar);
+      } else {
+        cancelFacetRefresh();
+        dispatchFacetRefreshComplete(filterBar, state, pageUrl);
+      }
       return true;
     }
     cancelFacetRefresh();
@@ -5033,6 +5124,37 @@
     const next = new URL(nextUrl, window.location.origin);
     return previous.pathname === next.pathname && previous.searchParams.get("tab") === next.searchParams.get("tab");
   }
+  function syncToolbarSearchFromUrl(nextUrl, specRoot, filterBar) {
+    var _a, _b;
+    const nextSearch = new URL(nextUrl, window.location.origin).searchParams;
+    const gridId = ((_a = asHTMLElement(filterBar == null ? void 0 : filterBar.closest(".cm-filters, .cm-toolbar-unified"))) == null ? void 0 : _a.dataset.target) || ((_b = asHTMLElement(specRoot == null ? void 0 : specRoot.querySelector("[data-grid-id]"))) == null ? void 0 : _b.dataset.gridId) || "";
+    const inputs = /* @__PURE__ */ new Set();
+    const collect = (root) => {
+      root == null ? void 0 : root.querySelectorAll("[data-cm-toolbar-search]").forEach((input) => inputs.add(input));
+    };
+    collect(specRoot);
+    if (gridId) {
+      collect(
+        document.querySelector(
+          `[data-cm-toolbar-search-root][data-cm-table-grid-id="${cssEscape(gridId)}"]`
+        )
+      );
+      collect(
+        document.querySelector(
+          `[data-cm-toolbar-search-root][data-cm-search-scope-id="${cssEscape(gridId)}"]`
+        )
+      );
+    }
+    inputs.forEach((input) => {
+      var _a2;
+      const paramName = input.name || "q";
+      const value = (_a2 = nextSearch.get(paramName)) != null ? _a2 : "";
+      input.value = value;
+      if (value) input.dataset.cmSearchCommitted = value;
+      else delete input.dataset.cmSearchCommitted;
+      syncToolbarSearchChrome(input);
+    });
+  }
   function restoreFilterHistorySpec() {
     if (filterHistoryBound) return;
     filterHistoryBound = true;
@@ -5049,6 +5171,7 @@
         const roots = Array.from(document.querySelectorAll("[data-cm-grid-view-spec]"));
         const specRoot = specId ? asHTMLElement(document.getElementById("cm-spec-" + specId)) : roots.length === 1 ? roots[0] : null;
         const filterBar = asHTMLElement(specRoot == null ? void 0 : specRoot.querySelector("[data-cm-filter-bar]"));
+        syncToolbarSearchFromUrl(nextUrl, specRoot, filterBar);
         if (usesInPlaceFacets(filterBar)) {
           const state = selectedFilterValues(filterBar);
           const page = new URL(nextUrl, window.location.origin).searchParams.get("page");
@@ -5114,8 +5237,31 @@
     else url.searchParams.delete("col_q");
     return url.pathname + url.search;
   }
+  function cancelPendingFilterTimers(scope, clearInputHistory = true) {
+    if (!scope) return;
+    scope.querySelectorAll("[data-cm-multiselect]").forEach((root) => {
+      const timer = multiselectChangeTimers.get(root);
+      if (timer !== void 0) {
+        window.clearTimeout(timer);
+        multiselectChangeTimers.delete(root);
+      }
+    });
+    if (clearInputHistory) {
+      scope.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
+        lastCommittedInputValues.delete(input);
+      });
+    }
+  }
   function dispatchFilterBarChange(bar, event) {
     var _a;
+    const detail = event instanceof CustomEvent ? event.detail : void 0;
+    if (!(detail == null ? void 0 : detail.facetsRefreshComplete)) {
+      const target = event == null ? void 0 : event.target;
+      if (!(target instanceof Element) || !target.closest("[data-cm-multiselect], [data-cm-filter-input]")) {
+        const isWorkspaceReset = target instanceof Element && (target === bar || target.matches("[data-cm-filter-drawer-workspace]"));
+        cancelPendingFilterTimers(bar, isWorkspaceReset);
+      }
+    }
     (_a = filterBarChangeHandlers.get(bar)) == null ? void 0 : _a(event);
   }
   function bindFilterControlListeners(bar) {
@@ -5130,14 +5276,27 @@
     });
     bar.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
       if (!boundFilterInputs.has(input)) {
-        input.addEventListener("change", (event) => dispatchFilterBarChange(bar, event));
+        input.addEventListener("input", () => {
+          lastCommittedInputValues.delete(input);
+        });
+        input.addEventListener("change", (event) => {
+          if (input.type !== "checkbox" && input.type !== "radio") {
+            if (lastCommittedInputValues.get(input) === input.value) return;
+            lastCommittedInputValues.set(input, input.value);
+          }
+          dispatchFilterBarChange(bar, event);
+        });
         boundFilterInputs.add(input);
       }
       if (!boundFilterInputKeydowns.has(input)) {
         input.addEventListener("keydown", (event) => {
           if (event.key !== "Enter") return;
           event.preventDefault();
-          dispatchFilterBarChange(bar);
+          if (input.type !== "checkbox" && input.type !== "radio") {
+            if (lastCommittedInputValues.get(input) === input.value) return;
+            lastCommittedInputValues.set(input, input.value);
+          }
+          dispatchFilterBarChange(bar, event);
         });
         boundFilterInputKeydowns.add(input);
       }
@@ -5146,7 +5305,7 @@
     if (search && !boundFilterSearchInputs.has(search)) {
       search.addEventListener("keydown", (event) => {
         if (event.key === "Enter" && search.dataset.searchScope === "server") {
-          dispatchFilterBarChange(bar);
+          dispatchFilterBarChange(bar, event);
         }
       });
       boundFilterSearchInputs.add(search);
@@ -5273,11 +5432,17 @@
         if (navigateOnChange) {
           navigateFilterState(state, bar, bar);
         } else {
-          const pageUrl = withActiveTableColumns(buildFilterUrl(filterNavigateHref(), state), bar);
-          const historyState = isRecord(window.history.state) ? { ...window.history.state } : {};
-          window.history.replaceState(historyState, "", pageUrl);
+          const currentUrl = filterNavigateHref();
+          const pageUrl = withActiveTableColumns(buildFilterUrl(currentUrl, state), bar);
+          const refreshFacets = shouldRefreshFacetsForTransition(bar, currentUrl, pageUrl);
+          replaceUrlPreservingState(pageUrl);
           latestFilterNavigationUrl = pageUrl;
-          void refreshFacetsInPlace(pageUrl, state, bar);
+          if (refreshFacets) {
+            void refreshFacetsInPlace(pageUrl, state, bar);
+          } else {
+            cancelFacetRefresh();
+            dispatchFacetRefreshComplete(bar, state, pageUrl);
+          }
         }
         return;
       }
@@ -5287,7 +5452,7 @@
       }
       if (typeof options.onChange !== "function" && !navigateOnChange) {
         const nextUrl = withActiveTableColumns(buildFilterUrl(filterNavigateHref(), state), bar);
-        window.history.replaceState({}, "", nextUrl);
+        replaceUrlPreservingState(nextUrl);
       }
       document.dispatchEvent(new CustomEvent("cm-filter-change", { detail: { state, bar } }));
       if (target && !navigateOnChange) invokeGridAction(target, "reloadData");
@@ -5631,7 +5796,33 @@
       const tableGridId2 = (wrap == null ? void 0 : wrap.dataset.cmTableGridId) || (wrap == null ? void 0 : wrap.dataset.cmSearchScopeId) || "";
       const clearBtn = wrap == null ? void 0 : wrap.querySelector(".cm-toolbar-search-clear");
       let searchReloadTimer = 0;
+      function facetedBarForAgGridSearch() {
+        const targetDrawer = tableGridId2 ? document.querySelector(`.cm-filters[data-target="${cssEscape(tableGridId2)}"]`) : null;
+        const scopeRoot = input.closest("[data-cm-grid-view-spec]") || targetDrawer || input.closest(".cm-dashboard-page, .cm-page-table-layout") || (specWantsFacets(input) ? document : null);
+        if (!scopeRoot) return null;
+        return asHTMLElement(
+          scopeRoot.querySelector(
+            '[data-cm-filter-bar][data-cm-facets="1"][data-cm-filter-workspace-panel="filters"]'
+          )
+        ) || asHTMLElement(scopeRoot.querySelector('[data-cm-filter-bar][data-cm-facets="1"]'));
+      }
+      function maybeRefreshFacetsForSearch() {
+        const bar = facetedBarForAgGridSearch();
+        if (!bar) return false;
+        const searchName = input.name || "q";
+        const nextState = selectedFilterValues(bar);
+        nextState[searchName] = input.value.trim();
+        nextState.page = "1";
+        const currentUrl = filterNavigateHref();
+        const nextUrl = withActiveTableColumns(buildFilterUrl(currentUrl, nextState), input);
+        if (usesInPlaceFacets(bar) && !shouldRefreshFacetsForTransition(bar, currentUrl, nextUrl)) {
+          return false;
+        }
+        navigateFilterState(nextState, input, bar);
+        return true;
+      }
       function reloadGridSearch() {
+        if (maybeRefreshFacetsForSearch()) return;
         if (!tableGridId2) return;
         invokeGridAction(tableGridId2, "onQuickFilterChanged");
       }
@@ -5644,12 +5835,15 @@
         if (event.key !== "Enter") return;
         event.preventDefault();
         window.clearTimeout(searchReloadTimer);
+        if (maybeRefreshFacetsForSearch()) return;
         invokeGridAction(tableGridId2, "reloadData");
       });
       clearBtn == null ? void 0 : clearBtn.addEventListener("click", (event) => {
         event.preventDefault();
+        window.clearTimeout(searchReloadTimer);
         input.value = "";
         syncToolbarSearchChrome(input);
+        if (maybeRefreshFacetsForSearch()) return;
         invokeGridAction(tableGridId2, "clearSearch");
       });
       syncToolbarSearchChrome(input);
@@ -5740,7 +5934,7 @@
         if (urlParam && tabSlug) {
           const url = new URL(window.location.href);
           url.searchParams.set(urlParam, tabSlug);
-          window.history.replaceState({}, "", url.toString());
+          replaceUrlPreservingState(url.toString());
         }
         const gv2 = window.GridView;
         if (shownPane && (gv2 == null ? void 0 : gv2.bootScope)) {
@@ -6039,9 +6233,9 @@
       url.searchParams.delete(key);
       changed = true;
     });
-    if (changed) window.history.replaceState({}, "", url);
+    if (changed) replaceUrlPreservingState(url);
   }
-  function clearToolbarSearchState(scope, gridId, filterBar) {
+  function clearToolbarSearchState(scope, gridId, filterBar, replaceUrl = true) {
     const inputs = /* @__PURE__ */ new Set();
     const collect = (root) => {
       root == null ? void 0 : root.querySelectorAll("[data-cm-toolbar-search], [data-cm-search]").forEach((input) => inputs.add(input));
@@ -6062,7 +6256,7 @@
       delete input.dataset.cmSearchCommitted;
       syncToolbarSearchChrome(input);
     });
-    clearUrlFilterState();
+    if (replaceUrl) clearUrlFilterState();
   }
   function syncClearAllButtons() {
     document.querySelectorAll('[data-cm-grid-action="clearAllFilters"]').forEach((btn) => {
@@ -6107,30 +6301,66 @@
     else if (action === "clearAllFilters") {
       const clearGridId = gridBtn.getAttribute("data-cm-grid-id") || scopeId;
       const toolbar = gridBtn.closest(".cm-toolbar-unified");
-      const filterBar = (toolbar == null ? void 0 : toolbar.querySelector("[data-cm-filter-bar]")) || Array.from(document.querySelectorAll("[data-cm-filter-bar]")).find(
-        (bar) => {
-          var _a2;
-          return ((_a2 = asHTMLElement(bar.closest(".cm-filters"))) == null ? void 0 : _a2.dataset.target) === clearGridId;
+      const matchingBars = /* @__PURE__ */ new Set();
+      toolbar == null ? void 0 : toolbar.querySelectorAll("[data-cm-filter-bar]").forEach((bar) => matchingBars.add(bar));
+      document.querySelectorAll("[data-cm-filter-bar]").forEach((bar) => {
+        var _a2;
+        if (((_a2 = asHTMLElement(bar.closest(".cm-filters, .cm-toolbar-unified"))) == null ? void 0 : _a2.dataset.target) === clearGridId) {
+          matchingBars.add(bar);
         }
-      );
-      clearToolbarSearchState(toolbar, clearGridId, filterBar || null);
-      if (filterBar) {
-        filterBar.querySelectorAll('input[type="checkbox"]').forEach((input) => {
-          input.checked = false;
+      });
+      const filterBars = Array.from(matchingBars);
+      const primaryBar = filterBars.find((bar) => bar.dataset.cmFilterWorkspacePanel !== "settings") || filterBars[0] || null;
+      const willNavigate = !!filterBars.length && (primaryBar == null ? void 0 : primaryBar.dataset.navigateOnChange) !== "0";
+      clearToolbarSearchState(toolbar, clearGridId, primaryBar, !willNavigate);
+      if (filterBars.length) {
+        const isDisplayControl = (el) => el.closest("[data-cm-filter-display-setting='1']") !== null;
+        filterBars.forEach((bar) => {
+          cancelPendingFilterTimers(bar);
+          bar.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+            if (!isDisplayControl(input)) input.checked = false;
+          });
+          bar.querySelectorAll("[data-cm-multiselect]").forEach((root) => {
+            var _a2;
+            return (_a2 = root._cmUpdateLabel) == null ? void 0 : _a2.call(root);
+          });
+          bar.querySelectorAll("[data-cm-search]").forEach((input) => {
+            input.value = "";
+          });
+          bar.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
+            if (isDisplayControl(input)) return;
+            if (input.type === "checkbox" || input.type === "radio") input.checked = false;
+            else input.value = "";
+          });
+          bar.querySelectorAll("select[data-cm-grouped-select]").forEach((select) => {
+            if (isDisplayControl(select)) return;
+            const defaultOption = Array.from(select.options).find((option) => !option.disabled);
+            select.value = (defaultOption == null ? void 0 : defaultOption.value) || "";
+          });
+          bar.querySelectorAll("select:not([data-cm-grouped-select])").forEach((select) => {
+            if (isDisplayControl(select)) return;
+            select.value = "";
+          });
         });
-        filterBar.querySelectorAll("[data-cm-search]").forEach((input) => {
-          input.value = "";
+        invokeGridAction(clearGridId, "clearAllFilters", {
+          purgeInfiniteCache: false,
+          replaceUrl: !willNavigate
         });
-        filterBar.querySelectorAll("[data-cm-filter-input]").forEach((input) => {
-          if (input.type === "checkbox") input.checked = false;
-          else input.value = "";
+        const activeBar = primaryBar || filterBars[0];
+        if (!willNavigate) {
+          activeBar.dispatchEvent(new CustomEvent("cm-filter-change", { bubbles: true }));
+        } else {
+          const mergedState = {};
+          filterBars.forEach((bar) => Object.assign(mergedState, selectedFilterValues(bar)));
+          mergedState.q = "";
+          mergedState.filters = "";
+          mergedState.col_q = "";
+          navigateFilterState(mergedState, gridBtn, activeBar);
+        }
+        filterBars.forEach((bar) => {
+          bar.dispatchEvent(new Event("change", { bubbles: true }));
         });
-        filterBar.querySelectorAll("select[data-cm-grouped-select]").forEach((select) => {
-          const defaultOption = Array.from(select.options).find((option) => !option.disabled);
-          select.value = (defaultOption == null ? void 0 : defaultOption.value) || "";
-        });
-        invokeGridAction(clearGridId, "clearAllFilters", { purgeInfiniteCache: false });
-        navigateFilterState(selectedFilterValues(filterBar), gridBtn, filterBar);
+        window.setTimeout(syncClearAllButtons, 0);
         return;
       }
       invokeGridAction(clearGridId, "clearAllFilters");
@@ -8630,11 +8860,14 @@
     return columnDefs;
   }
   function bootFromSpecConfig(config) {
-    var _a, _b;
+    var _a;
     const gv2 = getGlobal().GridView;
     if (!gv2 || !config.gridId) return;
     const gridId = config.gridId;
-    const generation = (((_a = specGridStates.get(gridId)) == null ? void 0 : _a.generation) || 0) + 1;
+    const previousState = specGridStates.get(gridId);
+    if ((previousState == null ? void 0 : previousState.pollTimer) !== void 0) window.clearInterval(previousState.pollTimer);
+    if ((previousState == null ? void 0 : previousState.pollTimeout) !== void 0) window.clearTimeout(previousState.pollTimeout);
+    const generation = ((previousState == null ? void 0 : previousState.generation) || 0) + 1;
     specGridStates.set(gridId, { generation, filterGeneration: 0, config });
     const isCurrent = () => {
       var _a2;
@@ -8645,7 +8878,7 @@
     const presets = resolvePresets(config.presets);
     const searches = resolveSearches(config.searches);
     const startUp = async () => {
-      var _a2, _b2, _c, _d;
+      var _a2, _b, _c, _d;
       await ensureAgGridAssetsLoaded();
       if (!isCurrent()) return;
       const g = getGlobal();
@@ -8658,7 +8891,7 @@
       const registry = gv2.byId;
       if (!registry) return;
       function getPageState() {
-        var _a3, _b3;
+        var _a3, _b2;
         const currentConfig = ((_a3 = specGridStates.get(gridId)) == null ? void 0 : _a3.config) || config;
         const url = new URL(window.location.href);
         const state = {};
@@ -8666,7 +8899,7 @@
           const val = url.searchParams.get(key);
           if (val) state[key] = val;
         });
-        (((_b3 = currentConfig.columnSource) == null ? void 0 : _b3.dependsOn) || []).forEach((key) => {
+        (((_b2 = currentConfig.columnSource) == null ? void 0 : _b2.dependsOn) || []).forEach((key) => {
           const val = url.searchParams.get(key);
           if (val) state[key] = val;
         });
@@ -8705,8 +8938,8 @@
             defaultMinWidth: 40
           },
           onGridSizeChanged: (p) => {
-            var _a3, _b3;
-            return (_b3 = (_a3 = p.api) == null ? void 0 : _a3.sizeColumnsToFit) == null ? void 0 : _b3.call(_a3);
+            var _a3, _b2;
+            return (_b2 = (_a3 = p.api) == null ? void 0 : _a3.sizeColumnsToFit) == null ? void 0 : _b2.call(_a3);
           }
         } : {},
         maxBlocksInCache: 10,
@@ -8784,7 +9017,7 @@
         host.savedQuickSearches = searches || [];
         if (host.gridApi) {
           try {
-            (_c = (_b2 = host.gridApi).destroy) == null ? void 0 : _c.call(_b2);
+            (_c = (_b = host.gridApi).destroy) == null ? void 0 : _c.call(_b);
           } catch (error) {
             console.warn(
               "[GridView.AgGrid] Clean destruction of old grid failed. Proceeding with DOM swap. Error:",
@@ -8798,21 +9031,32 @@
         if (typeof getGlobal().agGrid !== "undefined") {
           (_d = host.initGrid) == null ? void 0 : _d.call(host);
         } else {
+          const currentState = specGridStates.get(gridId);
           const poll = window.setInterval(() => {
             var _a3;
+            if (!isCurrent()) {
+              window.clearInterval(poll);
+              if ((currentState == null ? void 0 : currentState.pollTimeout) !== void 0) window.clearTimeout(currentState.pollTimeout);
+              return;
+            }
             if (typeof getGlobal().agGrid !== "undefined") {
               window.clearInterval(poll);
-              (_a3 = host == null ? void 0 : host.initGrid) == null ? void 0 : _a3.call(host);
+              if ((currentState == null ? void 0 : currentState.pollTimeout) !== void 0) window.clearTimeout(currentState.pollTimeout);
+              if (document.getElementById(containerId)) (_a3 = host == null ? void 0 : host.initGrid) == null ? void 0 : _a3.call(host);
             }
           }, 50);
-          window.setTimeout(() => window.clearInterval(poll), 15e3);
+          const pollTimeout = window.setTimeout(() => window.clearInterval(poll), 15e3);
+          if (currentState) {
+            currentState.pollTimer = poll;
+            currentState.pollTimeout = pollTimeout;
+          }
         }
       }
       if (!specFilterListeners.has(gridId)) {
         specFilterListeners.add(gridId);
         document.addEventListener("cm-filter-change", (e) => {
           void (async () => {
-            var _a3, _b3, _c2, _d2, _e, _f;
+            var _a3, _b2, _c2, _d2, _e, _f;
             const state = specGridStates.get(gridId);
             if (!state) return;
             const currentConfig = state.config;
@@ -8822,7 +9066,7 @@
             if (currentConfig.filtersSelector && !bar.closest(currentConfig.filtersSelector)) return;
             const filterBar = bar.closest("[data-cm-filter-bar]");
             const navigates = ((_a3 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _a3.navigateOnChange) !== "0";
-            const refreshesFacetsInPlace = ((_b3 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _b3.cmFacets) === "1" && filterBar.dataset.cmFacetsRefreshMode === "in_place";
+            const refreshesFacetsInPlace = ((_b2 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _b2.cmFacets) === "1" && filterBar.dataset.cmFacetsRefreshMode === "in_place";
             if (((_c2 = filterBar == null ? void 0 : filterBar.dataset) == null ? void 0 : _c2.autoApply) === "1" && navigates && !refreshesFacetsInPlace) return;
             const current = registry.get(gridId);
             if (!current) return;
@@ -8849,7 +9093,7 @@
     } else {
       startUp();
     }
-    (_b = gv2.byId) == null ? void 0 : _b.registerBoot(gridId, startUp);
+    (_a = gv2.byId) == null ? void 0 : _a.registerBoot(gridId, startUp);
   }
   function queryRoot(root) {
     if (root && typeof root === "object" && "querySelectorAll" in root) {

@@ -36,7 +36,7 @@ export const byId: ByIdRegistry = {
 export function invokeGridAction(
   gridId: string | null | undefined,
   method: string,
-  options?: { purgeInfiniteCache?: boolean }
+  options?: { purgeInfiniteCache?: boolean; replaceUrl?: boolean }
 ): void {
   const handle = byId.get(gridId ?? "");
   if (!handle || typeof handle !== "object") return;

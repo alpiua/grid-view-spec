@@ -517,6 +517,13 @@
     return gridApi.getGridOption("rowModelType") === "infinite";
   }
 
+  // src/grid-view/dom-utils.ts
+  function replaceUrlPreservingState(url) {
+    const currentState = window.history.state;
+    const nextState = currentState !== null && typeof currentState === "object" && !Array.isArray(currentState) ? { ...currentState } : {};
+    window.history.replaceState(nextState, "", url);
+  }
+
   // src/ag-grid/host.ts
   function isColumnSettingsHandle(value) {
     if (!value || typeof value !== "object") return false;
@@ -705,7 +712,7 @@
       const next = url.pathname + url.search;
       const current = window.location.pathname + window.location.search;
       if (next !== current) {
-        window.history.replaceState(null, "", next);
+        replaceUrlPreservingState(next);
       }
     }
     _readStoredGridState() {
@@ -1063,7 +1070,7 @@
       const url = new URL(window.location.href);
       if (url.searchParams.has("q")) {
         url.searchParams.delete("q");
-        window.history.replaceState({}, "", url);
+        replaceUrlPreservingState(url);
       }
       if (wasEmpty && this.gridApi) {
         this.gridApi.setFilterModel(null);
@@ -1103,9 +1110,11 @@
       writeSearchInputValue(this._resolveSearchInput(), "");
       this._searchText = "";
       if (!isInfiniteRowModel(api)) api.setGridOption("quickFilterText", "");
-      const url = new URL(window.location.href);
-      ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
-      window.history.replaceState({}, "", url);
+      if (options.replaceUrl !== false) {
+        const url = new URL(window.location.href);
+        ["q", "filters", "col_q"].forEach((key) => url.searchParams.delete(key));
+        replaceUrlPreservingState(url);
+      }
       if (this._pageStateAdapter) {
         this._pageStateAdapter.clear();
       }
