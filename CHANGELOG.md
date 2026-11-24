@@ -4,6 +4,28 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
+## [2.2.0] — 2026-11-24
+
+### Added
+
+- Declared `facet_params` and `facets_endpoint` on `GridViewFilters` (schemas, wire decoder,
+  templates, and generated TypeScript types) so hosts can route in-place facet refreshes to a
+  lightweight fragment endpoint and skip HTML fetches for non-facet controls.
+- Completed [GV-202](docs/milestones/GV-202-filter-and-grid-lifecycle-hardening.md) lifecycle
+  hardening, including `replaceUrlPreservingState` across history updates and dynamic filter card
+  add/remove reconciliation without losing card scroll or focus.
+
+### Fixed
+
+- Deduplicated `[data-cm-filter-input]` `Enter` followed by unchanged `blur`, cancelled pending
+  650ms multiselect debounce timers on reset/clear, and resynchronized toolbar search inputs across
+  `popstate`.
+- Coordinated `clearAllFilters` across multiple bars while preserving `display-setting` controls and
+  `navigate_on_change="0"`; preserved active search predicates when toggling tree branches in
+  workspace drawers and composed workspace vs card searches independently.
+- Cleared stale `window.agGrid` polling timers across HTMX swaps and guarded async grid init with
+  `isCurrent()`.
+
 ## [2.1.2] — 2026-10-20
 
 ### Fixed
@@ -108,3 +130,4 @@ All notable changes to this project are documented here.
 [2.1.0]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.0
 [2.1.1]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.1
 [2.1.2]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.2
+[2.2.0]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.2.0

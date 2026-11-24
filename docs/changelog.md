@@ -5,6 +5,23 @@ doc_type: guide
 
 # Changelog
 
+## 2.2.0 — 2026-11-24
+
+### Added
+
+- Declared `facet_params` and `facets_endpoint` on `GridViewFilters` for scoped in-place facet
+  refreshes via lightweight fragment endpoints.
+- Added dynamic filter card reconciliation in `prepareFacetReconciliation`, `replaceUrlPreservingState`,
+  and documented GV-202 hardening in [docs/filtering/facets.md](filtering/facets.md).
+
+### Fixed
+
+- Deduplicated `Enter` + unchanged `blur` on filter inputs, cancelled pending 650ms multiselect
+  debounce timers on reset/clear, and synced toolbar search inputs on `popstate`.
+- Scoped `clearAllFilters` cleanly across multiple bars while keeping `display-setting` controls,
+  preserved active search predicates when toggling tree nodes, and prevented stale async
+  `window.agGrid` boot timers from initializing superseded swaps.
+
 ## 2.1.2 — 2026-10-20
 
 ### Fixed
