@@ -4,7 +4,7 @@ All notable changes to this project are documented here.
 
 ## [Unreleased]
 
-## [2.2.0] — 2026-11-24
+## [2.1.3] — 2026-11-24
 
 ### Added
 
@@ -130,4 +130,4 @@ All notable changes to this project are documented here.
 [2.1.0]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.0
 [2.1.1]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.1
 [2.1.2]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.2
-[2.2.0]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.2.0
+[2.1.3]: https://github.com/alpiua/grid-view-spec/releases/tag/v2.1.3

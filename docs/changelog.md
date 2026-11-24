@@ -5,7 +5,7 @@ doc_type: guide
 
 # Changelog
 
-## 2.2.0 — 2026-11-24
+## 2.1.3 — 2026-11-24
 
 ### Added
 
